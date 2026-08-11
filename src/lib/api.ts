@@ -71,7 +71,7 @@ export async function saveTeacherObservation(observation: Omit<TeacherObservatio
 }
 
 export async function requestMagicLink(email: string) {
-  const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}teacher`
+  const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}teacher/`
   const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } })
   if (error) throw error
 }

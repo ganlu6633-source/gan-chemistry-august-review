@@ -6,7 +6,7 @@ import { AccessGate } from './components/AccessGate'
 import { StudentApp } from './components/StudentApp'
 import { GuardianApp } from './components/GuardianApp'
 import { TeacherGate } from './components/TeacherApp'
-import { loadGuardianDashboard, loadStudentDashboard } from './lib/api'
+import { loadGuardianDashboard, loadStudentDashboard, supabase } from './lib/api'
 import { clearAccessSession, readAccessSession, writeAccessSession } from './lib/session'
 
 type Dashboard = StudentDashboardData | GuardianDashboardData
@@ -21,6 +21,12 @@ function AccessExperience() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [loading, setLoading] = useState(Boolean(session))
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) navigate('/teacher', { replace: true })
+    })
+  }, [navigate])
 
   useEffect(() => {
     if (!session) return
