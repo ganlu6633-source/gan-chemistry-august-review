@@ -1,0 +1,105 @@
+import type { CourseMapNode, KnowledgeCard, Question, SkillDefinition } from '../domain/types'
+
+const criteria = (...goals: string[]) => goals.map((goal, index) => ({
+  level: index + 1,
+  studentFacingGoal: goal,
+  requiredAbility: goal,
+}))
+
+export const SKILLS: SkillDefinition[] = [
+  { id: 'J-ATOM-SYMBOL', title: '元素名称与符号', moduleId: 'J01', gradeBand: '初三', maxLevel: 3, examImportance: 4, examDepth: 2, prerequisites: [], levelCriteria: criteria('认出常见元素符号', '名称与符号双向转换', '在化学式中准确识别元素') },
+  { id: 'J-ACID-BASE-SALT', title: '酸、碱、盐基础', moduleId: 'J02', gradeBand: '初三', maxLevel: 4, examImportance: 5, examDepth: 3, prerequisites: ['J-ATOM-SYMBOL'], levelCriteria: criteria('认出常见酸碱盐', '根据组成判断类别', '结合性质判断物质', '在简单反应中辨认类别') },
+  { id: 'H1-PERIOD-POSITION', title: '周期表位置推断', moduleId: 'F02', gradeBand: '高一', maxLevel: 5, examImportance: 5, examDepth: 4, prerequisites: ['J-ATOM-SYMBOL'], levelCriteria: criteria('由电子层数判断周期', '由最外层电子数判断主族', '由位置写出基本结构', '综合化合价推断位置', '陌生元素多条件推断') },
+  { id: 'H1-PERIOD-TREND', title: '元素性质周期性', moduleId: 'F02', gradeBand: '高一', maxLevel: 6, examImportance: 5, examDepth: 5, prerequisites: ['H1-PERIOD-POSITION'], levelCriteria: criteria('判断同周期基本趋势', '判断同主族基本趋势', '比较原子与离子半径', '用得失电子解释趋势', '用实验事实证明强弱', '综合位置与性质推断') },
+  { id: 'H1-CLASSIFY', title: '物质分类', moduleId: 'F01', gradeBand: '高一', maxLevel: 4, examImportance: 5, examDepth: 3, prerequisites: ['J-ACID-BASE-SALT'], levelCriteria: criteria('区分纯净物与混合物', '区分单质与化合物', '按树状标准分类', '处理交叉分类') },
+  { id: 'H1-OXIDE', title: '氧化物分类', moduleId: 'F01', gradeBand: '高一', maxLevel: 4, examImportance: 5, examDepth: 4, prerequisites: ['H1-CLASSIFY'], levelCriteria: criteria('用二元含氧定义识别氧化物', '区分酸性与碱性氧化物', '处理特殊氧化物', '根据反应推断氧化物性质') },
+  { id: 'H1-ELECTROLYTE', title: '电解质与电离', moduleId: 'F03', gradeBand: '高一', maxLevel: 5, examImportance: 5, examDepth: 4, prerequisites: ['H1-CLASSIFY'], levelCriteria: criteria('判断电解质与非电解质', '区分物质与水溶液导电', '书写基础电离方程式', '判断强弱电解质', '微观解释导电与电离') },
+  { id: 'H1-ION-EQUATION', title: '离子方程式', moduleId: 'F04', gradeBand: '高一', maxLevel: 7, examImportance: 5, examDepth: 5, prerequisites: ['H1-ELECTROLYTE'], levelCriteria: criteria('正确拆写强电解质', '按四步法写基础方程式', '检查电荷与元素守恒', '处理少量过量', '处理反应顺序', '处理多反应竞争', '综合陌生信息书写') },
+  { id: 'H1-REDOX-ROLE', title: '氧化还原四种身份', moduleId: 'F05', gradeBand: '高一', maxLevel: 5, examImportance: 5, examDepth: 4, prerequisites: [], levelCriteria: criteria('判断化合价升降', '判断氧化与还原反应', '判断氧化剂与还原剂', '判断产物身份', '处理歧化归中') },
+  { id: 'H1-REDOX-BALANCE', title: '电子守恒与配平', moduleId: 'F05', gradeBand: '高一', maxLevel: 7, examImportance: 5, examDepth: 5, prerequisites: ['H1-REDOX-ROLE'], levelCriteria: criteria('写出电子得失方向', '确定最小电子数', '完成基础配平', '配平离子反应', '用电子守恒计算', '多步反应守恒', '综合工业流程守恒') },
+  { id: 'H1-MOLE', title: '物质的量与粒子数', moduleId: 'F06', gradeBand: '高一', maxLevel: 6, examImportance: 5, examDepth: 5, prerequisites: [], levelCriteria: criteria('理解物质的量单位', '完成n与N换算', '识别目标微粒', '处理化学式粒子倍数', '多步换算', '混合与守恒综合') },
+  { id: 'H1-MOLAR-MASS', title: '摩尔质量与质量换算', moduleId: 'F06', gradeBand: '高一', maxLevel: 5, examImportance: 5, examDepth: 4, prerequisites: ['H1-MOLE'], levelCriteria: criteria('正确读取摩尔质量', '完成m与n换算', '连接m-n-N', '处理目标原子倍数', '多物质比较') },
+  { id: 'H1-MOLAR-VOLUME', title: '气体摩尔体积', moduleId: 'F06', gradeBand: '高一', maxLevel: 6, examImportance: 5, examDepth: 5, prerequisites: ['H1-MOLE'], levelCriteria: criteria('识别适用条件', '完成V与n换算', '连接V-n-N', '比较同温同压气体', '平均摩尔质量', '混合气体综合') },
+  { id: 'H1-SODIUM', title: '钠及其化合物', moduleId: 'E01', gradeBand: '高一', maxLevel: 6, examImportance: 4, examDepth: 5, prerequisites: ['H1-REDOX-ROLE', 'H1-ION-EQUATION'], levelCriteria: criteria('掌握钠的基本性质', '区分氧化物与过氧化物', '掌握碳酸盐性质', '处理少量过量', '实验与现象解释', '综合转化关系') },
+  { id: 'H1-CHLORINE', title: '氯及其化合物', moduleId: 'E02', gradeBand: '高一', maxLevel: 6, examImportance: 4, examDepth: 5, prerequisites: ['H1-REDOX-ROLE', 'H1-ION-EQUATION'], levelCriteria: criteria('掌握氯气基本性质', '掌握氯水成分', '理解漂白与消毒', '实验室制氯气', '含氯离子检验', '综合转化与守恒') },
+  { id: 'H2-RATE-EQUILIBRIUM', title: '速率与平衡区别', moduleId: 'H201', gradeBand: '高二', maxLevel: 6, examImportance: 5, examDepth: 5, prerequisites: [], levelCriteria: criteria('读懂速率表达', '判断瞬间速率变化', '判断平衡移动', '区分恒容恒压', '处理惰性气体', '综合图像解释') },
+  { id: 'H2-KQ', title: 'K、Q与平衡计算', moduleId: 'H202', gradeBand: '高二', maxLevel: 7, examImportance: 5, examDepth: 5, prerequisites: ['H2-RATE-EQUILIBRIUM'], levelCriteria: criteria('写K表达式', '完成基础三段式', '比较Q与K', '求平衡浓度', '处理转化率', '多平衡与图像', '陌生信息综合') },
+  { id: 'H2-KW', title: '水的电离与Kw', moduleId: 'H203', gradeBand: '高二', maxLevel: 6, examImportance: 5, examDepth: 5, prerequisites: [], levelCriteria: criteria('理解水的电离', '使用Kw', '判断非25℃中性', '处理酸碱抑制促进', '混合溶液计算', '水解与电离综合') },
+  { id: 'H2-ELECTROCHEM', title: '原电池与电解池', moduleId: 'H204', gradeBand: '高二', maxLevel: 8, examImportance: 5, examDepth: 5, prerequisites: ['H1-REDOX-BALANCE'], levelCriteria: criteria('区分正负极与阴阳极', '判断电子与离子方向', '写基础电极反应', '获得总反应', '处理电解顺序', '电子守恒计算', '膜与装置分析', '陌生电化学综合') },
+  { id: 'H3-ION', title: '离子共存与反应边界', moduleId: 'H301', gradeBand: '高三', maxLevel: 6, examImportance: 5, examDepth: 5, prerequisites: ['H1-ION-EQUATION'], levelCriteria: criteria('判断常见离子共存', '识别隐含条件', '处理少量过量', '处理氧化还原共存', '处理络合与水解', '多条件综合判断') },
+  { id: 'H3-PROCESS', title: '化学工艺流程', moduleId: 'H302', gradeBand: '高三', maxLevel: 8, examImportance: 5, examDepth: 5, prerequisites: ['H1-ION-EQUATION', 'H1-REDOX-BALANCE'], levelCriteria: criteria('读懂流程目的', '规范写操作', '分析除杂', '写反应方程式', '结合K判断条件', '物料与电子守恒', '实验评价', '陌生工业流程综合') },
+  { id: 'H3-ORGANIC', title: '官能团与有机反应', moduleId: 'H303', gradeBand: '高三', maxLevel: 7, examImportance: 5, examDepth: 5, prerequisites: [], levelCriteria: criteria('识别常见官能团', '判断基本反应类型', '官能团性质匹配', '有限条件同分异构', '有机路线推断', '结构与定量', '综合有机合成') },
+  { id: 'H3-STRUCTURE', title: '结构、杂化与配位', moduleId: 'H304', gradeBand: '高三', maxLevel: 7, examImportance: 4, examDepth: 5, prerequisites: [], levelCriteria: criteria('写价电子与电子式', '判断VSEPR构型', '判断杂化方式', '判断配位数', '晶胞基础计算', '键与性质解释', '结构综合推断') },
+]
+
+export const COURSE_MAP: CourseMapNode[] = [
+  { id: 'SJ-H1-01', gradeBand: '高一', textbookVersion: '苏教版', chapter: '必修第一册', title: '物质分类与转化', skillIds: ['H1-CLASSIFY', 'H1-OXIDE'], prerequisiteSkillIds: ['J-ACID-BASE-SALT'], sequence: 1, teacherApproved: true },
+  { id: 'SJ-H1-02', gradeBand: '高一', textbookVersion: '苏教版', chapter: '必修第一册', title: '电解质与离子反应', skillIds: ['H1-ELECTROLYTE', 'H1-ION-EQUATION'], prerequisiteSkillIds: ['H1-CLASSIFY'], sequence: 2, teacherApproved: true },
+  { id: 'SJ-H1-03', gradeBand: '高一', textbookVersion: '苏教版', chapter: '必修第一册', title: '氧化还原反应', skillIds: ['H1-REDOX-ROLE', 'H1-REDOX-BALANCE'], prerequisiteSkillIds: [], sequence: 3, teacherApproved: true },
+  { id: 'SJ-H1-04', gradeBand: '高一', textbookVersion: '苏教版', chapter: '必修第一册', title: '物质的量', skillIds: ['H1-MOLE', 'H1-MOLAR-MASS', 'H1-MOLAR-VOLUME'], prerequisiteSkillIds: [], sequence: 4, teacherApproved: true },
+  { id: 'SJ-H1-05', gradeBand: '高一', textbookVersion: '苏教版', chapter: '必修第一册', title: '钠和氯', skillIds: ['H1-SODIUM', 'H1-CHLORINE'], prerequisiteSkillIds: ['H1-ION-EQUATION', 'H1-REDOX-BALANCE'], sequence: 5, teacherApproved: true },
+  { id: 'SJ-H1-06', gradeBand: '高一', textbookVersion: '苏教版', chapter: '必修第二册', title: '元素周期律', skillIds: ['H1-PERIOD-POSITION', 'H1-PERIOD-TREND'], prerequisiteSkillIds: [], sequence: 6, teacherApproved: true },
+]
+
+export const KNOWLEDGE_CARDS: KnowledgeCard[] = [
+  { id: 'KC-CLASSIFY', skillId: 'H1-CLASSIFY', title: '分类先找标准', core: '同一种物质可以按不同标准进入不同类别，先说标准再下结论。', detail: '树状分类要求每一级使用同一个标准；交叉分类允许从组成、性质、是否电离等不同角度描述同一物质。', steps: ['先判断研究对象是物质还是反应', '说清分类标准', '逐级排除不符合定义的类别'], commonMistakes: ['把溶液当纯净物', '认为一种物质只能属于一个类别'], microExample: 'Fe(OH)₃既是化合物，也是碱；从是否含氧看还是含氧化合物。', asset: { type: 'diagram', alt: '物质分类树' }, reviewStatus: 'approved' },
+  { id: 'KC-OXIDE', skillId: 'H1-OXIDE', title: '氧化物只有两个门槛', core: '氧化物必须是二元化合物，并且其中一种元素是氧。', detail: '“含氧”不等于“氧化物”。NaOH、H₂SO₄都含氧，但元素种类超过两种，不是氧化物。', steps: ['确认是纯净物和化合物', '数元素种类是否恰好两种', '确认其中一种是氧'], commonMistakes: ['见到O就判氧化物', '把O₂当氧化物'], microExample: 'CO₂是氧化物；Na₂CO₃不是氧化物。', asset: { type: 'diagram', alt: '氧化物三步判断流程' }, reviewStatus: 'approved' },
+  { id: 'KC-ELECTROLYTE', skillId: 'H1-ELECTROLYTE', title: '判断的是化合物本身', core: '电解质是在水溶液中或熔融状态下能导电的化合物。', detail: '金属单质能导电但不是化合物；蔗糖溶液不导电，蔗糖是非电解质；SO₂水溶液导电来自生成的酸，SO₂本身通常判非电解质。', steps: ['先确认是否为化合物', '看熔融或溶于水是否产生自由离子', '不要把溶液整体当研究对象'], commonMistakes: ['把铜判成电解质', '水溶液导电就把溶质判电解质'], microExample: '熔融NaCl含可移动离子，NaCl是电解质。', asset: { type: 'diagram', alt: '电解质微观导电示意' }, reviewStatus: 'approved' },
+  { id: 'KC-ION', skillId: 'H1-ION-EQUATION', title: '写完一定查三件事', core: '离子方程式要同时满足事实、元素守恒和电荷守恒。', detail: '先写化学方程式，再拆强酸、强碱和可溶性盐；沉淀、气体、弱电解质和氧化物通常不拆。', steps: ['写：先写正确的分子方程式', '拆：按物质状态拆写', '删：删除反应前后相同离子', '查：事实、元素、电荷'], commonMistakes: ['把弱酸拆成离子', '只配元素不查电荷'], microExample: 'H⁺ + OH⁻ = H₂O。', asset: { type: 'diagram', alt: '离子方程式写拆删查流程' }, reviewStatus: 'approved' },
+  { id: 'KC-REDOX', skillId: 'H1-REDOX-ROLE', title: '先看元素，再说身份', core: '元素化合价升高：失电子、被氧化、是还原剂。', detail: '元素化合价降低：得电子、被还原、是氧化剂。反应与物质的说法要对应，不能把“还原剂发生还原反应”说反。', steps: ['标发生变化元素的化合价', '写升降与电子得失', '把反应过程和物质身份配对'], commonMistakes: ['把氧化剂说成发生氧化反应', '只看是否含氧'], microExample: 'Zn + Cu²⁺ = Zn²⁺ + Cu中，Zn失电子，是还原剂。', asset: { type: 'diagram', alt: '氧化还原四身份对应图' }, reviewStatus: 'approved' },
+  { id: 'KC-MOLE', skillId: 'H1-MOLE', title: '先认目标微粒', core: 'n = N/Nₐ；化学式下标决定目标原子或离子的倍数。', detail: '题目问分子、原子、电子还是离子，倍数可能不同。先写“1 mol这种物质含几mol目标微粒”，再换算。', steps: ['圈出目标微粒', '写1 mol物质对应的微粒倍数', '再用n与N换算'], commonMistakes: ['忘记化学式下标', '把原子数当分子数'], microExample: '1 mol H₂O含2 mol H原子和1 mol O原子。', asset: { type: 'diagram', alt: '物质的量关系网络' }, reviewStatus: 'approved' },
+  { id: 'KC-MOLAR-VOLUME', skillId: 'H1-MOLAR-VOLUME', title: '22.4前先查条件', core: '标准状况下，气体摩尔体积约为22.4 L·mol⁻¹。', detail: '必须同时满足气体和标准状况。液态水等非气体不能直接套用；非标准状况应使用题给条件。', steps: ['判断物质在该条件下是否为气体', '确认是否标准状况', '再用V = nVₘ'], commonMistakes: ['任何状况都用22.4', '把液体体积代入气体公式'], microExample: '标准状况下11.2 L O₂为0.5 mol O₂。', asset: { type: 'diagram', alt: '气体体积换算关系图' }, reviewStatus: 'approved' },
+]
+
+function q(id: string, motherId: string, skillId: string, level: number, gradeBand: Question['gradeBand'], stem: string, options: string[], correctOption: number, explanation: string, scaffold?: string): Question {
+  return { id, motherId, skillId, level, gradeBand, stem, options, correctOption, explanation, scaffold, reviewStatus: 'approved', scopeStatus: 'IN', sourceKind: 'teacher_original' }
+}
+
+export const QUESTIONS: Question[] = [
+  q('Q-J-A-01','M-J-A-A','J-ATOM-SYMBOL',1,'初三','下列元素符号书写正确的是', ['NA','cl','Mg','AL'],2,'元素符号第一个字母大写，第二个字母小写，Mg书写正确。'),
+  q('Q-J-A-02','M-J-A-B','J-ATOM-SYMBOL',2,'初三','元素符号Si表示的元素是', ['硫','硅','锡','钠'],1,'Si是硅的元素符号。'),
+  q('Q-J-S-01','M-J-S-A','J-ACID-BASE-SALT',1,'初三','下列物质属于碱的是', ['HCl','NaOH','NaCl','CO₂'],1,'NaOH在水中电离产生OH⁻，属于碱。'),
+  q('Q-J-S-02','M-J-S-B','J-ACID-BASE-SALT',2,'初三','NH₄⁺的名称是', ['氨根','铵根','硝酸根','氢氧根'],1,'NH₄⁺的规范名称是铵根离子。'),
+  q('Q-H1-C-01','M-H1-C-A','H1-CLASSIFY',1,'高一','下列物质属于纯净物的是', ['空气','稀盐酸','冰水混合物','石灰乳'],2,'冰和水都是H₂O，组成固定，属于纯净物。'),
+  q('Q-H1-C-02','M-H1-C-B','H1-CLASSIFY',2,'高一','按“是否由同一种元素组成”分类，下列与O₂同类的是', ['CO₂','O₃','H₂O','NaCl'],1,'O₂和O₃均由氧元素组成，都是单质。'),
+  q('Q-H1-O-01','M-H1-O-A','H1-OXIDE',1,'高一','下列物质属于氧化物的是', ['O₂','NaOH','SO₂','H₂SO₄'],2,'SO₂由两种元素组成，其中一种是氧，属于氧化物。','先数元素种类。'),
+  q('Q-H1-O-02','M-H1-O-B','H1-OXIDE',2,'高一','下列关于氧化物的说法正确的是', ['含氧化合物都是氧化物','氧化物一定含两种元素','O₃属于氧化物','Na₂CO₃属于氧化物'],1,'氧化物一定是含氧的二元化合物。'),
+  q('Q-H1-E-01','M-H1-E-A','H1-ELECTROLYTE',1,'高一','下列物质属于电解质的是', ['铜','蔗糖','NaCl','酒精'],2,'NaCl是化合物，熔融或溶于水能产生可移动离子。'),
+  q('Q-H1-E-02','M-H1-E-B','H1-ELECTROLYTE',2,'高一','NaCl溶液能够导电的直接原因是', ['NaCl分子会移动','溶液中存在可自由移动的离子','水分子带电','NaCl受热分解'],1,'溶液中的Na⁺和Cl⁻可在电场中定向移动。'),
+  q('Q-H1-I-01','M-H1-I-A','H1-ION-EQUATION',1,'高一','稀盐酸与NaOH溶液反应的离子方程式是', ['H⁺+OH⁻=H₂O','HCl+OH⁻=H₂O+Cl⁻','Na⁺+Cl⁻=NaCl','H⁺+NaOH=Na⁺+H₂O'],0,'强酸强碱中和的本质是H⁺与OH⁻生成水。'),
+  q('Q-H1-I-02','M-H1-I-B','H1-ION-EQUATION',2,'高一','书写离子方程式时通常不能拆写的是', ['NaCl','HNO₃','Ba(OH)₂','CH₃COOH'],3,'醋酸是弱电解质，保留分子形式。'),
+  q('Q-H1-R-01','M-H1-R-A','H1-REDOX-ROLE',1,'高一','反应Zn+Cu²⁺=Zn²⁺+Cu中，Zn的作用是', ['氧化剂','还原剂','氧化产物','还原产物'],1,'Zn化合价升高、失电子，是还原剂。'),
+  q('Q-H1-R-02','M-H1-R-B','H1-REDOX-ROLE',2,'高一','氧化剂在反应中', ['失电子，被氧化','得电子，被还原','失电子，被还原','得电子，被氧化'],1,'氧化剂得到电子，自身发生还原反应。'),
+  q('Q-H1-B-01','M-H1-B-A','H1-REDOX-BALANCE',2,'高一','反应2Fe²⁺+Cl₂=2Fe³⁺+2Cl⁻中，每1 mol Cl₂得到电子的物质的量为', ['1 mol','2 mol','3 mol','4 mol'],1,'Cl₂中两个Cl原子均由0价降到-1价，共得到2 mol电子。'),
+  q('Q-H1-B-02','M-H1-B-B','H1-REDOX-BALANCE',3,'高一','用电子守恒配平时，第一步应当', ['先配H₂O','先确定变价元素的化合价升降','先删除旁观离子','先确定反应条件'],1,'先确定变价元素和升降数，才能令得失电子总数相等。'),
+  q('Q-H1-M-01','M-H1-M-A','H1-MOLE',1,'高一','1 mol任何微粒所含微粒数约为', ['6.02×10²³','22.4','1.00×10³','18'],0,'1 mol微粒集合所含微粒数约等于阿伏加德罗常数。'),
+  q('Q-H1-M-02','M-H1-M-B','H1-MOLE',2,'高一','0.5 mol H₂O中H原子的物质的量为', ['0.25 mol','0.5 mol','1.0 mol','1.5 mol'],2,'每1 mol H₂O含2 mol H原子，所以0.5 mol含1.0 mol H原子。'),
+  q('Q-H1-MM-01','M-H1-MM-A','H1-MOLAR-MASS',1,'高一','CO₂的摩尔质量为', ['28 g','44 g','44 g·mol⁻¹','44 mol·g⁻¹'],2,'摩尔质量单位为g·mol⁻¹，CO₂的摩尔质量为44 g·mol⁻¹。'),
+  q('Q-H1-MM-02','M-H1-MM-B','H1-MOLAR-MASS',2,'高一','18 g H₂O的物质的量为', ['0.5 mol','1 mol','2 mol','18 mol'],1,'n=m/M=18 g÷18 g·mol⁻¹=1 mol。'),
+  q('Q-H1-MV-01','M-H1-MV-A','H1-MOLAR-VOLUME',1,'高一','标准状况下11.2 L O₂的物质的量约为', ['0.25 mol','0.5 mol','1 mol','2 mol'],1,'n=V/Vₘ=11.2/22.4=0.5 mol。'),
+  q('Q-H1-MV-02','M-H1-MV-B','H1-MOLAR-VOLUME',2,'高一','下列可直接使用22.4 L·mol⁻¹计算的是', ['标准状况下的O₂','25℃的CO₂','标准状况下的液态水','任意条件下的H₂'],0,'标准状况下的气体才可直接使用约22.4 L·mol⁻¹。'),
+  q('Q-H1-P-01','M-H1-P-A','H1-PERIOD-POSITION',1,'高一','某主族元素原子有3个电子层，它位于', ['第1周期','第2周期','第3周期','第4周期'],2,'周期数等于原子电子层数。'),
+  q('Q-H1-P-02','M-H1-P-B','H1-PERIOD-POSITION',2,'高一','某主族元素最外层有7个电子，它位于', ['ⅠA族','ⅡA族','ⅥA族','ⅦA族'],3,'主族元素的主族序数通常等于最外层电子数。'),
+  q('Q-H1-T-01','M-H1-T-A','H1-PERIOD-TREND',1,'高一','同周期主族元素从左到右，通常', ['原子半径增大','金属性增强','非金属性增强','电子层数增多'],2,'同周期从左到右核电荷增大，非金属性通常增强。'),
+  q('Q-H1-T-02','M-H1-T-B','H1-PERIOD-TREND',2,'高一','比较Na⁺与Mg²⁺半径，正确的是', ['Na⁺更大','Mg²⁺更大','相等','无法判断'],0,'二者电子数相同，Mg²⁺核电荷数更大，吸引更强、半径更小。'),
+  q('Q-H1-NA-01','M-H1-NA-A','H1-SODIUM',1,'高一','钠与水反应时观察不到的现象是', ['浮在水面','熔成小球','发出蓝色沉淀','迅速游动'],2,'钠与水反应不会产生蓝色沉淀。'),
+  q('Q-H1-NA-02','M-H1-NA-B','H1-SODIUM',2,'高一','Na₂O₂中氧元素的化合价为', ['0','-1','-2','+1'],1,'过氧化物中氧通常为-1价。'),
+  q('Q-H1-CL-01','M-H1-CL-A','H1-CHLORINE',1,'高一','湿润的有色布条遇Cl₂褪色，起漂白作用的主要物质是', ['Cl₂','HCl','HClO','Cl⁻'],2,'Cl₂与水反应生成HClO，HClO具有强氧化性。'),
+  q('Q-H1-CL-02','M-H1-CL-B','H1-CHLORINE',2,'高一','检验Cl⁻常用的试剂组合是', ['稀硝酸和AgNO₃溶液','稀盐酸和BaCl₂溶液','NaOH溶液','酚酞溶液'],0,'酸化后加入AgNO₃可生成不溶于稀硝酸的白色AgCl沉淀。'),
+  q('Q-H2-REQ-01','M-H2-REQ-A','H2-RATE-EQUILIBRIUM',2,'高二','可逆反应达到平衡后，升高温度的瞬间首先改变的是', ['平衡常数和组成同时跳变','正逆反应速率','各物质浓度同时归零','反应物总质量'],1,'温度改变会立即改变正逆反应速率，组成随后逐渐变化。'),
+  q('Q-H2-REQ-02','M-H2-REQ-B','H2-RATE-EQUILIBRIUM',3,'高二','恒容条件下向气相平衡体系充入不参与反应的He，若温度不变，则', ['各组分浓度不变，平衡不移动','各组分浓度减小，平衡移动','各组分分压增大','平衡常数改变'],0,'恒容下反应组分的物质的量和体积不变，浓度与分压均不变。'),
+  q('Q-H2-KQ-01','M-H2-KQ-A','H2-KQ',2,'高二','某反应在一定温度下Q<K，则反应将', ['向正反应方向进行','向逆反应方向进行','立即停止','无法判断'],0,'Q<K说明生成物相对不足，体系向正反应方向变化。'),
+  q('Q-H2-KQ-02','M-H2-KQ-B','H2-KQ',3,'高二','同一反应的平衡常数K只随什么改变', ['初始浓度','催化剂','温度','容器体积'],2,'对确定反应，平衡常数只与温度有关。'),
+  q('Q-H2-KW-01','M-H2-KW-A','H2-KW',2,'高二','某温度下纯水中c(H⁺)=2.0×10⁻⁷ mol·L⁻¹，则该温度下Kw为', ['2.0×10⁻⁷','4.0×10⁻¹⁴','1.0×10⁻¹⁴','4.0×10⁻⁷'],1,'纯水中c(H⁺)=c(OH⁻)，Kw=c(H⁺)c(OH⁻)=4.0×10⁻¹⁴。'),
+  q('Q-H2-KW-02','M-H2-KW-B','H2-KW',3,'高二','某温度下中性溶液中一定满足', ['pH=7','c(H⁺)=c(OH⁻)','Kw=10⁻¹⁴','c(H⁺)=1 mol·L⁻¹'],1,'中性的本质是氢离子与氢氧根离子浓度相等，pH不一定为7。'),
+  q('Q-H2-EC-01','M-H2-EC-A','H2-ELECTROCHEM',2,'高二','原电池中电子在外电路的移动方向是', ['正极到负极','负极到正极','电解质到电极','盐桥到正极'],1,'负极发生氧化反应放出电子，电子经外电路流向正极。'),
+  q('Q-H2-EC-02','M-H2-EC-B','H2-ELECTROCHEM',3,'高二','电解池的阳极发生', ['氧化反应','还原反应','中和反应','水解反应'],0,'电化学中阳极均发生氧化反应。'),
+  q('Q-H3-I-01','M-H3-I-A','H3-ION',2,'高三','在无色强酸性溶液中能大量共存的是', ['Na⁺、K⁺、Cl⁻、NO₃⁻','Fe³⁺、Cl⁻、K⁺、SO₄²⁻','HCO₃⁻、Na⁺、Cl⁻、K⁺','OH⁻、Na⁺、Cl⁻、K⁺'],0,'A中各离子无色且在强酸性条件下不发生反应。'),
+  q('Q-H3-I-02','M-H3-I-B','H3-ION',3,'高三','加入少量NaHCO₃溶液时，强酸性溶液中发生反应的离子方程式为', ['H⁺+HCO₃⁻=CO₂↑+H₂O','OH⁻+HCO₃⁻=CO₃²⁻+H₂O','Na⁺+HCO₃⁻=NaHCO₃','2H⁺+CO₃²⁻=H₂CO₃'],0,'强酸提供H⁺，与HCO₃⁻生成CO₂和H₂O。'),
+  q('Q-H3-P-01','M-H3-P-A','H3-PROCESS',2,'高三','工艺流程中“过滤”用于', ['分离互不相溶液体','分离固体与液体','除去可溶性离子','降低溶液温度'],1,'过滤用于分离不溶性固体和液体。'),
+  q('Q-H3-P-02','M-H3-P-B','H3-PROCESS',3,'高三','蒸发浓缩时通常不直接蒸干，主要是为了', ['减少溶剂用量','避免溶质分解或杂质析出','增大溶解度','使反应完全停止'],1,'直接蒸干可能造成受热分解、氧化或杂质共同析出。'),
+  q('Q-H3-O-01','M-H3-O-A','H3-ORGANIC',2,'高三','能与NaHCO₃溶液反应放出CO₂的官能团是', ['羟基','醛基','羧基','酯基'],2,'羧酸酸性强于碳酸，可与NaHCO₃反应放出CO₂。'),
+  q('Q-H3-O-02','M-H3-O-B','H3-ORGANIC',3,'高三','酯在NaOH水溶液中加热发生的反应属于', ['加成反应','消去反应','水解反应','聚合反应'],2,'酯在碱性条件下发生水解，又称皂化反应。'),
+  q('Q-H3-S-01','M-H3-S-A','H3-STRUCTURE',2,'高三','CH₄分子的空间构型是', ['直线形','平面三角形','正四面体形','V形'],2,'中心碳原子采用sp³杂化，四个键等价，构型为正四面体。'),
+  q('Q-H3-S-02','M-H3-S-B','H3-STRUCTURE',3,'高三','NH₃中心原子的价层电子对数为', ['2','3','4','5'],2,'N有3个成键电子对和1个孤电子对，共4个价层电子对。'),
+]
