@@ -7,7 +7,7 @@
 <title>初高衔接｜化学学习日历与自适应小测</title>
 <style>
 :root{--ink:#18324b;--muted:#677c8b;--blue:#125d8e;--teal:#168f88;--bg:#f2f6f8;--card:#fff;--line:#d9e4e9;--red:#b84646;--amber:#a86d14;--green:#23745a;--navy:#0e3f64}*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;background:linear-gradient(180deg,#eef5f7 0,#f7f9fa 310px,var(--bg) 100%);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.55}button,input{font:inherit}.shell{width:min(1120px,100%);margin:auto;padding:20px 15px 60px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-weight:850}.day-pill{font-size:12px;color:var(--teal);border:1px solid #91d1cb;background:#f3fffd;border-radius:999px;padding:5px 11px}.panel{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 12px 32px #17324d0c}.hidden{display:none!important}h1{font-size:clamp(28px,5vw,44px);line-height:1.16;margin:8px 0 11px}h2{margin:0 0 8px}h3{margin:0}.lead{color:var(--muted);margin:0 0 20px}.eyebrow{color:var(--teal);font-size:11px;font-weight:850;letter-spacing:.12em}.form-grid{display:grid;gap:13px;max-width:530px}.input{width:100%;border:1px solid var(--line);border-radius:11px;padding:12px;font-size:16px;background:#fff}.input:focus{outline:3px solid #16948d22;border-color:var(--teal)}.btn{border:0;border-radius:11px;padding:11px 18px;font-size:15px;cursor:pointer;font-weight:750}.primary{background:var(--blue);color:#fff}.secondary{background:#edf3f6;color:var(--ink)}.danger-lite{background:#fff2f1;color:var(--red)}.btn:disabled{opacity:.45;cursor:not-allowed}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.note{font-size:13px;color:var(--muted)}.scope{display:flex;gap:7px;flex-wrap:wrap;margin:18px 0}.chip{font-size:12px;background:#eaf3f6;border-radius:999px;padding:5px 10px;color:#456274}.promise{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0}.promise div{padding:13px;border:1px solid var(--line);border-radius:13px;background:#f8fbfc}.promise b{display:block;color:var(--blue);font-size:19px}.promise span{font-size:12px;color:var(--muted)}.day-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px;margin:22px 0}.day-card{display:flex;flex-direction:column;min-height:245px;padding:18px;border:1px solid var(--line);border-radius:16px;background:#fbfdfe}.day-card .num{color:var(--teal);font-size:12px;font-weight:850}.day-card h3{font-size:19px;margin:7px 0}.day-card p{color:var(--muted);font-size:13px;flex:1}.day-card .status{font-size:12px;margin:10px 0}.round-dots{display:flex;gap:5px}.round-dots i{width:18px;height:6px;border-radius:5px;background:#dbe5e9}.round-dots i.done{background:var(--teal)}.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;margin:20px 0}.card{border:1px solid var(--line);border-radius:14px;padding:15px;background:#fbfdfe}.card strong{display:block;margin-bottom:4px;color:var(--navy)}.adaptive{padding:12px 14px;border-left:4px solid var(--teal);border-radius:10px;background:#edf9f7;color:#315e5c;font-size:13px}.progress{height:7px;background:#e7eef1;border-radius:10px;overflow:hidden;margin:15px 0}.progress>i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--teal));width:0}.qhead{display:flex;justify-content:space-between;gap:15px;color:var(--muted);font-size:13px}.question{font-size:20px;font-weight:750;margin:18px 0}.options{display:grid;gap:10px}.option{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:12px;cursor:pointer}.option:hover,.option.sel{border-color:#68bbb5;background:#f0faf9}.option input{margin-top:5px}.feedback{margin-top:15px;padding:13px;border-radius:11px;font-size:14px}.feedback.good{background:#eaf8f2;color:var(--green)}.feedback.bad{background:#fff1f0;color:var(--red)}.keyboard-hint{margin:9px 0 0;color:#607684;font-size:12px}.key{display:inline-block;border:1px solid #b7c7cf;border-bottom-width:2px;border-radius:5px;background:#fff;padding:0 6px;font-weight:700;color:#405969}.cloud-badge{font-size:11px;padding:5px 9px;border-radius:999px;background:#edf2f4;color:#637886;border:1px solid #d8e2e7}.cloud-badge.online{background:#e8f7f1;color:#23745a;border-color:#a8d9c8}.cloud-badge.wait{background:#fff6e6;color:#98661c;border-color:#ead09b}.sync-status{font-size:13px;color:#5f7584;background:#f3f7f9;border:1px solid #dce7eb;border-radius:10px;padding:10px 12px}.sync-status.error{color:#a83f3f;background:#fff1f0;border-color:#edc1bd}
-.week-stack{display:grid;gap:18px;margin:22px 0;min-width:0}.week-block{border:1px solid var(--line);border-radius:17px;background:#f8fbfc;padding:14px;min-width:0;max-width:100%}.week-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}.week-head b{color:var(--navy)}.week-head span{font-size:12px;color:var(--muted)}.week-scroll{overflow-x:auto;width:100%;max-width:100%;padding-bottom:4px;scrollbar-color:#a9c2cc transparent}.week-row{display:grid;grid-template-columns:repeat(7,minmax(132px,1fr));gap:9px;min-width:1000px}.calendar-day{display:flex;flex-direction:column;min-height:224px;padding:12px;border:1px solid var(--line);border-radius:13px;background:#fff;position:relative}.calendar-day.today{border:2px solid var(--teal);box-shadow:0 8px 20px #168f8820}.calendar-day.future{background:#fbfcfd}.calendar-day .date{font-weight:850;color:var(--navy);font-size:15px}.calendar-day .weekday{font-size:11px;color:var(--teal)}.calendar-day .today-mark{position:absolute;right:8px;top:8px;padding:2px 6px;border-radius:999px;background:#dff5f1;color:#186c64;font-size:10px;font-weight:800}.calendar-day h3{font-size:14px;line-height:1.35;margin:9px 0 7px}.review-points{display:flex;gap:4px;flex-wrap:wrap;align-content:flex-start;flex:1}.review-points span{font-size:10px;line-height:1.3;padding:3px 6px;border-radius:999px;background:#edf4f6;color:#496675}.calendar-status{font-size:11px;color:var(--muted);margin:8px 0}.calendar-actions{display:grid;gap:6px}.calendar-actions .btn{width:100%;padding:8px 6px;font-size:12px}.calendar-hint{font-size:12px;color:var(--muted);margin:-8px 0 12px}
+.week-stack{display:grid;gap:18px;margin:22px 0;min-width:0}.week-block{border:1px solid var(--line);border-radius:17px;background:#f8fbfc;padding:14px;min-width:0;max-width:100%}.week-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}.week-head b{color:var(--navy)}.week-head span{font-size:12px;color:var(--muted)}.week-scroll{overflow-x:auto;width:100%;max-width:100%;padding-bottom:4px;scrollbar-color:#a9c2cc transparent}.week-row{display:grid;grid-template-columns:repeat(7,minmax(132px,1fr));gap:9px;min-width:1000px}.calendar-day{display:flex;flex-direction:column;min-height:224px;padding:12px;border:1px solid var(--line);border-radius:13px;background:#fff;position:relative}.calendar-day.today{border:2px solid var(--teal);box-shadow:0 8px 20px #168f8820}.calendar-day.future{background:#fbfcfd}.calendar-day.locked{background:#f4f6f7;border-style:dashed}.calendar-day.locked .calendar-status{color:#98661c;font-weight:750}.calendar-day .date{font-weight:850;color:var(--navy);font-size:15px}.calendar-day .weekday{font-size:11px;color:var(--teal)}.calendar-day .today-mark{position:absolute;right:8px;top:8px;padding:2px 6px;border-radius:999px;background:#dff5f1;color:#186c64;font-size:10px;font-weight:800}.calendar-day h3{font-size:14px;line-height:1.35;margin:9px 0 7px}.review-points{display:flex;gap:4px;flex-wrap:wrap;align-content:flex-start;flex:1}.review-points span{font-size:10px;line-height:1.3;padding:3px 6px;border-radius:999px;background:#edf4f6;color:#496675}.calendar-status{font-size:11px;color:var(--muted);margin:8px 0}.calendar-actions{display:grid;gap:6px}.calendar-actions .btn{width:100%;padding:8px 6px;font-size:12px}.calendar-hint{font-size:12px;color:var(--muted);margin:-8px 0 12px}
 .share-wrap{background:#dfe9ed;padding:10px;border-radius:22px}.share-card{background:#fff;border-radius:17px;overflow:hidden;border:1px solid #d7e2e7}.share-head{padding:20px;background:linear-gradient(125deg,#123f65,#147d84);color:#fff;display:grid;grid-template-columns:1fr auto;gap:15px;align-items:center}.share-head small{opacity:.84}.score-orb{width:92px;height:92px;border-radius:50%;border:7px solid #ffffff50;display:grid;place-content:center;text-align:center;background:#ffffff14}.score-orb b{font-size:27px;line-height:1}.share-body{padding:18px}.signal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.signal{padding:11px;border-radius:12px;min-height:88px}.signal b{display:block;font-size:13px;margin-bottom:5px}.signal p{margin:0;font-size:13px}.green{background:#eaf7f1;color:#246a54}.amber{background:#fff6e7;color:#8b621e}.red{background:#fff0ef;color:#9e4242}.section-title{font-size:14px;margin:18px 0 8px}.skill-row{display:grid;grid-template-columns:132px 1fr 48px;gap:8px;align-items:center;margin:8px 0;font-size:13px}.skill-track{height:8px;background:#e9eff2;border-radius:9px;overflow:hidden}.skill-fill{height:100%;border-radius:9px}.next-box{margin-top:12px;border:1px dashed #92bfc2;padding:12px 14px;border-radius:10px;background:#fbfefe}.screenshot-tip{text-align:center;color:#597182;font-size:12px;margin:10px 0 0}.details{margin-top:18px;border:1px solid var(--line);border-radius:14px;padding:0 15px}.details summary{cursor:pointer;font-weight:750;padding:14px 0}.mistake,.slow-item{padding:10px 12px;margin:10px 0;background:#fff8f7;font-size:14px;border-left:3px solid var(--red)}.slow-item{background:#fffaf0;border-color:var(--amber)}.copy{white-space:pre-wrap;background:#f7fafb;border:1px dashed #bfd0d8;border-radius:10px;padding:14px;font-size:13px;margin-top:10px}.history{margin-top:15px;display:grid;gap:8px}.history-item{display:flex;justify-content:space-between;gap:12px;padding:9px 11px;background:#f5f8fa;border-radius:9px;font-size:13px}.footer{color:var(--muted);font-size:12px;text-align:center;margin-top:25px}
 .visual-explain{margin-top:12px;padding:13px;background:#fff;border:1px solid #d5e3e8;border-radius:13px;color:var(--ink)}.visual-title{font-weight:800;font-size:14px;margin-bottom:10px}.diagram-row{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}.atom-card{width:145px;text-align:center;padding:9px;border-radius:12px;background:#f5f9fb}.atom-model{position:relative;width:110px;height:110px;margin:0 auto;transform:scale(var(--scale,1))}.orbit{position:absolute;border:1.5px solid #67a8bc;border-radius:50%}.orbit.o1{inset:38%}.orbit.o2{inset:24%}.orbit.o3{inset:10%}.orbit.o4{inset:1%}.nucleus{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#154f78;color:#fff;font-size:11px;font-weight:800;z-index:2}.atom-symbol{font-size:20px;font-weight:850;color:#104c70}.electron-config{font-size:12px;color:#557083;line-height:1.55}.electron-config span{display:block}.diagram-arrow{font-size:20px;font-weight:900;color:var(--teal)}.logic-strip{margin-top:10px;padding:8px 10px;text-align:center;background:#eaf6f5;border-radius:9px;font-size:13px;font-weight:700}.trend-row{display:flex;gap:8px;justify-content:center;align-items:flex-end;flex-wrap:wrap}.trend-atom{text-align:center;font-size:12px}.trend-circle{width:var(--d);height:var(--d);border-radius:50%;background:#dceef3;border:2px solid #4e91a7;display:grid;place-items:center;margin:0 auto 5px;font-weight:800;color:#174d67}.molecule-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.molecule-card{text-align:center;background:#f5f9fb;border-radius:10px;padding:9px 5px}.molecule{height:54px;display:flex;align-items:center;justify-content:center}.ball{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#dcecf2;border:1px solid #6e9bad;font-weight:800}.ball.x{width:var(--x);height:var(--x);background:#dff3ed;border-color:#4f9c88}.bond{height:3px;width:var(--bond);background:#345d73}.molecule-card small{display:block;color:#5e7482;line-height:1.35}.flow{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}.flow span{padding:8px 10px;border:1px solid #bad3d8;border-radius:9px;background:#f4fafb;font-weight:750}.flow b{color:var(--teal)}
 .visual-explain{margin-top:12px;padding:13px;background:#fff;border:1px solid #d5e3e8;border-radius:13px;color:var(--ink)}.visual-title{font-weight:800;font-size:14px;margin-bottom:10px}.diagram-row{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}.atom-card{width:145px;text-align:center;padding:9px;border-radius:12px;background:#f5f9fb}.atom-model{position:relative;width:110px;height:110px;margin:0 auto;transform:scale(var(--scale,1))}.orbit{position:absolute;border:1.5px solid #67a8bc;border-radius:50%}.orbit.o1{inset:38%}.orbit.o2{inset:24%}.orbit.o3{inset:10%}.orbit.o4{inset:1%}.nucleus{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#154f78;color:#fff;font-size:11px;font-weight:800;z-index:2}.atom-symbol{font-size:20px;font-weight:850;color:#104c70}.electron-config{font-size:12px;color:#557083;line-height:1.55}.electron-config span{display:block}.diagram-arrow{font-size:20px;font-weight:900;color:var(--teal)}.logic-strip{margin-top:10px;padding:8px 10px;text-align:center;background:#eaf6f5;border-radius:9px;font-size:13px;font-weight:700}.trend-row{display:flex;gap:8px;justify-content:center;align-items:flex-end;flex-wrap:wrap}.trend-atom{text-align:center;font-size:12px}.trend-circle{width:var(--d);height:var(--d);border-radius:50%;background:#dceef3;border:2px solid #4e91a7;display:grid;place-items:center;margin:0 auto 5px;font-weight:800;color:#174d67}.molecule-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.molecule-card{text-align:center;background:#f5f9fb;border-radius:10px;padding:9px 5px}.molecule{height:54px;display:flex;align-items:center;justify-content:center}.ball{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#dcecf2;border:1px solid #6e9bad;font-weight:800}.ball.x{width:var(--x);height:var(--x);background:#dff3ed;border-color:#4f9c88}.bond{height:3px;width:var(--bond);background:#345d73}.molecule-card small{display:block;color:#5e7482;line-height:1.35}.flow{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}.flow span{padding:8px 10px;border:1px solid #bad3d8;border-radius:9px;background:#f4fafb;font-weight:750}.flow b{color:var(--teal)}.class-tree{display:grid;gap:8px;text-align:center}.class-node{padding:7px 10px;border:1px solid #8fc1c4;border-radius:9px;background:#f2fbfa;font-weight:750}.class-branches{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.class-branches.three{grid-template-columns:repeat(3,1fr)}.class-caption{font-size:12px;color:#5c7280}.cross-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cross-axis{padding:10px;border-radius:10px;background:#f1f7f9;text-align:center}.cross-axis b{display:block;color:var(--navy)}.venn-wrap{display:flex;justify-content:center;align-items:center;min-height:155px;position:relative}.venn{position:absolute;width:128px;height:128px;border:2px solid #4e9e98;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#2f6965;background:#6fd1c522}.venn.v1{transform:translate(-46px,-8px)}.venn.v2{transform:translate(46px,-8px)}.venn.v3{transform:translate(0,38px)}.venn-center{position:relative;z-index:3;margin-top:22px;padding:4px 8px;border-radius:7px;background:#123f65;color:#fff;font-weight:800}.oxide-matrix{display:grid;grid-template-columns:90px repeat(2,1fr);gap:5px;font-size:12px;text-align:center}.oxide-matrix>*{padding:8px 5px;border-radius:7px;background:#f3f7f9}.oxide-matrix b{background:#dfeef1}.oxide-matrix .hit{background:#e4f6ef;color:#23644f;font-weight:800}
@@ -21,13 +21,13 @@
 <section id="start" class="panel">
   <p class="eyebrow">DIAGNOSE · PRACTISE · TRANSFER</p>
   <h1>化学学习日历</h1>
-  <p class="lead">上周完成元素周期律，本周进入物质分类；登录后按周查看每天内容。过去可以重做，未来可以提前学习。</p>
+  <p class="lead">上周完成元素周期律，本周进入物质分类；气体摩尔体积与物质的量计算于8月12日10:00（北京时间）开放。</p>
   <div class="promise">
     <div><b>14天</b><span>从8月3日起按日安排</span></div>
     <div><b>不限5轮</b><span>知识卡片和题目可反复练</span></div>
     <div><b>1000+题</b><span>独立题目与变式储备</span></div>
   </div>
-  <div class="scope"><span class="chip">元素周期律已讲完</span><span class="chip">物质分类第一讲</span><span class="chip">物质的量计算可提前学</span><span class="chip">使用ⅠA～ⅦA族表述</span></div>
+  <div class="scope"><span class="chip">元素周期律已讲完</span><span class="chip">物质分类第一讲</span><span class="chip">气体摩尔体积 · 10:00开放</span><span class="chip">使用ⅠA～ⅦA族表述</span></div>
   <form id="form" class="form-grid">
     <label>姓名（必填）<input id="name" class="input" required autocomplete="off" placeholder="请输入完整姓名"></label>
     <label>4位学习码（必填）<input id="learningCode" class="input" required inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="请输入4位学习码"></label>
@@ -42,7 +42,7 @@
 <section id="dashboard" class="panel hidden">
   <div class="qhead"><span>训练中心</span><span id="studentLabel"></span></div>
   <h2>按日期选择学习内容</h2>
-  <p class="lead">一周一行。点任意日期先复习知识卡片，再做对应题目；过去可重做，未来可提前学。</p>
+  <p class="lead">一周一行。点已开放日期先复习知识卡片，再做对应题目；过去可重做，未到开放时间的新课会锁定。</p>
   <p class="calendar-hint">手机上可左右滑动查看同一周的7天。</p>
   <div id="dayGrid" class="week-stack"></div>
   <div class="row"><button id="dashHome" class="btn secondary">更换学生</button><button id="resetHistory" class="btn secondary">重新读取后台记录</button></div>
@@ -95,7 +95,7 @@
   <details class="details"><summary>展开完整错题、长时题与可复制反馈</summary><div id="detailList"></div><div id="copyText" class="copy"></div><div class="row" style="margin:12px 0"><button id="copy" class="btn secondary">复制完整记录</button></div></details>
   <div class="row" style="margin-top:17px"><button id="sameDay" class="btn primary"></button><button id="nextDay" class="btn secondary"></button><button id="reportDashboard" class="btn secondary">返回训练中心</button></div>
 </section>
-<div class="footer">本系统按姓名保存错误与停留时间；过去可重做，未来可提前学习。</div>
+<div class="footer">本系统按姓名保存错误与停留时间；过去可重做，新课按北京时间开放。</div>
 </main>
 
 <script>
@@ -195,7 +195,8 @@ const DAY_META={
     ['现象与结论','实验现象用于寻找证据，但不能用“有气泡/变色”直接替代新物质判断。']
   ]}
 };
-const COURSE_TODAY='2026-08-11';
+const GAS_MOLAR_UNLOCK_AT='2026-08-12T10:00:00+08:00';
+const GAS_MOLAR_DIAGNOSTIC_TAGS=['气体体积影响因素','气体摩尔体积概念','标准状况','标况物态判断','气体摩尔体积适用范围','气体体积与物质的量','气体体积与粒子数','气体体积与质量','阿伏加德罗定律','同温同压气体比例','同温同容气体比例','等质量同温同容气体比较','气体密度与摩尔质量','等质量气体比较','等体积气体比较','标况密度求摩尔质量','混合气体平均摩尔质量'];
 const SCHEDULE={
   1:{date:'2026-08-03',weekday:'周一',stage:'已讲完 · 可回炉',title:'周期、主族与核外电子',target:12,poolDays:[1,3],review:['周期数','主族序数','最外层电子'],tags:['周期规律','主族序数','最高正价','最低负价','位置综合推断'],desc:'回顾元素位置与核外电子排布的对应关系，为化合价和性质推断打底。',cards:[
     ['周期与电子层','周期数 = 原子的电子层数。'],['主族与最外层电子','主族序数通常对应最外层电子数。'],['位置推断顺序','先定周期和主族，再写电子层数、最外层电子数。'],['表达规范','本课程使用ⅠA～ⅦA族、0族和第Ⅷ族表述。']
@@ -215,22 +216,22 @@ const SCHEDULE={
   8:{date:'2026-08-10',weekday:'周一',stage:'本周已学',title:'物质分类第一讲①',target:15,poolDays:[3,4],review:['分类标准','纯净物/混合物','单质/化合物'],tags:['分类概念','树状分类法','纯净物与混合物','单质与化合物','包含关系'],desc:'按组成建立物质分类树，先判断物质种类，再判断元素种类。',cards:[
     ['先问分类标准','同一物质按不同标准可能得到不同身份；先明确本题按组成、性质还是用途分类。'],DAY_META[4].cards[0],DAY_META[4].cards[1],DAY_META[4].cards[2],DAY_META[4].cards[4],DAY_META[4].cards[5]
   ]},
-  9:{date:'2026-08-11',weekday:'周二',stage:'今天 · 已上线',title:'物质分类第一讲②',target:15,poolDays:[3,4,5],review:['树状分类','氧化物定义','交叉分类'],tags:['分类概念','树状分类法','纯净物与混合物','单质与化合物','氧化物定义','包含关系','交叉分类法','盐的多角度分类','酸的多角度分类','氧化物分类'],desc:'巩固两天已经讲完的分类第一讲：树状分类、氧化物定义和多角度分类。',cards:[
+  9:{date:'2026-08-11',weekday:'周二',stage:'本周已学 · 可回炉',title:'物质分类第一讲②',target:15,poolDays:[3,4,5],review:['树状分类','氧化物定义','交叉分类'],tags:['分类概念','树状分类法','纯净物与混合物','单质与化合物','氧化物定义','包含关系','交叉分类法','盐的多角度分类','酸的多角度分类','氧化物分类'],desc:'巩固两天已经讲完的分类第一讲：树状分类、氧化物定义和多角度分类。',cards:[
     DAY_META[4].cards[0],DAY_META[4].cards[3],['氧化物三条件','必须同时满足：化合物、只含两种元素、其中一种是氧元素。'],DAY_META[5].cards[0],DAY_META[5].cards[1],DAY_META[5].cards[4]
   ]},
-  10:{date:'2026-08-12',weekday:'周三',stage:'可提前学习',title:'物质的量与摩尔',target:15,poolDays:[10],review:['物质的量n','摩尔mol','明确微粒'],tags:['物质的量概念','摩尔与微粒'],desc:'认识物质的量n及单位mol；使用摩尔时必须说明所指微粒。',cards:[
-    ['物质的量','物质的量是表示含有一定数目粒子的集合体的物理量，符号为n。'],['摩尔','物质的量的单位是摩尔，简称摩，符号mol。'],['先写微粒','“1 mol氧”表述不清，应说明是O原子、O₂分子还是其他微粒。'],['核心意义','1 mol任何指定微粒所含的粒子数相同。']
+  10:{date:'2026-08-12',weekday:'周三',stage:'8月12日10:00开放',title:'气体摩尔体积与物质的量计算',target:17,poolDays:[10],unlockAt:GAS_MOLAR_UNLOCK_AT,assessmentKey:'gas-molar-volume-v1',assessmentPrefix:'GMV-',adaptiveRatio:.6,diagnosticTags:GAS_MOLAR_DIAGNOSTIC_TAGS.slice(),review:['Vₘ=V/n','标况22.4 L·mol⁻¹','V—n—N/m'],tags:GAS_MOLAR_DIAGNOSTIC_TAGS.slice(),desc:'首轮按17个诊断槽位逐点检测；第2轮起根据错题与单题停留≥45秒的知识点优先安排同型新题。',cards:[
+    ['先核对条件','标准状况指0 ℃、101 kPa；只有在该条件下，本课才取Vₘ≈22.4 L·mol⁻¹。'],['先核对物态','必须是气体；标况下的H₂O、SO₃、乙醇等不能直接套用22.4 L·mol⁻¹。'],['三条计算链','n=V/Vₘ；N=nNₐ；m=nM。先由气体体积求n，再按题目所求继续换算。'],['阿伏加德罗定律','同温同压下V之比=n之比=气体微粒数之比；同温同容下p之比=n之比。'],['比例题复核','同温同压、等质量时V与M成反比；同温同容、等质量时p与M成反比。'],['混合气体','不反应的混合气体可把总物质的量作为整体；平均摩尔质量按物质的量分数加权。']
   ]},
-  11:{date:'2026-08-13',weekday:'周四',stage:'可提前学习',title:'阿伏伽德罗常数与粒子数',target:15,poolDays:[11],review:['Nₐ','N=nNₐ','n=N/Nₐ'],tags:['阿伏伽德罗常数','粒子数计算'],desc:'建立物质的量n与微粒数N之间的定量关系。',cards:[
+  11:{date:'2026-08-13',weekday:'周四',stage:'10:00后可提前学习',title:'阿伏伽德罗常数与粒子数',target:15,poolDays:[11],unlockAt:GAS_MOLAR_UNLOCK_AT,review:['Nₐ','N=nNₐ','n=N/Nₐ'],tags:['阿伏伽德罗常数','粒子数计算'],desc:'建立物质的量n与微粒数N之间的定量关系。',cards:[
     ['阿伏伽德罗常数','Nₐ≈6.02×10²³ mol⁻¹，表示1 mol指定微粒所含的粒子数。'],['粒子数公式','N = nNₐ；已知物质的量即可求指定微粒数。'],['反求物质的量','n = N/Nₐ；若粒子数写成aNₐ，则物质的量就是a mol。'],['公式先标对象','分子数、原子数、离子数必须分清，必要时再乘化学式中的下标。']
   ]},
-  12:{date:'2026-08-14',weekday:'周五',stage:'可提前学习',title:'摩尔质量',target:15,poolDays:[12],review:['摩尔质量M','单位g·mol⁻¹','由化学式求M'],tags:['摩尔质量','摩尔质量计算'],desc:'理解摩尔质量的含义、单位，并根据相对原子质量计算。',cards:[
+  12:{date:'2026-08-14',weekday:'周五',stage:'10:00后可提前学习',title:'摩尔质量',target:15,poolDays:[12],unlockAt:GAS_MOLAR_UNLOCK_AT,review:['摩尔质量M','单位g·mol⁻¹','由化学式求M'],tags:['摩尔质量','摩尔质量计算'],desc:'理解摩尔质量的含义、单位，并根据相对原子质量计算。',cards:[
     ['摩尔质量','单位物质的量的物质所具有的质量叫摩尔质量，符号M。'],['常用单位','高中入门计算常用g·mol⁻¹，不能把单位只写成g。'],['数值关系','以g·mol⁻¹为单位时，摩尔质量的数值与相对原子质量、相对分子质量或相对式量相等。'],['按化学式计算','化学式中每种原子的相对原子质量乘以下标，再求和。']
   ]},
-  13:{date:'2026-08-15',weekday:'周六',stage:'可提前学习',title:'质量与物质的量换算',target:16,poolDays:[13],review:['n=m/M','m=nM','单位检查'],tags:['质量与物质的量','物质的量计算'],desc:'用摩尔质量作桥梁，在质量m与物质的量n之间换算。',cards:[
+  13:{date:'2026-08-15',weekday:'周六',stage:'10:00后可提前学习',title:'质量与物质的量换算',target:16,poolDays:[13],unlockAt:GAS_MOLAR_UNLOCK_AT,review:['n=m/M','m=nM','单位检查'],tags:['质量与物质的量','物质的量计算'],desc:'用摩尔质量作桥梁，在质量m与物质的量n之间换算。',cards:[
     ['核心公式','n = m/M；m = nM。'],['单位配套','m用g、M用g·mol⁻¹时，n的单位是mol。'],['三步法','写化学式并求M → 统一单位 → 代入公式。'],['结果复核','质量固定时，摩尔质量越大，物质的量越小。']
   ]},
-  14:{date:'2026-08-16',weekday:'周日',stage:'可提前学习',title:'m—n—N关系综合',target:18,poolDays:[14],review:['m/M','nNₐ','两步计算'],tags:['质量粒子数综合','物质的量综合'],desc:'把质量m、物质的量n和粒子数N串成一条计算链。',cards:[
+  14:{date:'2026-08-16',weekday:'周日',stage:'10:00后可提前学习',title:'m—n—N关系综合',target:18,poolDays:[14],unlockAt:GAS_MOLAR_UNLOCK_AT,review:['m/M','nNₐ','两步计算'],tags:['质量粒子数综合','物质的量综合'],desc:'把质量m、物质的量n和粒子数N串成一条计算链。',cards:[
     ['关系图','质量m ÷ M → 物质的量n × Nₐ → 粒子数N。'],['从质量求粒子数','先用n=m/M求物质的量，再用N=nNₐ求微粒数。'],['从粒子数求质量','先用n=N/Nₐ，再用m=nM。'],['先定粒子对象','若问原子总数，还要根据化学式中的原子个数继续换算。']
   ]}
 };
@@ -976,6 +977,123 @@ moleEntities.forEach(function(entity,i){
   add(10,'物质的量概念','MOL-R-'+String(i+1).padStart(3,'0'),'若两份样品所含的'+entity+'数目之比为1∶2，则它们的物质的量之比为？','1∶2',['2∶1','1∶1','1∶4'],'同种指定微粒的物质的量之比等于粒子数之比。','mole',2,'物质的量入门原创变式');
 });
 
+// 8月12日10:00开放：苏教版“气体摩尔体积”讲义的同型变式题库。
+// 首轮固定覆盖17个诊断标签；后续轮按错题与单题停留≥45秒的标签优先抽取未做变式。
+function integerGcd(a,b){a=Math.abs(Math.round(a));b=Math.abs(Math.round(b));while(b){const t=a%b;a=b;b=t}return a||1}
+function ratioText(a,b){const scale=(Number.isInteger(a)&&Number.isInteger(b))?integerGcd(a,b):1;return cleanNumber(a/scale)+'∶'+cleanNumber(b/scale)}
+function ratioOptions(a,b){
+  const correct=ratioText(a,b),pairs=[[b,a],[1,1],[a+b,b],[a,a+b],[a*2,b],[a,b*2],[a+b,a],[b,a+b]],out=[];
+  pairs.forEach(function(pair){const value=ratioText(pair[0],pair[1]);if(value!==correct&&!out.includes(value))out.push(value)});return out.slice(0,3);
+}
+function addGasConceptSet(tag,prefix,items){
+  items.forEach(function(item,i){add(10,tag,prefix+'-'+String(i+1).padStart(3,'0'),item[0],item[1],item[2],item[3],'mole',item[4]||2,item[5]||'苏教版气体摩尔体积讲义同型变式')});
+}
+addGasConceptSet('气体体积影响因素','GMV-FACTOR',[
+  ['同温同压下，决定一份气体样品体积大小的主要因素是？','样品中气体微粒数（物质的量）',['气体的摩尔质量','气体微粒的直径','气体的颜色'],'在中学理想气体近似下，同温同压时气体体积主要由气体微粒数，即物质的量决定。',1],
+  ['一定量气体的温度或压强改变时，体积可能改变，微观上的主要原因是？','气体微粒间距发生改变',['气体微粒数必然改变','每个微粒的质量改变','元素种类发生改变'],'一定量气体的微粒数不变，温度或压强主要通过改变微粒间距影响体积。',1],
+  ['各取1 mol不同固体，体积往往不同，主要还与什么有关？','构成微粒的大小和堆积方式',['微粒数是否相同','是否都在标准状况','阿伏加德罗常数大小'],'1 mol样品微粒数相同，但固体微粒大小与堆积方式不同，体积可以不同；本题用于与气体模型作迁移比较。',3],
+  ['关于气体体积的微观解释，表述最严谨的是？','在中学理想气体近似下，微粒自身大小相对间距可忽略',['气体微粒没有大小','任何条件下气体微粒间距都相同','气体体积只由微粒种类决定'],'气体微粒并非没有大小；只是相对微粒间距而言，其影响在本课近似中可忽略。',2],
+  ['同温同压下，1 mol N₂与1 mol CO₂的体积关系是？','体积近似相等',['N₂体积更大','CO₂体积更大','无法比较，因为摩尔质量不同'],'同温同压、物质的量相同的气体体积相同，与气体种类和摩尔质量无关。',1],
+  ['比较不同状态下气体样品的体积时，下列哪一项通常不是气体体积的基本状态变量？','气体的摩尔质量',['气体的温度','气体的压强','气体的物质的量'],'温度、压强和物质的量是气体体积的基本状态变量；在中学理想气体近似下，摩尔质量不直接决定体积。',2],
+  ['保持气体的物质的量和温度不变，压强增大时体积通常减小。这说明压强主要改变了？','气体微粒间的平均距离',['气体微粒的个数','气体微粒的化学式','每个微粒的质量'],'压缩气体不会改变微粒数和种类，主要使微粒间距减小。',2],
+  ['保持气体的物质的量和压强不变，升高温度时体积通常增大。这说明温度主要影响？','气体微粒间距',['气体的元素组成','每个微粒含有的原子数','阿伏加德罗常数'],'在物质的量和压强不变时，升温使气体所占体积增大，可理解为平均微粒间距增大。',2]
+]);
+addGasConceptSet('气体摩尔体积概念','GMV-DEF',[
+  ['气体摩尔体积Vₘ的含义是？','单位物质的量气体所占的体积',['1 g气体所占的体积','1个气体微粒所占的体积','任意气体在标况下的总体积'],'气体摩尔体积是单位物质的量气体所占的体积。',1],
+  ['气体摩尔体积的定义式是？','Vₘ=V/n',['Vₘ=n/V','Vₘ=m/n','Vₘ=N/n'],'由定义，气体摩尔体积等于气体体积V除以物质的量n。',1],
+  ['气体摩尔体积的常用单位是？','L·mol⁻¹',['L','mol·L⁻¹','g·mol⁻¹'],'Vₘ是体积与物质的量之比，常用单位为L·mol⁻¹。',1],
+  ['下列对V和Vₘ的区分正确的是？','V表示气体总体积，Vₘ表示每摩尔气体的体积',['二者都表示气体总体积','V的单位是L·mol⁻¹','Vₘ的单位是mol'],'V是体积，常用单位L；Vₘ是摩尔体积，常用单位L·mol⁻¹。',2],
+  ['2.00 mol某气体占44.8 L，则该条件下Vₘ为？','22.4 L·mol⁻¹',['44.8 L·mol⁻¹','89.6 L·mol⁻¹','22.4 L'],'Vₘ=V/n=44.8 L÷2.00 mol=22.4 L·mol⁻¹。',2],
+  ['关于气体摩尔体积，正确的是？','其数值会随温度、压强改变',['在任何条件下都等于22.4 L·mol⁻¹','它就是1 mol气体的质量','它只与气体摩尔质量有关'],'气体摩尔体积是状态量，温度和压强改变时其数值会改变。',2],
+  ['同温同压下，不同气体的Vₘ关系是？','在中学理想气体近似下相同',['摩尔质量越大Vₘ越大','分子中原子越多Vₘ越大','气体颜色越深Vₘ越大'],'同温同压下，各种气体的摩尔体积在本课近似中相同。',2],
+  ['若V用L、n用mol，则由V/n所得量的单位是？','L·mol⁻¹',['mol·L⁻¹','L·mol','g·L⁻¹'],'体积除以物质的量，单位为L·mol⁻¹。',1]
+]);
+addGasConceptSet('标准状况','GMV-STP',[
+  ['本课所说的标准状况是？','0 ℃、101 kPa',['25 ℃、101 kPa','0 ℃、100 kPa','25 ℃、100 kPa'],'苏教版本课统一取标准状况为0 ℃、101 kPa。',1],
+  ['标准状况下，气体摩尔体积约为？','22.4 L·mol⁻¹',['22.4 L','2.24 L·mol⁻¹','24.5 L·mol⁻¹'],'0 ℃、101 kPa时，气体摩尔体积约为22.4 L·mol⁻¹。',1],
+  ['标准状况下，1.00 mol O₂所占体积约为？','22.4 L',['11.2 L','44.8 L','22.4 L·mol⁻¹'],'O₂在标况下为气体，V=nVₘ≈1.00 mol×22.4 L·mol⁻¹=22.4 L。',1],
+  ['在25 ℃、101 kPa下做气体体积计算，能否直接把Vₘ取为22.4 L·mol⁻¹？','不能，温度不是0 ℃',['能，因为压强是101 kPa','能，任何气体都可以','不能，因为101 kPa不是标准压强'],'22.4 L·mol⁻¹只对应本课规定的0 ℃、101 kPa。',2],
+  ['若要直接使用本课近似式V≈n×22.4 L·mol⁻¹，必须补充的关键条件是？','气体处于标准状况',['气体摩尔质量为22.4','气体由双原子分子构成','气体为纯净物且质量为1 g'],'本课的22.4 L·mol⁻¹对应0 ℃、101 kPa；纯气体和符合条件的不反应混合气体都可使用。',1],
+  ['某气体体积恰好为22.4 L，但未给温度、压强。可以确定其物质的量为1 mol吗？','不能，缺少气体状态条件',['能，22.4 L一定是1 mol','能，只要是纯气体','不能，因为气体体积不能测量'],'体积恰为22.4 L不能反推出一定处于标况，因而不能直接确定为1 mol。',2],
+  ['标准状况下，0.50 mol N₂的体积约为？','11.2 L',['22.4 L','5.60 L','44.8 L'],'V=nVₘ≈0.50×22.4 L=11.2 L。',2],
+  ['“标况下Vₘ≈22.4 L·mol⁻¹”中的“约”说明？','22.4是本课计算采用的近似值',['标准状况可以任意改变','Vₘ没有单位','只有O₂能使用该数值'],'本课按中学近似取22.4 L·mol⁻¹，书写时保留“约”更严谨。',2]
+]);
+const stpStateSets=[
+  ['N₂',['H₂O','乙醇','CCl₄']],['O₂',['H₂O','SO₃','苯']],['CO₂',['Br₂','乙醇','CHCl₃']],['He',['H₂O','CCl₄','SO₃']],['NH₃',['HF','苯','乙醇']],['HCl(g)',['盐酸','H₂O','CCl₄']],['SO₂',['SO₃','Br₂','苯']],['Ne',['H₂O','乙醇','CHCl₃']],['Ar',['CCl₄','Br₂','SO₃']],['CH₄',['H₂O','HF','苯']]
+];
+stpStateSets.forEach(function(x,i){add(10,'标况物态判断','GMV-STATE-'+String(i+1).padStart(3,'0'),'标准状况下，下列物质可按气体直接使用Vₘ≈22.4 L·mol⁻¹的是？',x[0],x[1],x[0]+'在标准状况下为气体；其余选项在标况下不是气态，不能直接套用气体摩尔体积。','mole',i<5?1:2,'苏教版讲义“标况物态陷阱”同型变式')});
+addGasConceptSet('气体摩尔体积适用范围','GMV-SCOPE',[
+  ['标准状况下，关于气体摩尔体积的适用对象，正确的是？','纯气体和不发生反应的混合气体都可按总量计算',['只适用于纯净气体','只适用于双原子分子气体','适用于所有固体、液体和气体'],'Vₘ描述气体总体积与总物质的量的关系，不反应混合气体也可作为整体。',1],
+  ['标准状况下，0.30 mol He与0.70 mol N₂组成不反应混合气体，其总体积约为？','22.4 L',['6.72 L','15.68 L','44.8 L'],'混合气体总物质的量为1.00 mol，因此总体积约为22.4 L。',2],
+  ['标准状况下，0.50 mol N₂与0.25 mol O₂的不反应混合气体总体积约为？','16.8 L',['11.2 L','5.60 L','22.4 L'],'总物质的量为0.75 mol，V≈0.75×22.4 L=16.8 L。',2],
+  ['将标况下1 mol H₂O直接写成22.4 L，错误的根本原因是？','H₂O在标况下不是气体',['H₂O的摩尔质量不是22.4','H₂O含三种原子','1 mol H₂O没有微粒'],'气体摩尔体积只适用于气态物质；标况下H₂O不是气态。',1],
+  ['把混合气体作为整体使用V=nVₘ时，n应表示？','各组分物质的量之和',['其中摩尔质量最大的组分物质的量','任意一个组分的物质的量','各组分物质的量之积'],'混合气体的总体积对应其总物质的量。',1],
+  ['标准状况下，1 mol He所占体积约22.4 L。下列说法正确的是？','约含Nₐ个He原子',['约含Nₐ个He分子','约含2Nₐ个He原子','He是液体，不能使用Vₘ'],'氦气由单原子构成，应说He原子或气体微粒，不能说He分子。',2],
+  ['使用气体摩尔体积处理混合气体前，除温度和压强外还应特别确认？','各组分在题设条件下不发生反应',['各组分颜色相同','各组分摩尔质量相同','各组分体积各为22.4 L'],'若组分发生反应，总物质的量可能改变，不能直接把初始各组分简单相加。',2],
+  ['标准状况下，总物质的量为2.00 mol的N₂和O₂混合气体，总体积约为？','44.8 L',['22.4 L','11.2 L','2.00 L'],'两种气体不反应，总量2.00 mol，对应总体积约44.8 L。',2]
+]);
+const gmvGasData=[
+  ['H₂',2,'H₂分子'],['He',4,'He原子'],['CH₄',16,'CH₄分子'],['NH₃',17,'NH₃分子'],['Ne',20,'Ne原子'],['N₂',28,'N₂分子'],['CO',28,'CO分子'],['O₂',32,'O₂分子'],['H₂S',34,'H₂S分子'],['HCl(g)',36.5,'HCl分子'],['Ar',40,'Ar原子'],['CO₂',44,'CO₂分子'],['SO₂',64,'SO₂分子']
+];
+const gmvAmounts=[0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.75,1,1.25,1.5,2];
+gmvAmounts.forEach(function(n,i){
+  const gas=gmvGasData[i%gmvGasData.length],volume=Math.round(n*22.4*1000)/1000,id=String(i+1).padStart(3,'0');
+  if(i%2===0)add(10,'气体体积与物质的量','GMV-NV-'+id,'标准状况下，'+cleanNumber(n)+' mol '+gas[0]+'的体积约为？',cleanNumber(volume)+' L',numberOptions(volume,'L'),'V=nVₘ≈'+cleanNumber(n)+' mol×22.4 L·mol⁻¹='+cleanNumber(volume)+' L。','mole',i<6?1:2,'讲义V=nVₘ同型数字变式');
+  else add(10,'气体体积与物质的量','GMV-NV-'+id,'标准状况下，'+cleanNumber(volume)+' L '+gas[0]+'的物质的量为？',cleanNumber(n)+' mol',numberOptions(n,'mol'),'n=V/Vₘ≈'+cleanNumber(volume)+' L÷22.4 L·mol⁻¹='+cleanNumber(n)+' mol。','mole',i<6?1:2,'讲义n=V/Vₘ同型数字变式');
+});
+gmvAmounts.forEach(function(n,i){
+  const gas=gmvGasData[(i+2)%gmvGasData.length],volume=Math.round(n*22.4*1000)/1000;
+  add(10,'气体体积与粒子数','GMV-CHAIN-'+String(i+1).padStart(3,'0'),'标准状况下，'+cleanNumber(volume)+' L '+gas[0]+'约含多少个'+gas[2]+'？',naText(n),naOptions(n),'先由n=V/Vₘ求得'+cleanNumber(n)+' mol，再用N=nNₐ，得到'+naText(n)+' '+gas[2]+'。','mole',i<6?2:3,'讲义V—n—N链式同型变式');
+});
+[
+  ['4.48 L O₂','O原子',0.4],['11.2 L CO₂','O原子',1],['6.72 L NH₃','H原子',0.9],['2.24 L CH₄','原子总数',0.5]
+].forEach(function(x,i){add(10,'气体体积与粒子数','GMV-CHAIN-A-'+String(i+1).padStart(3,'0'),'标准状况下，'+x[0]+'中约含多少个'+x[1]+'？',naText(x[2]),naOptions(x[2]),'先由气体体积求分子物质的量，再乘每个分子中相应原子个数。','mole',3,'讲义V—n—原子数迁移变式')});
+gmvAmounts.forEach(function(n,i){
+  const gas=gmvGasData[(i+3)%gmvGasData.length],volume=Math.round(n*22.4*1000)/1000,mass=Math.round(n*gas[1]*1000)/1000,id=String(i+1).padStart(3,'0');
+  if(i%2===0)add(10,'气体体积与质量','GMV-MASS-'+id,'标准状况下，'+cleanNumber(volume)+' L '+gas[0]+'的质量为？（M='+cleanNumber(gas[1])+' g·mol⁻¹）',cleanNumber(mass)+' g',numberOptions(mass,'g'),'先求n=V/Vₘ='+cleanNumber(n)+' mol，再用m=nM='+cleanNumber(mass)+' g。','mole',i<6?2:3,'讲义V—n—m链式同型变式');
+  else add(10,'气体体积与质量','GMV-MASS-'+id,'标准状况下，'+cleanNumber(mass)+' g '+gas[0]+'的体积约为？（M='+cleanNumber(gas[1])+' g·mol⁻¹）',cleanNumber(volume)+' L',numberOptions(volume,'L'),'先求n=m/M='+cleanNumber(n)+' mol，再用V=nVₘ≈'+cleanNumber(volume)+' L。','mole',i<6?2:3,'讲义m—n—V链式同型变式');
+});
+addGasConceptSet('阿伏加德罗定律','GMV-AVO',[
+  ['同温同压下，体积相同的N₂和CO₂一定相同的是？','气体分子数',['质量','原子总数','密度'],'阿伏加德罗定律：同温同压、同体积的气体含有相同数目的气体微粒。',1],
+  ['同温同压下，等体积的He和O₂比较，正确的是？','He原子数与O₂分子数相同',['二者原子总数相同','二者质量相同','二者密度相同'],'二者气体微粒数相同；He的微粒是原子，O₂的微粒是分子。',2],
+  ['阿伏加德罗定律的“三同定一同”是指同温、同压、同体积时？','气体微粒数相同',['气体质量相同','气体摩尔质量相同','每个分子原子数相同'],'同温同压、同体积的各种气体含有相同数目的气体微粒。',1],
+  ['同温同压下，物质的量相同的两种气体一定相同的是？','体积',['质量','密度','原子总数'],'同温同压下V与n成正比，n相同则V相同。',1],
+  ['同温同压等体积的H₂与CO₂，分子数相同但原子总数不同，原因是？','每个分子所含原子数不同',['二者物质的量不同','阿伏加德罗定律不适用','CO₂不是气体'],'同温同压等体积保证分子数相同，但H₂每个分子2个原子，CO₂每个分子3个原子。',2],
+  ['下列对象适合直接应用阿伏加德罗定律的是？','同温同压下的两份气体',['同温下的两份溶液','同压下的一块铁和一瓶水','质量相同的两种固体'],'阿伏加德罗定律讨论气体，并且比较时必须给出相应温度、压强条件。',1],
+  ['同温同压下，2.0 L N₂与2.0 L N₂/O₂不反应混合气体比较，正确的是？','所含气体微粒总数相同',['混合气体微粒数更多','纯N₂微粒数更多','二者质量必相同'],'定温定压下等体积气体的总物质的量相同，因而气体微粒总数相同。',2],
+  ['两种气体只知道体积相同，但温度、压强未知，能否断定微粒数相同？','不能，还需同温同压',['能，体积相同即可','能，只需气体种类相同','不能，因为气体没有微粒'],'阿伏加德罗定律必须同时满足同温、同压、同体积。',2],
+  ['同温同体积下，气体A、B的物质的量之比为2∶3，则压强之比为？','2∶3',['3∶2','1∶1','4∶9'],'同温同体积时，压强与气体物质的量成正比。',3]
+]);
+const gmvRatios=[[1,2],[2,3],[3,1],[3,4],[4,5],[5,2],[2,5],[1,3],[5,4],[3,2]];
+gmvRatios.forEach(function(pair,i){
+  const v1=pair[0]*2.24,v2=pair[1]*2.24,askParticles=i%2===1;
+  add(10,'同温同压气体比例','GMV-RATIO-'+String(i+1).padStart(3,'0'),'同温同压下，气体A、B的体积分别为'+cleanNumber(v1)+' L和'+cleanNumber(v2)+' L，则'+(askParticles?'气体微粒数':'物质的量')+'之比为？',ratioText(pair[0],pair[1]),ratioOptions(pair[0],pair[1]),'同温同压下，V₁/V₂=n₁/n₂=N₁/N₂，因此所求比为'+ratioText(pair[0],pair[1])+'。','mole',i<5?2:3,'讲义同温同压V—n—N比例变式');
+});
+gmvRatios.slice(0,8).forEach(function(pair,i){
+  add(10,'同温同容气体比例','GMV-PRESSURE-'+String(i+1).padStart(3,'0'),'同温同体积下，气体A、B的物质的量之比为'+ratioText(pair[0],pair[1])+'，则压强之比p₁∶p₂为？',ratioText(pair[0],pair[1]),ratioOptions(pair[0],pair[1]),'同温同体积时，气体压强与物质的量成正比，因此p₁/p₂=n₁/n₂='+ratioText(pair[0],pair[1])+'。','mole',i<5?2:3,'讲义同温同容p—n比例变式');
+});
+const gmvPairs=[[['CH₄',16],['O₂',32]],[['N₂',28],['CO₂',44]],[['He',4],['Ne',20]],[['H₂',2],['N₂',28]],[['NH₃',17],['O₂',32]],[['Ar',40],['SO₂',64]],[['Ne',20],['CO₂',44]],[['CH₄',16],['N₂',28]],[['O₂',32],['CO₂',44]],[['H₂S',34],['SO₂',64]]];
+gmvPairs.forEach(function(pair,i){
+  const a=pair[0],b=pair[1],id=String(i+1).padStart(3,'0');
+  add(10,'气体密度与摩尔质量','GMV-DENSITY-R-'+id,'同温同压下，'+a[0]+'与'+b[0]+'的密度之比ρ₁∶ρ₂为？',ratioText(a[1],b[1]),ratioOptions(a[1],b[1]),'同温同压下ρ₁/ρ₂=M₁/M₂，因此密度比为'+ratioText(a[1],b[1])+'。','mole',i<5?2:3,'讲义同温同压密度比同型变式');
+  add(10,'等质量气体比较','GMV-EQMASS-'+id,'同温同压下，等质量的'+a[0]+'与'+b[0]+'体积之比V₁∶V₂为？',ratioText(b[1],a[1]),ratioOptions(b[1],a[1]),'等质量时n=m/M，同温同压下V与n成正比，所以V₁/V₂=M₂/M₁='+ratioText(b[1],a[1])+'。','mole',i<5?2:3,'讲义等质量气体体积反比变式');
+  add(10,'等体积气体比较','GMV-EQVOL-'+id,'同温同压下，等体积的'+a[0]+'与'+b[0]+'质量之比m₁∶m₂为？',ratioText(a[1],b[1]),ratioOptions(a[1],b[1]),'同温同压等体积时物质的量相同，m=nM，所以m₁/m₂=M₁/M₂='+ratioText(a[1],b[1])+'；密度比也相同。','mole',i<5?2:3,'讲义等体积气体质量比变式');
+  add(10,'等质量同温同容气体比较','GMV-EQMASS-P-'+id,'同温同体积下，等质量的'+a[0]+'与'+b[0]+'压强之比p₁∶p₂为？',ratioText(b[1],a[1]),ratioOptions(b[1],a[1]),'等质量时n=m/M，同温同体积下p与n成正比，所以p₁/p₂=M₂/M₁='+ratioText(b[1],a[1])+'。','mole',i<5?2:3,'讲义等质量同温同容压强反比变式');
+});
+gmvGasData.filter(function(gas){return gas[0]!=='HCl(g)'}).slice(0,10).forEach(function(gas,i){
+  const density=Math.round(gas[1]/22.4*1000)/1000;
+  add(10,'标况密度求摩尔质量','GMV-DENSITY-M-'+String(i+1).padStart(3,'0'),'某气体在标准状况下的密度约为'+cleanNumber(density)+' g·L⁻¹，其摩尔质量最接近？',cleanNumber(gas[1])+' g·mol⁻¹',numberOptions(gas[1],'g·mol⁻¹'),'标况下M≈ρVₘ≈'+cleanNumber(density)+' g·L⁻¹×22.4 L·mol⁻¹≈'+cleanNumber(gas[1])+' g·mol⁻¹。','mole',i<5?2:3,'讲义M≈22.4ρ同型数字变式');
+});
+const gasMixCases=[
+  ['N₂',28,'O₂',32,1,3,31],['N₂',28,'CO₂',44,1,1,36],['N₂',28,'CO₂',44,3,1,32],['CH₄',16,'N₂',28,1,1,22],['CH₄',16,'N₂',28,1,3,25],['He',4,'Ne',20,1,1,12],['He',4,'Ne',20,1,3,16],['N₂',28,'Ar',40,1,1,34],['N₂',28,'O₂',32,3,1,29],['CH₄',16,'CO₂',44,1,1,30]
+];
+gasMixCases.forEach(function(x,i){
+  const ratio=ratioText(x[4],x[5]),average=x[6];
+  add(10,'混合气体平均摩尔质量','GMV-MIX-'+String(i+1).padStart(3,'0'),'由'+x[0]+'和'+x[2]+'组成的不反应混合气体，二者物质的量之比为'+ratio+'，平均摩尔质量为？',cleanNumber(average)+' g·mol⁻¹',numberOptions(average,'g·mol⁻¹'),'M̄=ΣxᵢMᵢ=('+x[4]+'×'+x[1]+'+'+x[5]+'×'+x[3]+')÷('+(x[4]+x[5])+')='+cleanNumber(average)+' g·mol⁻¹。','mole',i<5?2:3,'讲义混合气体平均摩尔质量同型变式');
+});
+add(10,'混合气体平均摩尔质量','GMV-MIX-D-001','同温同压下，N₂与O₂按物质的量之比1∶3混合，该混合气体对H₂的相对密度约为？','15.5',['31','7.75','62'],'先算M̄=(1×28+3×32)÷4=31 g·mol⁻¹，再用D=M混/M(H₂)=31÷2=15.5。','mole',3,'讲义平均摩尔质量与相对密度迁移变式');
+add(10,'气体密度与摩尔质量','GMV-DENSITY-D-001','同温同压下，某气体对H₂的相对密度为16，则该气体的摩尔质量约为？','32 g·mol⁻¹',['16 g·mol⁻¹','8 g·mol⁻¹','64 g·mol⁻¹'],'同温同压下相对密度D=M气体/M参，因此M气体=16×2=32 g·mol⁻¹。','mole',3,'讲义相对密度求摩尔质量迁移变式');
+
 const particleAmounts=[0.1,0.2,0.25,0.5,0.75,1,1.5,2,2.5,3,4,5];
 particleAmounts.forEach(function(n,i){
   const entity=moleEntities[i%moleEntities.length];
@@ -1064,6 +1182,23 @@ const diagnosis={
   ,'物质的量计算':'单位没有配套，或代入n=m/M时把m与M颠倒。'
   ,'质量粒子数综合':'没有把物质的量作为质量和粒子数之间的桥梁。'
   ,'物质的量综合':'m、n、N三者关系链不完整，计算顺序出现跳步。'
+  ,'气体体积影响因素':'没有同时核对温度、压强和物质的量，或把气体种类、摩尔质量误当成同温同压下的决定因素。'
+  ,'气体摩尔体积概念':'混淆了气体总体积V与气体摩尔体积Vₘ，或Vₘ=V/n的单位没有写成L·mol⁻¹。'
+  ,'标准状况':'漏看0 ℃、101 kPa条件，把22.4 L·mol⁻¹误当成任意温度、压强下的常数。'
+  ,'标况物态判断':'没有先判断物质在标准状况下是否为气态，就直接套用了气体摩尔体积。'
+  ,'气体摩尔体积适用范围':'没有把不反应混合气体的总物质的量作为整体，或把固体、液体误纳入适用范围。'
+  ,'气体体积与物质的量':'n=V/Vₘ与V=nVₘ的方向选择错误，或L与L·mol⁻¹没有配套。'
+  ,'气体体积与粒子数':'没有先由V/Vₘ求n再用N=nNₐ，或没有分清分子、原子和气体微粒对象。'
+  ,'气体体积与质量':'V、n、m之间缺少物质的量这一步，或把M误乘、误除。'
+  ,'阿伏加德罗定律':'没有同时核对同温、同压、同体积，或把微粒数相同误推为质量、密度、原子总数都相同。'
+  ,'同温同压气体比例':'没有使用V₁/V₂=n₁/n₂=N₁/N₂，或把比例方向颠倒。'
+  ,'同温同容气体比例':'没有使用同温同体积时p₁/p₂=n₁/n₂，或把压强比方向颠倒。'
+  ,'等质量同温同容气体比较':'等质量时没有先用n=m/M，导致忘记同温同容下p与M成反比。'
+  ,'气体密度与摩尔质量':'漏掉同温同压条件，或没有建立ρ₁/ρ₂=M₁/M₂及相对密度关系。'
+  ,'等质量气体比较':'等质量时没有先用n=m/M，导致忘记V与M成反比。'
+  ,'等体积气体比较':'同温同压等体积时没有识别n相同，导致m比、M比、ρ比关系错误。'
+  ,'标况密度求摩尔质量':'没有在标准状况下使用M≈22.4ρ，或密度单位g·L⁻¹与摩尔质量单位混淆。'
+  ,'混合气体平均摩尔质量':'没有按物质的量分数加权，或把组分摩尔质量直接相加而未除以总物质的量。'
 };
 const allQuestions=Object.values(pools).flat();
 const byId=Object.fromEntries(allQuestions.map(function(q){return [q.id,q]}));
@@ -1086,15 +1221,28 @@ function loadProfile(name){
   return emptyProfile(name);
 }
 function saveProfile(){localStorage.setItem(storageKey(state.name),JSON.stringify(state.profile))}
-function sessionsFor(day){return state.profile.sessions.filter(function(s){return s.day===day}).sort(function(a,b){return a.round-b.round})}
+function sessionBelongsToAssessment(session,day){
+  const meta=SCHEDULE[day];if(!session||session.day!==day)return false;if(!meta||!meta.assessmentKey)return true;
+  if(session.assessmentKey===meta.assessmentKey)return true;
+  const prefix=meta.assessmentPrefix||'';return !!prefix&&Array.isArray(session.answers)&&session.answers.some(function(a){return String(a&&a.id||'').startsWith(prefix)});
+}
+function sessionsFor(day){return state.profile.sessions.filter(function(s){return sessionBelongsToAssessment(s,day)}).sort(function(a,b){return a.round-b.round||(a.dateMs||0)-(b.dateMs||0)})}
 function latestSession(day){const list=sessionsFor(day);return list[list.length-1]||null}
 function isRetiredLegacyAnswer(answer){
   const question=String(answer&&answer.q||'');
   return answer&&((answer.id==='D5-OC-C-0'&&question.includes('Na₂O按组成分类，属于？'))||(answer.id==='D5-M-4'&&question.includes('钠盐、碳酸盐、酸式盐')));
 }
-function usedIds(){return new Set(state.profile.sessions.flatMap(function(s){return (s.answers||[]).filter(function(a){return !isRetiredLegacyAnswer(a)}).map(function(a){return a.id})}))}
+function usedIds(day){
+  const meta=SCHEDULE[day],sessions=meta&&meta.assessmentKey?state.profile.sessions.filter(function(s){return sessionBelongsToAssessment(s,day)}):state.profile.sessions;
+  return new Set(sessions.flatMap(function(s){return (s.answers||[]).filter(function(a){return !isRetiredLegacyAnswer(a)}).map(function(a){return a.id})}));
+}
 function schedulePool(meta){return meta.poolDays.flatMap(function(poolDay){return pools[poolDay]||[]}).filter(function(q){return !meta.tags.length||meta.tags.includes(q.tag)})}
-function localTodayIso(){const now=new Date();return [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-')}
+function isScheduleUnlocked(meta,nowMs){return !meta||!meta.unlockAt||Number(nowMs==null?Date.now():nowMs)>=Date.parse(meta.unlockAt)}
+function localTodayIso(nowMs){
+  const parts=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(nowMs==null?Date.now():nowMs));
+  const values={};parts.forEach(function(part){if(part.type!=='literal')values[part.type]=part.value});return values.year+'-'+values.month+'-'+values.day;
+}
+function unlockText(meta){return meta&&meta.unlockAt?'8月12日10:00（北京时间）':''}
 function shortDate(iso){const parts=iso.split('-');return Number(parts[1])+'月'+Number(parts[2])+'日'}
 function dateWithWeek(meta){return shortDate(meta.date)+' '+meta.weekday}
 function chemistryHtml(text){return String(text).replaceAll('Nₐ','N<sub>A</sub>')}
@@ -1109,6 +1257,7 @@ function sessionSignals(session){
   return {score:score,avgSec:avgSec,fastWrong:fastWrong,veryFast:veryFast,mode:mode};
 }
 function adaptiveContext(day,round){
+  const meta=SCHEDULE[day];if(round===1&&meta&&Array.isArray(meta.diagnosticTags))return {source:null,tags:[],signals:sessionSignals(null),mode:'standard'};
   let source=null;
   if(round>1)source=latestSession(day);
   else if(day>1)source=latestSession(day-1);
@@ -1128,18 +1277,30 @@ function takeRoundRobin(candidates,tags,limit,chosen){
   }
 }
 function buildQuestions(day,round){
-  const meta=SCHEDULE[day],used=usedIds(),chosen=[],context=adaptiveContext(day,round),repeatSource=state.repeatMode?latestSession(day):null;
+  const meta=SCHEDULE[day],used=usedIds(day),chosen=[],context=adaptiveContext(day,round),repeatSource=state.repeatMode?latestSession(day):null;
   if(repeatSource&&Array.isArray(repeatSource.answers)){
     const exact=repeatSource.answers.map(function(a){return isRetiredLegacyAnswer(a)?null:byId[a.id]}).filter(Boolean);
     if(exact.length===repeatSource.total)return {questions:exact,tags:Array.from(new Set(repeatSource.answers.filter(function(a){return !a.ok||a.sec>=45}).map(function(a){return a.tag}))),source:repeatSource,mode:'review',signals:sessionSignals(repeatSource),repeatExact:true};
   }
-  const allCurrent=schedulePool(meta),compatibleTags=context.tags.filter(function(tag){return meta.tags.includes(tag)}),mode=(compatibleTags.length||!context.source||context.source.day===day)?context.mode:'standard';
-  const adaptiveCandidates=allCurrent.filter(function(q){return !used.has(q.id)&&compatibleTags.includes(q.tag)&&(mode!=='review'||q.level<=2)});
-  const adaptiveLimit=Math.min(Math.floor(meta.target*.4),compatibleTags.length*2);
-  takeRoundRobin(adaptiveCandidates,compatibleTags,adaptiveLimit,chosen);
+  const allCurrent=schedulePool(meta),diagnosticRound=round===1&&Array.isArray(meta.diagnosticTags)&&meta.diagnosticTags.length>0,compatibleTags=context.tags.filter(function(tag){return meta.tags.includes(tag)}),mode=diagnosticRound?'standard':(compatibleTags.length||!context.source||context.source.day===day)?context.mode:'standard';
+  if(diagnosticRound){
+    meta.diagnosticTags.forEach(function(tag){
+      let candidates=allCurrent.filter(function(q){return q.tag===tag&&!chosen.some(function(x){return x.id===q.id})});
+      const freshLevelOne=candidates.filter(function(q){return !used.has(q.id)&&q.level===1}),levelOne=candidates.filter(function(q){return q.level===1}),freshBase=candidates.filter(function(q){return !used.has(q.id)&&q.level<=2}),base=candidates.filter(function(q){return q.level<=2});
+      candidates=shuffled(freshLevelOne.length?freshLevelOne:levelOne.length?levelOne:freshBase.length?freshBase:base.length?base:candidates,state.name+'-'+day+'-diagnostic-'+tag);
+      if(!candidates[0])throw new Error('首轮诊断知识点缺题：'+tag);chosen.push(candidates[0]);
+    });
+  }else{
+    const adaptiveCandidates=compatibleTags.flatMap(function(tag){
+      const eligible=allCurrent.filter(function(q){return q.tag===tag&&(mode!=='review'||q.level<=2)}),fresh=eligible.filter(function(q){return !used.has(q.id)});
+      return fresh.length?fresh:eligible;
+    });
+    const adaptiveLimit=Math.min(Math.floor(meta.target*(meta.adaptiveRatio||.4)),compatibleTags.length*4);
+    takeRoundRobin(adaptiveCandidates,compatibleTags,adaptiveLimit,chosen);
+  }
   const fresh=allCurrent.filter(function(q){return !used.has(q.id)}),recycled=allCurrent.filter(function(q){return used.has(q.id)});
   const current=fresh.concat(recycled).filter(function(q){return !chosen.some(function(x){return x.id===q.id})});
-  const challengeQuota=mode==='challenge'?Math.ceil(meta.target*(context.signals.score>=.98?.7:.55)):mode==='standard'&&day>1?Math.max(1,Math.floor(meta.target*.12)):0;
+  const challengeQuota=diagnosticRound?0:mode==='challenge'?Math.ceil(meta.target*(context.signals.score>=.98?.7:.55)):mode==='standard'&&day>1?Math.max(1,Math.floor(meta.target*.12)):0;
   const challengePool=shuffled(current.filter(function(q){return q.level>=3&&!chosen.some(function(x){return x.id===q.id})}),state.name+'-'+day+'-'+round+'-challenge');
   for(const q of challengePool){if(chosen.filter(function(x){return x.level>=3}).length>=challengeQuota||chosen.length>=meta.target)break;chosen.push(q)}
   meta.tags.forEach(function(tag){
@@ -1152,46 +1313,56 @@ function buildQuestions(day,round){
     if(pool[0])chosen.push(pool[0]);
   });
   let fill=shuffled(current.filter(function(q){return !chosen.some(function(x){return x.id===q.id})}),state.name+'-'+day+'-'+round+'-fill');
+  if(diagnosticRound)fill=fill.sort(function(a,b){return a.level-b.level});
   if(mode==='review')fill=fill.sort(function(a,b){return a.level-b.level});
   if(mode==='challenge'&&chosen.filter(function(x){return x.level>=3}).length>=challengeQuota)fill=fill.sort(function(a,b){return a.level-b.level});
   for(const q of fill){if(chosen.length>=meta.target)break;chosen.push(q)}
   if(chosen.length<meta.target)throw new Error('本日未做题目不足，请联系老师补充题库。');
-  return {questions:shuffled(chosen,state.name+'-'+day+'-'+round+'-order'),tags:compatibleTags,source:context.source,mode:mode,signals:context.signals,repeatExact:false};
+  return {questions:shuffled(chosen,state.name+'-'+day+'-'+round+'-order'),tags:compatibleTags,source:context.source,mode:mode,signals:context.signals,repeatExact:false,diagnosticRound:diagnosticRound};
 }
 function formatTime(sec){const m=Math.floor(sec/60),s=sec%60;return m?m+'分'+s+'秒':s+'秒'}
 function renderHistory(){
   const recent=state.profile.sessions.slice().sort(function(a,b){return (b.dateMs||0)-(a.dateMs||0)}).slice(0,5);
   $('history').innerHTML=recent.length?'<b>该姓名最近训练（联网记录）</b>'+recent.map(function(s){const meta=SCHEDULE[s.day];return '<div class="history-item"><span>'+(meta?dateWithWeek(meta):'第'+s.day+'天')+' · 第'+s.round+'轮</span><span>'+s.correct+'/'+s.total+' · '+Math.round(s.correct/s.total*100)+'%</span></div>'}).join(''):'';
 }
+let releaseRefreshTimerId=0;
+function queueReleaseRefresh(){
+  clearTimeout(releaseRefreshTimerId);const now=Date.now(),futureUnlocks=Object.values(SCHEDULE).map(function(meta){return meta.unlockAt?Date.parse(meta.unlockAt):0}).filter(function(ms){return ms>now}).sort(function(a,b){return a-b});
+  if(!futureUnlocks.length)return;releaseRefreshTimerId=setTimeout(function(){if(!$('dashboard').classList.contains('hidden'))renderDashboard()},futureUnlocks[0]-now+80);
+}
 function renderDashboard(){
   $('studentLabel').textContent=state.name+(state.cls?' · '+state.cls:'');
   $('topDay').textContent='8月3日—8月16日';
-  const today=localTodayIso(),weekGroups=[[1,7,'第1周 · 元素周期律','8月3日—8月9日'],[8,14,'第2周 · 分类→物质的量','8月10日—8月16日']];
+  const now=Date.now(),today=localTodayIso(now),weekGroups=[[1,7,'第1周 · 元素周期律','8月3日—8月9日'],[8,14,'第2周 · 分类→物质的量','8月10日—8月16日']];
   $('dayGrid').innerHTML=weekGroups.map(function(group){
     const days=[];for(let day=group[0];day<=group[1];day++)days.push(day);
     const cards=days.map(function(day){
-      const meta=SCHEDULE[day],list=sessionsFor(day),last=list[list.length-1],future=meta.date>today,isToday=meta.date===today;
+      const meta=SCHEDULE[day],list=sessionsFor(day),last=list[list.length-1],future=meta.date>today,isToday=meta.date===today,locked=!isScheduleUnlocked(meta,now);
       const modeText=!last?meta.stage:(sessionSignals(last).mode==='challenge'?'下轮升难':sessionSignals(last).mode==='review'?'下轮审题复核':'继续迁移');
-      const status=last?'已练'+list.length+'轮 · 最近'+Math.round(last.correct/last.total*100)+'% · '+modeText:meta.stage+' · '+meta.target+'题';
-      return '<article class="calendar-day '+(isToday?'today ':'')+(future?'future':'')+'">'+(isToday?'<span class="today-mark">今天</span>':'')+'<div class="date">'+shortDate(meta.date)+'</div><div class="weekday">'+meta.weekday+'</div><h3>'+meta.title+'</h3><div class="review-points">'+meta.review.map(function(tag){return '<span>'+chemistryHtml(tag)+'</span>'}).join('')+'</div><div class="calendar-status">'+status+'</div><div class="calendar-actions"><button class="btn primary" data-day="'+day+'" data-mode="new">'+(future?'提前学习':'复习卡片 · 做题')+'</button>'+(last?'<button class="btn secondary" data-day="'+day+'" data-mode="repeat">重做上次题目</button>':'')+'</div></article>';
+      const openStage=meta.unlockAt?(future?'已开放 · 可提前学习':isToday?'今天已开放':'已开放 · 可回炉'):meta.stage;
+      const status=locked?unlockText(meta)+'开放':last?'已练'+list.length+'轮 · 最近'+Math.round(last.correct/last.total*100)+'% · '+modeText:openStage+' · '+meta.target+'题';
+      const primaryText=locked?'10:00后开放':future?'提前学习':'复习卡片 · 做题';
+      return '<article class="calendar-day '+(isToday?'today ':'')+(future?'future ':'')+(locked?'locked':'')+'">'+(isToday?'<span class="today-mark">今天</span>':'')+'<div class="date">'+shortDate(meta.date)+'</div><div class="weekday">'+meta.weekday+'</div><h3>'+meta.title+'</h3><div class="review-points">'+meta.review.map(function(tag){return '<span>'+chemistryHtml(tag)+'</span>'}).join('')+'</div><div class="calendar-status">'+status+'</div><div class="calendar-actions"><button class="btn primary" data-day="'+day+'" data-mode="new" '+(locked?'disabled aria-disabled="true"':'')+'>'+primaryText+'</button>'+(last&&!locked?'<button class="btn secondary" data-day="'+day+'" data-mode="repeat">重做上次题目</button>':'')+'</div></article>';
     }).join('');
     return '<section class="week-block"><div class="week-head"><b>'+group[2]+'</b><span>'+group[3]+'</span></div><div class="week-scroll"><div class="week-row">'+cards+'</div></div></section>';
   }).join('');
   document.querySelectorAll('[data-day]').forEach(function(btn){btn.onclick=function(){chooseDay(Number(btn.dataset.day),btn.dataset.mode||'new')}});
+  queueReleaseRefresh();
   show('dashboard');
 }
 function chooseDay(day,mode){
+  const meta=SCHEDULE[day];if(!meta)return;if(!isScheduleUnlocked(meta)){alert(unlockText(meta)+'开放；此前请继续完成元素周期律和物质分类练习。');return}
   state.day=day;state.round=sessionsFor(day).length+1;state.repeatMode=mode==='repeat';state.repeatExact=false;if(state.round>50){alert('该日期已保存50轮，请联系老师归档后继续。');return}
   try{
     const built=buildQuestions(day,state.round);state.questions=built.questions;state.adaptiveTags=built.tags;state.adaptiveFrom=built.source?(built.source.day===day?'本日第'+built.source.round+'轮':dateWithWeek(SCHEDULE[built.source.day])+'的第'+built.source.round+'轮'):'';state.mode=built.mode;state.sourceSignals=built.signals;state.repeatExact=!!built.repeatExact;state.reviewMode=built.mode==='review'&&!state.repeatExact;state.minSubmitSec=state.reviewMode?8:0;
   }catch(error){alert(error.message);return}
-  const meta=SCHEDULE[day],poolCount=schedulePool(meta).length;
+  const poolCount=schedulePool(meta).length;
   $('topDay').textContent=dateWithWeek(meta)+' · 第'+state.round+'轮';
   $('planDay').textContent=dateWithWeek(meta)+' · 第'+state.round+'轮';
   $('planCount').textContent='本轮'+state.questions.length+'题 · 对应题库'+poolCount+'题';
   $('planTitle').textContent=meta.title;
   $('planText').textContent=meta.desc;
-  const modePrefix=state.repeatMode?(state.repeatExact?'本轮将重做上一次的原题。':'旧记录未保留完整原题，本轮改为相同知识点的重做变式。'):state.mode==='challenge'?'上一轮正确率较高，本轮已提高综合推理题比例。':state.mode==='review'?'上一轮出现低正确率与较快作答信号，本轮启用8秒审题保护并优先回收基础模型。':'本轮按当前日期的知识点配置题目。';
+  const modePrefix=state.repeatMode?(state.repeatExact?'本轮将重做上一次的原题。':'旧记录未保留完整原题，本轮改为相同知识点的重做变式。'):state.round===1&&meta.diagnosticTags?'首轮已按诊断蓝图覆盖全部'+meta.diagnosticTags.length+'个知识点。':state.mode==='challenge'?'上一轮正确率较高，本轮已提高综合推理题比例。':state.mode==='review'?'上一轮出现低正确率与较快作答信号，本轮启用8秒审题保护并优先回收基础模型。':'本轮按当前日期的知识点配置题目。';
   $('adaptiveInfo').textContent=modePrefix+(state.adaptiveTags.length?' 将重点回收：'+state.adaptiveTags.join('、')+'。':' 完成后，错误和超过45秒的知识点会在下一轮加量。');
   let cardHtml=meta.cards.map(function(c){return '<div class="card"><strong>'+chemistryHtml(c[0])+'</strong>'+chemistryHtml(c[1])+'</div>'}).join('');
   if(meta.tags.includes('树状分类法'))cardHtml+=classificationTreeVisual();
@@ -1258,7 +1429,7 @@ function changePropertyVisual(q){
   return visualBox('用途反推性质','<div class="flow"><span>具体用途</span><b>→</b><span>需要什么功能</span><b>→</b><span>对应哪种性质</span></div>','导电、导热、硬度、密度通常是物理性质；可燃、助燃、腐蚀、稳定性通常是化学性质。');
 }
 function moleRelationVisual(day){
-  if(day===10)return visualBox('先认清物理量和单位','<div class="flow"><span>物质的量</span><b>符号</b><span>n</span><b>单位</b><span>mol</span></div>','使用mol时必须写清指定微粒。');
+  if(day===10)return visualBox('气体体积先换算为物质的量','<div class="flow"><span>气体体积 V</span><b>÷ V<sub>m</sub></b><span>物质的量 n</span><b>× N<sub>A</sub></b><span>气体微粒数 N</span></div><div class="flow" style="margin-top:8px"><span>质量 m</span><b>÷ M</b><span>物质的量 n</span></div>','标况下Vₘ≈22.4 L·mol⁻¹；先核对温度、压强和物态，再选择计算链。');
   if(day===11)return visualBox('物质的量与粒子数','<div class="flow"><span>物质的量 n</span><b>× N<sub>A</sub></b><span>粒子数 N</span></div>','N=nN<sub>A</sub>；反过来n=N/N<sub>A</sub>。');
   if(day===12)return visualBox('摩尔质量的单位','<div class="flow"><span>化学式</span><b>求相对质量之和</b><span>M（g·mol⁻¹）</span></div>','数值可与相对分子质量相等，但单位不同。');
   if(day===13)return visualBox('质量与物质的量','<div class="flow"><span>质量 m</span><b>÷ M</b><span>物质的量 n</span></div>','n=m/M；m=nM。');
@@ -1273,7 +1444,7 @@ function finish(){
   clearInterval(state.timerId);
   const totalSec=Math.max(1,Math.round((Date.now()-state.quizStart)/1000)),correct=state.answers.filter(function(a){return a.ok}).length;
   const accuracy=correct/state.questions.length,avgSec=Math.round(totalSec/state.questions.length);
-  const result={clientSessionId:(window.crypto&&crypto.randomUUID?crypto.randomUUID():'web-'+Date.now()+'-'+Math.random().toString(36).slice(2)),day:state.day,round:state.round,date:new Date().toLocaleDateString('zh-CN'),dateMs:Date.now(),correct:correct,total:state.questions.length,totalSec:totalSec,answers:state.answers,cloudSynced:false};
+  const result={clientSessionId:(window.crypto&&crypto.randomUUID?crypto.randomUUID():'web-'+Date.now()+'-'+Math.random().toString(36).slice(2)),day:state.day,round:state.round,assessmentKey:SCHEDULE[state.day].assessmentKey||'',date:new Date().toLocaleDateString('zh-CN'),dateMs:Date.now(),correct:correct,total:state.questions.length,totalSec:totalSec,answers:state.answers,cloudSynced:false};
   state.profile.sessions.push(result);saveProfile();
   const stats={};
   state.answers.forEach(function(a){if(!stats[a.tag])stats[a.tag]={total:0,correct:0,time:0};stats[a.tag].total++;stats[a.tag].correct+=a.ok?1:0;stats[a.tag].time+=a.sec});
@@ -1310,8 +1481,9 @@ function finish(){
   $('copyText').textContent='甘老师化学｜初高衔接｜'+dateWithWeek(SCHEDULE[state.day])+'第'+state.round+'轮自适应小测\n学生：'+state.name+'\n学校/班级：'+(state.cls||'未填写')+'\n完成日期：'+result.date+'\n课程日期：'+SCHEDULE[state.day].date+'\n训练主题：'+SCHEDULE[state.day].title+'\n本轮：'+correct+'/'+state.questions.length+'（'+Math.round(accuracy*100)+'%），用时'+formatTime(totalSec)+'，平均每题'+avgSec+'秒\n【作答习惯信号】\n'+habitText+'；10秒内错答'+fastWrong.length+'道，8秒内作答'+veryFast.length+'道。\n【难度判断】\n'+difficultyText+'\n【模块表现】\n'+modules+'\n【需回收技能】\n'+(nextTags.length?nextTags.map(function(t){return '- '+t}).join('\n'):'- 无')+'\n【停留时间偏长】\n'+slowText+'\n【错题明细】\n'+errors+'\n【下一轮安排】\n'+$('nextPlan').textContent+'\n【家校沟通建议】\n'+familyText;
   $('sameDay').textContent='继续本日第'+(state.round+1)+'轮';
   $('sameDay').disabled=state.round>=50;
-  $('nextDay').textContent=state.day<14?'进入'+dateWithWeek(SCHEDULE[state.day+1]):'已到8月16日';
-  $('nextDay').disabled=state.day>=14;
+  const nextMeta=state.day<14?SCHEDULE[state.day+1]:null,nextLocked=nextMeta&&!isScheduleUnlocked(nextMeta);
+  $('nextDay').textContent=state.day>=14?'已到8月16日':nextLocked?unlockText(nextMeta)+'开放':'进入'+dateWithWeek(nextMeta);
+  $('nextDay').disabled=state.day>=14||!!nextLocked;
   $('studentPanel').classList.remove('hidden');$('teacherPanel').classList.add('hidden');$('studentTab').classList.add('active');$('teacherTab').classList.remove('active');show('report');
   syncCompletedResult(result,habitText,difficultyText);
 }
@@ -1393,7 +1565,7 @@ $('resetHistory').onclick=async function(){
 };
 $('backDashboard').onclick=renderDashboard;
 $('reportDashboard').onclick=renderDashboard;
-$('toQuiz').onclick=function(){state.i=0;state.answers=[];state.quizStart=Date.now();show('quiz');renderQuestion()};
+$('toQuiz').onclick=function(){const meta=SCHEDULE[state.day];if(!isScheduleUnlocked(meta)){alert(unlockText(meta)+'开放。');renderDashboard();return}state.i=0;state.answers=[];state.quizStart=Date.now();show('quiz');renderQuestion()};
 $('submit').onclick=function(){const q=state.questions[state.i],sel=document.querySelector('input[name=ans]:checked');if(!sel||$('submit').disabled)return;const idx=Number(sel.value),sec=Math.max(1,Math.round((Date.now()-state.qStart)/1000)),ok=idx===q.a;clearInterval(state.timerId);state.answers.push({id:q.id,day:q.day,tag:q.tag,level:q.level,sourceModel:q.sourceModel,q:q.q,ok:ok,sec:sec,mine:q.o[idx],correctAnswer:q.o[q.a],explanation:q.e});$('feedback').className='feedback '+(ok?'good':'bad');$('feedback').innerHTML='<b>'+(ok?'回答正确':'回答不正确')+'</b><div>'+chemistryHtml(q.e)+'</div>'+visualFor(q);$('submit').classList.add('hidden');$('next').classList.remove('hidden')};
 $('next').onclick=function(){if(state.i<state.questions.length-1){state.i++;renderQuestion()}else finish()};
 $('sameDay').onclick=function(){if(state.round<50)chooseDay(state.day,'new')};
@@ -1402,7 +1574,7 @@ $('copy').onclick=async function(){try{await navigator.clipboard.writeText($('co
 $('studentTab').onclick=function(){$('studentPanel').classList.remove('hidden');$('teacherPanel').classList.add('hidden');$('studentTab').classList.add('active');$('teacherTab').classList.remove('active')};
 $('teacherTab').onclick=function(){$('studentPanel').classList.add('hidden');$('teacherPanel').classList.remove('hidden');$('teacherTab').classList.add('active');$('studentTab').classList.remove('active')};
 document.addEventListener('keydown',function(event){if(event.key!=='Enter'||event.repeat||$('quiz').classList.contains('hidden'))return;const canSubmit=!$('submit').classList.contains('hidden')&&!$('submit').disabled;const canContinue=!$('next').classList.contains('hidden');if(canSubmit){event.preventDefault();$('submit').click()}else if(canContinue){event.preventDefault();$('next').click()}});
-window.__CHEM_QUIZ_TEST__={pools:pools,dayMeta:DAY_META,schedule:SCHEDULE,buildQuestions:buildQuestions,schedulePool:schedulePool,byId:byId,visualFor:visualFor};
+window.__CHEM_QUIZ_TEST__={pools:pools,dayMeta:DAY_META,schedule:SCHEDULE,buildQuestions:buildQuestions,schedulePool:schedulePool,byId:byId,visualFor:visualFor,isScheduleUnlocked:isScheduleUnlocked,localTodayIso:localTodayIso,sessionBelongsToAssessment:sessionBelongsToAssessment};
 setTimeout(autoEnterTrustedStudent,0);
 </script>
 </body></html>
