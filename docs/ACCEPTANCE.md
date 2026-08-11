@@ -32,4 +32,5 @@
 
 - 教师登录邮箱必须位于私密 allowlist；魔法链接回调固定到线上 `/teacher`。
 - GitHub Pages 发布使用根目录生产文件；修改源码后必须重新运行 `pnpm publish:static`。
+- 教师魔法链接使用 `/teacher`，发布脚本会同步生成 `teacher/index.html` 作为 GitHub Pages 直达入口。
 - 性能顾问仅报告新建索引尚未积累使用统计的 INFO，不是缺索引或安全错误。
