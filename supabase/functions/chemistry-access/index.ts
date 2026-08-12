@@ -139,7 +139,7 @@ async function authenticate(req: Request) {
   if (!token) return null;
   const { data, error } = await supabase.rpc("chem_resolve_app_session", { p_token_hash: await sha256(token) });
   if (error || !data?.length) return null;
-  return { studentId: data[0].student_id as string, role: data[0].access_role as "student" | "guardian", expiresAt: data[0].expires_at as string, principalName: data[0].principal_name as string };
+  return { studentId: data[0].student_id as string | null, role: data[0].access_role as "student" | "guardian" | "teacher", expiresAt: data[0].expires_at as string, principalName: data[0].principal_name as string };
 }
 
 Deno.serve(async (req: Request) => {
@@ -159,6 +159,10 @@ Deno.serve(async (req: Request) => {
       if (error) throw error;
       if (!data?.length) return reply(req, { error: "姓名或登录码不正确，或尝试过于频繁。" }, 401);
       const identity = data[0];
+      if (identity.access_role === "teacher") {
+        const session = { role: "teacher", token, displayName: identity.principal_name || "甘老师", expiresAt };
+        return reply(req, { session });
+      }
       const { data: student, error: profileError } = await supabase.from("chem_students_v2").select("display_name").eq("id", identity.student_id).single();
       if (profileError) throw profileError;
       const session = { role: identity.access_role, token, displayName: identity.principal_name || student.display_name, expiresAt };
@@ -168,10 +172,10 @@ Deno.serve(async (req: Request) => {
 
     const identity = await authenticate(req);
     if (!identity) return reply(req, { error: "登录已失效，请重新输入访问码。" }, 401);
-    if (body.action === "student_dashboard" && identity.role === "student") return reply(req, { dashboard: await studentDashboard(identity.studentId) });
-    if (body.action === "guardian_dashboard" && identity.role === "guardian") return reply(req, { dashboard: await guardianDashboard(identity.studentId) });
+    if (body.action === "student_dashboard" && identity.role === "student" && identity.studentId) return reply(req, { dashboard: await studentDashboard(identity.studentId) });
+    if (body.action === "guardian_dashboard" && identity.role === "guardian" && identity.studentId) return reply(req, { dashboard: await guardianDashboard(identity.studentId) });
 
-    if (body.action === "start_plan" && identity.role === "student") {
+    if (body.action === "start_plan" && identity.role === "student" && identity.studentId) {
       const { data: plan, error: planError } = await supabase.from("chem_learning_plans").select("*").eq("id", body.data?.planId).eq("student_id", identity.studentId).single();
       if (planError) throw planError;
       const gradeResult = await supabase.from("chem_students_v2").select("grade_band").eq("id", identity.studentId).single();
@@ -195,7 +199,7 @@ Deno.serve(async (req: Request) => {
       return reply(req, { payload: { plan: planShape(plan), cards: orderedCards.map(cardShape), questions: adaptiveQuestions.map(questionShape), attemptSequence: attemptCount.count || 0 } });
     }
 
-    if (body.action === "submit_attempt" && identity.role === "student") {
+    if (body.action === "submit_attempt" && identity.role === "student" && identity.studentId) {
       const attempt = body.data;
       if (!attempt || attempt.studentId !== identity.studentId || !Array.isArray(attempt.answers) || attempt.answers.length > 10) return reply(req, { error: "提交内容不完整。" }, 400);
       const { error: attemptError } = await supabase.from("chem_learning_attempts").insert({

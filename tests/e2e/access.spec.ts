@@ -20,6 +20,12 @@ const guardianDashboard = {
   behaviorSignals: [], timeline: [{ id:'t1', at:'2026-08-12T08:00:00Z', type:'progress', title:'通过氧化物定义检验', description:'系统记录了两个独立证据。' }],
 }
 
+const teacherDashboard = {
+  students: [{ id:'demo', displayName:'测试学生', gradeBand:'高一', status:'active', needsInitialDiagnostic:false, guardianNames:['测试家长'], curriculumCohort:'high1_completed', planDays:40 }],
+  alerts: [], dailySummary: { generatedAt:'2026-08-12T01:00:00Z', classQuizCount:0, reviewCount:1, interventionCount:0 },
+  pendingCourseNodes: 0, pendingQuestions: 0,
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/functions/v1/chemistry-access', async (route) => {
     const responseHeaders = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }
@@ -29,11 +35,26 @@ test.beforeEach(async ({ page }) => {
     }
     const body = route.request().postDataJSON() as { action: string; name?: string; code?: string }
     if (body.action === 'login') {
+      if (body.code === '33333333') {
+        await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ session: { role: 'teacher', token: 'teacher-test-token', displayName: '甘老师', expiresAt: '2099-01-01T00:00:00Z' } }) })
+        return
+      }
       const guardian = body.code === '22222222'
       await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ session: { role: guardian ? 'guardian' : 'student', token: 'test-token', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }, dashboard: guardian ? guardianDashboard : studentDashboard }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: body.action === 'guardian_dashboard' ? guardianDashboard : studentDashboard }) })
+  })
+  await page.route('**/functions/v1/chemistry-teacher', async (route) => {
+    const responseHeaders = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: { ...responseHeaders, 'Access-Control-Allow-Headers': 'apikey,content-type,x-app-session' } })
+      return
+    }
+    expect(route.request().headers()['x-app-session']).toBe('teacher-test-token')
+    const body = route.request().postDataJSON() as { action: string }
+    const response = body.action === 'list_course_nodes' ? { nodes: [] } : body.action === 'list_questions' ? { questions: [] } : { dashboard: teacherDashboard }
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify(response) })
   })
 })
 
@@ -83,9 +104,27 @@ test('guardian code routes directly to the concise guardian explanation', async 
   await expect(page.locator('body')).not.toContainText('下节课单独追问')
 })
 
-test('teacher route uses independent email authentication', async ({ page }) => {
-  await page.goto('/gan-chemistry-august-review/teacher')
-  await expect(page.getByRole('heading', { name: '教师工作台' })).toBeVisible()
-  await expect(page.getByLabel('教师邮箱')).toBeVisible()
-  await expect(page.getByLabel('登录码')).toHaveCount(0)
+test('teacher name and code use the same entry and open the private workspace', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('甘老师')
+  await page.getByLabel('登录码').fill('33333333')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await expect(page).toHaveURL(/\/teacher$/)
+  await expect(page.getByRole('heading', { name: '今天最值得看的事' })).toBeVisible()
+  await expect(page.getByText('甘老师工作台')).toBeVisible()
+  await expect(page.getByLabel('教师邮箱')).toHaveCount(0)
+  await expect(page.getByText('白名单')).toHaveCount(0)
+  await expect(page.getByText('登录链接')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+  await page.getByRole('button', { name: '课堂记录' }).click()
+  await expect(page.getByRole('heading', { name: '快速课堂记录' })).toBeVisible()
+  await page.getByRole('button', { name: '学生档案' }).click()
+  await expect(page.getByRole('heading', { name: '学生与家长档案' })).toBeVisible()
+  await page.getByRole('button', { name: '计划编辑器' }).click()
+  await expect(page.getByRole('heading', { name: '学习计划编辑器' })).toBeVisible()
+  await page.getByRole('button', { name: '题库审核' }).click()
+  await expect(page.getByRole('heading', { name: '题库审核' })).toBeVisible()
+  await page.getByRole('button', { name: '权限与访问码' }).click()
+  await expect(page.getByRole('heading', { name: '权限与访问码' })).toBeVisible()
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })

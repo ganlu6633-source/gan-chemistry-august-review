@@ -2,30 +2,31 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
 const url = Deno.env.get("SUPABASE_URL")!;
-const publishable = Deno.env.get("SUPABASE_ANON_KEY")!;
 const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false } });
 const allowedOrigins = new Set(["https://ganlu6633-source.github.io", "http://localhost:4173", "http://localhost:5173"]);
 function headers(req: Request) {
   const origin = req.headers.get("origin") || "";
   return {
     "Access-Control-Allow-Origin": allowedOrigins.has(origin) ? origin : "https://ganlu6633-source.github.io",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+    "Access-Control-Allow-Headers": "apikey, content-type, x-app-session",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Vary": "Origin",
   };
 }
 const reply = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: headers(req) });
 function code() { return Array.from(crypto.getRandomValues(new Uint32Array(8)), (n) => String(n % 10)).join(""); }
+async function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 async function teacher(req: Request) {
-  const authorization = req.headers.get("authorization") || "";
-  if (!authorization.startsWith("Bearer ")) return null;
-  const client = createClient(url, publishable, { global: { headers: { Authorization: authorization } }, auth: { persistSession: false } });
-  const { data, error } = await client.auth.getUser(authorization.slice(7));
-  if (error || !data.user?.email) return null;
-  const allowed = await admin.rpc("chem_teacher_is_allowed", { p_email: data.user.email });
-  if (allowed.error || allowed.data !== true) return null;
-  return data.user;
+  const token = req.headers.get("x-app-session");
+  if (!token) return null;
+  const { data, error } = await admin.rpc("chem_resolve_app_session", { p_token_hash: await sha256(token) });
+  if (error || !data?.length || data[0].access_role !== "teacher") return null;
+  return { displayName: data[0].principal_name || "甘老师" };
 }
 
 async function dashboard() {
@@ -56,7 +57,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return reply(req, { error: "仅支持 POST 请求。" }, 405);
   try {
     const user = await teacher(req);
-    if (!user) return reply(req, { error: "教师身份未获授权。" }, 403);
+    if (!user) return reply(req, { error: "登录已失效，请重新输入姓名和登录码。" }, 401);
     const body = await req.json();
     if (body.action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
     if (body.action === "save_observation") {
@@ -66,7 +67,7 @@ Deno.serve(async (req: Request) => {
         student_id: o.studentId, course_date: o.courseDate, taught_content: o.taughtContent,
         observed_evidence: o.observedEvidence, internal_note: o.internalNote || "",
         student_message: o.studentMessage || "", guardian_message: o.guardianMessage || "",
-        visibility: "internal", created_by: user.id,
+        visibility: "internal",
       }).select().single();
       if (error) throw error;
       return reply(req, { observation: { id: data.id, studentId: data.student_id, courseDate: data.course_date, taughtContent: data.taught_content, observedEvidence: data.observed_evidence, internalNote: data.internal_note, studentMessage: data.student_message, guardianMessage: data.guardian_message, visibility: data.visibility } });

@@ -1,10 +1,6 @@
-import { createClient } from '@supabase/supabase-js'
 import type { GuardianDashboardData, LearningAttempt, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
-import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, TEACHER_FUNCTION } from './config'
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-})
+import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
+import { readAccessSession } from './session'
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => ({})) as { message?: string; error?: string }
@@ -18,7 +14,7 @@ export async function loginWithAccessCode(name: string, code: string) {
     headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },
     body: JSON.stringify({ action: 'login', name, code }),
   })
-  return parseResponse<{ session: SessionIdentity; dashboard: StudentDashboardData | GuardianDashboardData }>(response)
+  return parseResponse<{ session: SessionIdentity; dashboard?: StudentDashboardData | GuardianDashboardData }>(response)
 }
 
 export async function accessApi<T>(session: SessionIdentity, action: string, data?: unknown): Promise<T> {
@@ -47,15 +43,14 @@ export async function submitAttempt(session: SessionIdentity, attempt: LearningA
 }
 
 export async function teacherApi<T>(action: string, data?: unknown): Promise<T> {
-  const { data: authData } = await supabase.auth.getSession()
-  const accessToken = authData.session?.access_token
-  if (!accessToken) throw new Error('教师登录已失效，请重新获取登录链接。')
+  const session = readAccessSession()
+  if (!session?.token || session.role !== 'teacher') throw new Error('教师登录已失效，请重新输入姓名和登录码。')
   const response = await fetch(functionUrl(TEACHER_FUNCTION), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       apikey: SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${accessToken}`,
+      'x-app-session': session.token,
     },
     body: JSON.stringify({ action, data }),
   })
@@ -68,10 +63,4 @@ export async function loadTeacherDashboard() {
 
 export async function saveTeacherObservation(observation: Omit<TeacherObservation, 'id'>) {
   return teacherApi<{ observation: TeacherObservation }>('save_observation', observation)
-}
-
-export async function requestMagicLink(email: string) {
-  const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}teacher/`
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } })
-  if (error) throw error
 }

@@ -3,7 +3,7 @@ import { ArrowRight, KeyRound, ShieldCheck, Sparkles, UserRound } from 'lucide-r
 import type { GuardianDashboardData, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { loginWithAccessCode } from '../lib/api'
 
-export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity, dashboard: StudentDashboardData | GuardianDashboardData) => void }) {
+export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity, dashboard?: StudentDashboardData | GuardianDashboardData) => void }) {
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [error, setError] = useState('')

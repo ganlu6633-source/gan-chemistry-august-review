@@ -6,7 +6,7 @@ import { AccessGate } from './components/AccessGate'
 import { StudentApp } from './components/StudentApp'
 import { GuardianApp } from './components/GuardianApp'
 import { TeacherGate } from './components/TeacherApp'
-import { loadGuardianDashboard, loadStudentDashboard, supabase } from './lib/api'
+import { loadGuardianDashboard, loadStudentDashboard } from './lib/api'
 import { clearAccessSession, readAccessSession, writeAccessSession } from './lib/session'
 
 type Dashboard = StudentDashboardData | GuardianDashboardData
@@ -23,27 +23,24 @@ function AccessExperience() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate('/teacher', { replace: true })
-    })
-  }, [navigate])
-
-  useEffect(() => {
     if (!session) return
+    if (session.role === 'teacher') { navigate('/teacher', { replace: true }); setLoading(false); return }
     const load = session.role === 'student' ? loadStudentDashboard(session) : session.role === 'guardian' ? loadGuardianDashboard(session) : null
     if (!load) { clearAccessSession(); setSession(null); setLoading(false); return }
     load.then((result) => setDashboard(result.dashboard)).catch((reason) => { clearAccessSession(); setSession(null); setError(reason instanceof Error ? reason.message : '会话已失效。') }).finally(() => setLoading(false))
-  }, [session])
+  }, [session, navigate])
 
-  function success(nextSession: SessionIdentity, nextDashboard: Dashboard) {
+  function success(nextSession: SessionIdentity, nextDashboard?: Dashboard) {
     writeAccessSession(nextSession)
     setSession(nextSession)
-    setDashboard(nextDashboard)
+    if (nextSession.role === 'teacher') { setDashboard(null); navigate('/teacher'); return }
+    if (nextDashboard) setDashboard(nextDashboard)
   }
 
   function logout() { clearAccessSession(); setSession(null); setDashboard(null); navigate('/') }
 
   if (loading) return <AppShell><div className="center-loading">正在读取属于你的学习档案…</div></AppShell>
+  if (session?.role === 'teacher') return <Navigate to="/teacher" replace />
   if (!session || !dashboard) return <AppShell>{error && <div className="inline-alert">{error}</div>}<AccessGate onSuccess={success} /></AppShell>
   if (session.role === 'student') return <AppShell identity={session.displayName} onLogout={logout}><StudentApp session={session} initialDashboard={dashboard as StudentDashboardData} onDashboard={setDashboard} /></AppShell>
   if (session.role === 'guardian') return <AppShell identity={session.displayName} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} /></AppShell>

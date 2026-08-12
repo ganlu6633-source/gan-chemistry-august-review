@@ -1,30 +1,15 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, KeyRound, LayoutDashboard, LogIn, MessageSquareText, RefreshCw, Save, Send, Settings2, Shield, Users } from 'lucide-react'
+import { Navigate } from 'react-router-dom'
+import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, KeyRound, LayoutDashboard, LogIn, MessageSquareText, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
 import type { TeacherDashboardData, TeacherObservation } from '../domain/types'
-import { loadTeacherDashboard, requestMagicLink, saveTeacherObservation, supabase, teacherApi } from '../lib/api'
+import { loadTeacherDashboard, saveTeacherObservation, teacherApi } from '../lib/api'
+import { clearAccessSession, readAccessSession } from '../lib/session'
 
 type TeacherView = 'overview' | 'observation' | 'students' | 'plans' | 'questions' | 'settings'
 
 export function TeacherGate() {
-  const [authenticated, setAuthenticated] = useState(false)
-  const [checking, setChecking] = useState(true)
-  const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setAuthenticated(Boolean(data.session)); setChecking(false) })
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => setAuthenticated(Boolean(session)))
-    return () => data.subscription.unsubscribe()
-  }, [])
-
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setError('')
-    try { await requestMagicLink(email); setSent(true) } catch (reason) { setError(reason instanceof Error ? reason.message : '登录链接发送失败。') }
-  }
-
-  if (checking) return <div className="center-loading"><RefreshCw className="spin" />正在确认教师身份…</div>
-  if (!authenticated) return <section className="teacher-login"><div className="teacher-login-card"><div className="login-icon"><Shield /></div><span className="eyebrow">仅限甘老师</span><h1>教师工作台</h1><p>输入已加入教师白名单的邮箱，我们会发送一次性安全登录链接。</p>{sent ? <div className="success-message"><CheckCircle2 />登录链接已发送。请在同一设备打开邮件中的链接。</div> : <form onSubmit={submit}><label htmlFor="teacher-email">教师邮箱</label><input id="teacher-email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="name@example.com" />{error && <div className="form-error">{error}</div>}<button className="primary-button">发送安全登录链接<Send size={18} /></button></form>}</div></section>
+  const session = readAccessSession()
+  if (session?.role !== 'teacher') return <Navigate to="/" replace />
   return <TeacherWorkspace />
 }
 
@@ -47,7 +32,7 @@ function TeacherWorkspace() {
     <button className={view === 'plans' ? 'active' : ''} onClick={() => setView('plans')}><BookOpen />计划编辑器</button>
     <button className={view === 'questions' ? 'active' : ''} onClick={() => setView('questions')}><MessageSquareText />题库审核</button>
     <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings2 />权限与访问码</button>
-  </nav><button className="logout-button" onClick={() => supabase.auth.signOut()}><LogIn />退出教师端</button></aside>
+  </nav><button className="logout-button" onClick={() => { clearAccessSession(); window.location.assign(`${window.location.origin}${import.meta.env.BASE_URL}`) }}><LogIn />退出登录</button></aside>
   <main className="teacher-main">{error && <div className="inline-alert">{error}</div>}{loading || !dashboard ? <div className="center-loading"><RefreshCw className="spin" />读取统一数据层…</div> : <>
     {view === 'overview' && <TeacherOverview dashboard={dashboard} onRefresh={refresh} />}
     {view === 'observation' && <ObservationForm dashboard={dashboard} />}
