@@ -57,5 +57,6 @@
 
 - ESLint：通过，0 error / 0 warning。
 - Vitest：6 个测试文件，20/20 通过。
-- Playwright：桌面、Android、iPhone，12/12 通过。
+- Playwright：桌面、Android、iPhone，12/12 通过；自动断言 40 个日期、7 个自然周、首末日期和每日摘要数量。
 - Production build：通过。
+- GitHub Pages 正式地址复验：桌面 1440 px 与手机 390 px 均显示 40 个日期、7 个自然周；知识卡展开、四选一练习、答案反馈和解析均可见，console error、page error、失败请求、水平溢出均为 0。
