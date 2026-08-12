@@ -48,16 +48,16 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
       <div className="login-card">
         <div className="login-icon"><KeyRound size={28} /></div>
         <h2>欢迎回来</h2>
-        <p>输入自己的姓名和登录码，系统会自动进入学生端或家长端，无需选择角色。</p>
+        <p>输入姓名和登录码，系统会自动进入对应页面。</p>
         <form onSubmit={submit}>
-          <label htmlFor="login-name">姓名</label>
-          <div className="login-input-wrap"><UserRound size={18} /><input id="login-name" className="name-input" value={name} onChange={(event) => setName(event.target.value.slice(0, 50))} autoComplete="name" placeholder="学生或家长姓名" /></div>
+          <label htmlFor="login-name">输入姓名</label>
+          <div className="login-input-wrap"><UserRound size={18} /><input id="login-name" className="name-input" value={name} onChange={(event) => setName(event.target.value.slice(0, 50))} autoComplete="name" placeholder="请输入姓名" /></div>
           <label htmlFor="access-code">登录码</label>
           <input id="access-code" className="code-input" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 8))} inputMode="numeric" autoComplete="one-time-code" placeholder="8位数字" aria-describedby={error ? 'access-error' : undefined} />
           {error && <div id="access-error" className="form-error" role="alert">{error}</div>}
           <button className="primary-button" disabled={loading}>{loading ? '正在安全进入…' : '进入我的化学世界'} <ArrowRight size={18} /></button>
         </form>
-        <div className="security-note"><ShieldCheck size={16} />学生姓名会与档案核对；家长姓名在家长码验证成功后安全关联到孩子，爸爸、妈妈或其他监护人可分别使用自己的姓名。</div>
+        <div className="security-note"><ShieldCheck size={16} />姓名和登录码仅用于安全核验。</div>
       </div>
     </section>
   )

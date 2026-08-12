@@ -39,8 +39,13 @@ test.beforeEach(async ({ page }) => {
 
 test('access page contains name and code inputs with no role selector', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
-  await expect(page.getByLabel('姓名')).toHaveCount(1)
+  await expect(page.getByLabel('输入姓名')).toHaveCount(1)
+  await expect(page.getByPlaceholder('请输入姓名')).toHaveCount(1)
   await expect(page.getByLabel('登录码')).toHaveCount(1)
+  await expect(page.locator('.login-card')).not.toContainText('学生姓名')
+  await expect(page.locator('.login-card')).not.toContainText('家长姓名')
+  await expect(page.locator('.login-card')).not.toContainText('学生端')
+  await expect(page.locator('.login-card')).not.toContainText('家长端')
   await expect(page.getByRole('radio')).toHaveCount(0)
   await expect(page.getByRole('combobox')).toHaveCount(0)
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
@@ -48,7 +53,7 @@ test('access page contains name and code inputs with no role selector', async ({
 
 test('student code routes to student experience without guardian entry', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
-  await page.getByLabel('姓名').fill('测试学生')
+  await page.getByLabel('输入姓名').fill('测试学生')
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: /测试学生，今天先把/ })).toBeVisible()
@@ -67,7 +72,7 @@ test('student code routes to student experience without guardian entry', async (
 
 test('guardian code routes directly to the concise guardian explanation', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
-  await page.getByLabel('姓名').fill('测试家长')
+  await page.getByLabel('输入姓名').fill('测试家长')
   await page.getByLabel('登录码').fill('22222222')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: '测试学生的化学成长说明' })).toBeVisible()
