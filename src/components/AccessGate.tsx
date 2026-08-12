@@ -48,7 +48,7 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
       <div className="login-card">
         <div className="login-icon"><KeyRound size={28} /></div>
         <h2>欢迎回来</h2>
-        <p>输入姓名和登录码，系统会自动进入对应页面。</p>
+        <p>输入姓名和登录码，即可进入自己的化学学习空间。</p>
         <form onSubmit={submit}>
           <label htmlFor="login-name">输入姓名</label>
           <div className="login-input-wrap"><UserRound size={18} /><input id="login-name" className="name-input" value={name} onChange={(event) => setName(event.target.value.slice(0, 50))} autoComplete="name" placeholder="请输入姓名" /></div>

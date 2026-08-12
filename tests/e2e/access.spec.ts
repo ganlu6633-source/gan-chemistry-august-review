@@ -42,6 +42,7 @@ test('access page contains name and code inputs with no role selector', async ({
   await expect(page.getByLabel('输入姓名')).toHaveCount(1)
   await expect(page.getByPlaceholder('请输入姓名')).toHaveCount(1)
   await expect(page.getByLabel('登录码')).toHaveCount(1)
+  await expect(page.locator('.login-card')).toContainText('输入姓名和登录码，即可进入自己的化学学习空间。')
   await expect(page.locator('.login-card')).not.toContainText('学生姓名')
   await expect(page.locator('.login-card')).not.toContainText('家长姓名')
   await expect(page.locator('.login-card')).not.toContainText('学生端')
