@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BookOpen, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, Map as MapIcon, RotateCcw, Sparkles, Trophy } from 'lucide-react'
-import type { KnowledgeCard, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
+import type { KnowledgeCard, KnowledgeTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
 import { accessApi, submitAttempt } from '../lib/api'
 
@@ -144,7 +144,7 @@ function LearningRound({ session, payload, onExit, onComplete }: { session: Sess
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">一分钟知识卡 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1><div className="core-rule">{card.core}</div><details><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b>{card.commonMistakes.join('；')}</div><p><b>小例子：</b>{card.microExample}</p></details></article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零唤醒知识 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1><div className="core-rule">{card.core}</div>{card.structuredContent && <StructuredKnowledgeMap content={card.structuredContent} />}<details open={!card.structuredContent}><summary>{card.structuredContent ? '再看判断顺序、易错点和完整例子' : '展开理解'}</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}>{mistake}</li>)}</ul></div><p><b>完整例子：</b>{card.microExample}</p></details></article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
     <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button className="primary-button" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
@@ -166,6 +166,23 @@ function LearningRound({ session, payload, onExit, onComplete }: { session: Sess
 
   const correct = answers.filter((answer) => answer.correct).length
   return <section className="learning-stage result-stage"><div className="result-badge"><Check /></div><span className="eyebrow">今天的第一轮完成啦</span><h1>你已经完成了一次真实检验。</h1><p>本轮 {correct}/{answers.length}。系统会用新的母题继续确认，不会让你机械重复原题。</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{answers.filter((answer) => answer.uncertain).length}</b><span>不确定标记</span></div></div><button className="primary-button" disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>查看我获得了什么<Trophy size={18} /></button></section>
+}
+
+function KnowledgeBranch({ node, depth = 0 }: { node: KnowledgeTreeNode; depth?: number }) {
+  return <li className={`knowledge-branch depth-${Math.min(depth, 3)}`}>
+    <div className="branch-card"><b>{node.label}</b><p>{node.rule}</p>{node.examples?.length ? <div className="example-chips">{node.examples.map((example) => <span key={example}>{example}</span>)}</div> : null}{node.caution && <div className="branch-caution">注意：{node.caution}</div>}</div>
+    {node.children?.length ? <ul>{node.children.map((child) => <KnowledgeBranch key={`${node.label}-${child.label}`} node={child} depth={depth + 1} />)}</ul> : null}
+  </li>
+}
+
+function StructuredKnowledgeMap({ content }: { content: StructuredKnowledgeContent }) {
+  return <div className="classification-map">
+    <section className="zero-start" aria-label="从零开始"><b>先从零开始</b><p>{content.intro}</p></section>
+    <section className="knowledge-tree-panel" aria-labelledby="classification-tree-title"><div className="map-section-title"><span>01</span><div><h2 id="classification-tree-title">物质分类总树</h2><p>先沿纵向主干走完，再补横向标签。</p></div></div><ul className="knowledge-tree"><KnowledgeBranch node={content.rootTree} /></ul></section>
+    {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + 2).padStart(2, '0')}</span><div><h2>{section.title}</h2>{section.summary && <p>{section.summary}</p>}</div></div><div className="classification-items">{section.items.map((item) => <article className="classification-item" key={item.label}><b>{item.label}</b><p>{item.rule}</p>{item.examples?.length ? <ul>{item.examples.map((example) => <li key={example}>{example}</li>)}</ul> : null}{item.caution && <div className="branch-caution">注意：{item.caution}</div>}</article>)}</div></section>)}
+    {content.workedExamples?.length ? <section className="classification-section worked-examples"><div className="map-section-title"><span>{String(content.sections.length + 2).padStart(2, '0')}</span><div><h2>把一份物质从树根走到底</h2><p>纵向路径决定“它属于哪一类”，横向标签说明“还能怎样继续分”。</p></div></div><div className="worked-example-grid">{content.workedExamples.map((example) => <article key={example.substance}><h3>{example.substance}</h3><p>{example.path}</p><div className="example-chips">{example.labels.map((label) => <span key={label}>{label}</span>)}</div></article>)}</div></section> : null}
+    {content.checkpoints?.length ? <section className="classification-section recall-check"><div className="map-section-title"><span>✓</span><div><h2>看到这里，先检查自己能否复原</h2><p>全部能说出来，再进入练习；说不出来就回到对应分支。</p></div></div><ul>{content.checkpoints.map((checkpoint) => <li key={checkpoint}>{checkpoint}</li>)}</ul></section> : null}
+  </div>
 }
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><RotateCcw /><p>{text}</p></div> }

@@ -26,6 +26,39 @@ const teacherDashboard = {
   pendingCourseNodes: 0, pendingQuestions: 0,
 }
 
+const classificationCard = {
+  id: 'KC_H1_CLASSIFY', skillId: 'H1_CLASSIFY', title: '物质到底分成哪些？从总树干一路分到底',
+  core: '先牢记第一根树干：物质分为纯净物和混合物；纯净物再分为单质和化合物。',
+  detail: '每次都从物质出发，一层一层判断。', steps: ['先分纯净物和混合物', '再分单质和化合物'],
+  commonMistakes: ['把溶液当纯净物'], microExample: 'H₂SO₄是二元强酸和含氧酸。', reviewStatus: 'approved',
+  structuredContent: {
+    version: 1, intro: '假设你现在完全不记得：从最上面的物质开始，一层一层往下走。',
+    rootTree: { label: '物质', rule: '先按样品中有几种物质分类。', children: [
+      { label: '混合物', rule: '含两种或两种以上物质。', examples: ['空气', '盐酸'] },
+      { label: '纯净物', rule: '只含一种物质。', children: [
+        { label: '单质', rule: '纯净物中只含一种元素。' },
+        { label: '化合物', rule: '纯净物中含两种或两种以上元素。', children: [
+          { label: '无机化合物', rule: '本讲继续分氧化物、酸、碱和盐。' },
+        ] },
+      ] },
+    ] },
+    sections: [
+      { title: '酸要沿三条独立的线分类', summary: '元数、强弱和是否含氧分别判断。', items: [
+        { label: '按可电离的H⁺个数', rule: '分一元酸、二元酸和多元酸。', examples: ['一元：HCl', '二元：H₂SO₄', '三元：H₃PO₄'] },
+        { label: '按电离程度', rule: '分强酸和弱酸。', examples: ['强酸：HCl', '弱酸：CH₃COOH'] },
+      ] },
+      { title: '碱也要沿三条独立的线分类', summary: '元数、强弱和溶解性分别判断。', items: [
+        { label: '按可电离的OH⁻个数', rule: '分一元碱、二元碱和三元碱。', examples: ['一元：NaOH', '二元：Ca(OH)₂'] },
+        { label: '按溶解性', rule: '分易溶、微溶和难溶。', caution: 'Ca(OH)₂微溶但属于强碱。' },
+      ] },
+    ],
+    workedExamples: [{ substance: 'H₂SO₄', path: '纯净物 → 化合物 → 无机化合物 → 酸', labels: ['二元酸', '强酸', '含氧酸'] }],
+    checkpoints: ['我能画出物质分类总树。'],
+  },
+}
+
+const classificationQuestion = { id:'q-classify', motherId:'m-classify', skillId:'H1_CLASSIFY', level:1, gradeBand:'高一', stem:'物质分类的第一个分叉是', options:['单质和化合物','纯净物和混合物','酸和碱','金属和非金属'], correctOption:1, explanation:'先分纯净物和混合物。', scaffold:'从物质树根开始。', reviewStatus:'approved', scopeStatus:'IN', sourceKind:'teacher_original' }
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/functions/v1/chemistry-access', async (route) => {
     const responseHeaders = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }
@@ -41,6 +74,10 @@ test.beforeEach(async ({ page }) => {
       }
       const guardian = body.code === '22222222'
       await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ session: { role: guardian ? 'guardian' : 'student', token: 'test-token', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }, dashboard: guardian ? guardianDashboard : studentDashboard }) })
+      return
+    }
+    if (body.action === 'start_plan') {
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: reviewPlans[0], cards: [classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: body.action === 'guardian_dashboard' ? guardianDashboard : studentDashboard }) })
@@ -90,6 +127,19 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.locator('.plan-day').first()).toContainText('08-15 · 周六')
   await expect(page.locator('.plan-day').last()).toContainText('09-23 · 周三')
   await expect(page.locator('.plan-day').first().locator('li')).toHaveCount(3)
+  await page.locator('.plan-day').first().click()
+  await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '物质分类总树' })).toBeVisible()
+  await expect(page.locator('.knowledge-tree')).toContainText('混合物')
+  await expect(page.locator('.knowledge-tree')).toContainText('纯净物')
+  await expect(page.locator('.knowledge-tree')).toContainText('单质')
+  await expect(page.locator('.knowledge-tree')).toContainText('化合物')
+  await expect(page.getByRole('heading', { name: '酸要沿三条独立的线分类' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '碱也要沿三条独立的线分类' })).toBeVisible()
+  await expect(page.locator('.classification-map')).toContainText('一元酸')
+  await expect(page.locator('.classification-map')).toContainText('二元酸')
+  await expect(page.locator('.classification-map')).toContainText('多元酸')
+  await expect(page.locator('.classification-map')).toContainText('微溶但属于强碱')
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 

@@ -77,6 +77,7 @@ const questionShape = (row: Record<string, unknown>) => ({
 const cardShape = (row: Record<string, unknown>) => ({
   id: row.id, skillId: row.skill_id, title: row.title, core: row.core, detail: row.detail,
   steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
+  structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
   asset: row.asset, reviewStatus: row.review_status,
 });
 

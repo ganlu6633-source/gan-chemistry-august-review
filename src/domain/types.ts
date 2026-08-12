@@ -114,8 +114,38 @@ export interface KnowledgeCard {
   steps: string[]
   commonMistakes: string[]
   microExample: string
+  structuredContent?: StructuredKnowledgeContent
   asset?: { type: 'diagram' | 'image' | 'experiment' | 'curve'; url?: string; alt: string }
   reviewStatus: QuestionReviewStatus
+}
+
+export interface KnowledgeTreeNode {
+  label: string
+  rule: string
+  examples?: string[]
+  caution?: string
+  children?: KnowledgeTreeNode[]
+}
+
+export interface KnowledgeSection {
+  title: string
+  summary?: string
+  items: KnowledgeTreeNode[]
+}
+
+export interface KnowledgeWorkedExample {
+  substance: string
+  path: string
+  labels: string[]
+}
+
+export interface StructuredKnowledgeContent {
+  version: number
+  intro: string
+  rootTree: KnowledgeTreeNode
+  sections: KnowledgeSection[]
+  workedExamples?: KnowledgeWorkedExample[]
+  checkpoints?: string[]
 }
 
 export interface CourseMapNode {
