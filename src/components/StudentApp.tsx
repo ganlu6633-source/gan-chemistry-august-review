@@ -24,6 +24,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
+  const cyclePlans = dashboard.plans.filter((plan) => plan.date >= '2026-08-13' && plan.date <= '2026-09-09')
   const skillMap = useMemo(() => new Map(dashboard.skillDefinitions.map((skill) => [skill.id, skill])), [dashboard.skillDefinitions])
 
   async function openPlan(plan: LearningPlanDay) {
@@ -67,7 +68,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b>{item.title}</b><p>{item.description}</p></div></article>)}</div>
           </section>
         </>}
-        {view === 'plan' && <PlanCalendar plans={dashboard.plans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} />}
+        {view === 'plan' && <PlanCalendar plans={cyclePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} />}
         {view === 'map' && <SkillGalaxy dashboard={dashboard} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} />}
       </div>
