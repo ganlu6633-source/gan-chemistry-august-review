@@ -29,16 +29,22 @@ async function teacher(req: Request) {
 }
 
 async function dashboard() {
-  const [students, alerts, report, courseCount, questionCount] = await Promise.all([
-    admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic").order("grade_band").order("display_name"),
+  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans] = await Promise.all([
+    admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata").order("grade_band").order("display_name"),
     admin.from("chem_teacher_alerts").select("id,student_id,severity,title,reason").is("resolved_at", null).order("created_at", { ascending: false }).limit(20),
     admin.from("chem_daily_reports").select("*").order("report_date", { ascending: false }).limit(1).maybeSingle(),
     admin.from("chem_course_nodes").select("id", { count: "exact", head: true }).eq("teacher_approved", false),
     admin.from("chem_questions").select("id", { count: "exact", head: true }).in("review_status", ["draft", "needs_review"]),
+    admin.rpc("chem_list_guardian_contacts"),
+    admin.from("chem_learning_plans").select("student_id").gte("plan_date", "2026-08-13").lte("plan_date", "2026-09-09"),
   ]);
-  for (const result of [students, alerts, courseCount, questionCount]) if (result.error) throw result.error;
+  for (const result of [students, alerts, courseCount, questionCount, guardians, fourWeekPlans]) if (result.error) throw result.error;
+  const guardianNames = new Map<string, string[]>();
+  for (const contact of guardians.data || []) guardianNames.set(contact.student_id, [...(guardianNames.get(contact.student_id) || []), contact.display_name]);
+  const planDays = new Map<string, number>();
+  for (const plan of fourWeekPlans.data || []) planDays.set(plan.student_id, (planDays.get(plan.student_id) || 0) + 1);
   return {
-    students: (students.data || []).map((s) => ({ id: s.id, displayName: s.display_name, gradeBand: s.grade_band, status: s.record_status, needsInitialDiagnostic: s.needs_initial_diagnostic })),
+    students: (students.data || []).map((s) => ({ id: s.id, displayName: s.display_name, gradeBand: s.grade_band, status: s.record_status, needsInitialDiagnostic: s.needs_initial_diagnostic, guardianNames: guardianNames.get(s.id) || [], curriculumCohort: s.metadata?.curriculumCohort || null, planDays: planDays.get(s.id) || 0 })),
     alerts: (alerts.data || []).map((a) => ({ id: a.id, studentId: a.student_id, severity: a.severity, title: a.title, reason: a.reason })),
     dailySummary: { generatedAt: report.data?.generated_at || null, classQuizCount: report.data?.class_quiz_count || 0, reviewCount: report.data?.review_count || 0, interventionCount: report.data?.intervention_count || 0 },
     pendingCourseNodes: courseCount.count || 0, pendingQuestions: questionCount.count || 0,

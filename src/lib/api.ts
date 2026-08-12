@@ -12,11 +12,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T
 }
 
-export async function loginWithAccessCode(code: string) {
+export async function loginWithAccessCode(name: string, code: string) {
   const response = await fetch(functionUrl(ACCESS_FUNCTION), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },
-    body: JSON.stringify({ action: 'login', code }),
+    body: JSON.stringify({ action: 'login', name, code }),
   })
   return parseResponse<{ session: SessionIdentity; dashboard: StudentDashboardData | GuardianDashboardData }>(response)
 }

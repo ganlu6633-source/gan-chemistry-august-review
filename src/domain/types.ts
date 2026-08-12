@@ -225,7 +225,7 @@ export interface GuardianDashboardData {
 }
 
 export interface TeacherDashboardData {
-  students: Array<Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'status' | 'needsInitialDiagnostic'>>
+  students: Array<Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'status' | 'needsInitialDiagnostic'> & { guardianNames: string[]; curriculumCohort: string | null; planDays: number }>
   alerts: Array<{ id: string; studentId: string; severity: 'info' | 'attention' | 'urgent'; title: string; reason: string }>
   dailySummary: { generatedAt: string | null; classQuizCount: number; reviewCount: number; interventionCount: number }
   pendingCourseNodes: number

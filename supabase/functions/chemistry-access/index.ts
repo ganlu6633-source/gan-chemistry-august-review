@@ -71,13 +71,13 @@ const cardShape = (row: Record<string, unknown>) => ({
 });
 
 async function studentDashboard(studentId: string) {
-  const [profileResult, planResult, stateResult, skillResult] = await Promise.all([
-    supabase.from("chem_students_v2").select("*").eq("id", studentId).single(),
+  const profileResult = await supabase.from("chem_students_v2").select("*").eq("id", studentId).single();
+  if (profileResult.error) throw profileResult.error;
+  const [planResult, stateResult, skillResult] = await Promise.all([
     supabase.from("chem_learning_plans").select("*").eq("student_id", studentId).order("plan_date"),
     supabase.from("chem_student_skill_state").select("*,chem_skills(max_level)").eq("student_id", studentId),
-    supabase.from("chem_skills").select("*").eq("active", true).order("module_id"),
+    supabase.from("chem_skills").select("*").eq("active", true).eq("grade_band", profileResult.data.grade_band).order("module_id"),
   ]);
-  if (profileResult.error) throw profileResult.error;
   for (const result of [planResult, stateResult, skillResult]) if (result.error) throw result.error;
   const states = (stateResult.data || []).map((r) => stateShape(r as never));
   const completed = states.filter((s) => ["verified", "stable", "recovered"].includes(String(s.stability))).length;
@@ -128,7 +128,7 @@ async function authenticate(req: Request) {
   if (!token) return null;
   const { data, error } = await supabase.rpc("chem_resolve_app_session", { p_token_hash: await sha256(token) });
   if (error || !data?.length) return null;
-  return { studentId: data[0].student_id as string, role: data[0].access_role as "student" | "guardian", expiresAt: data[0].expires_at as string };
+  return { studentId: data[0].student_id as string, role: data[0].access_role as "student" | "guardian", expiresAt: data[0].expires_at as string, principalName: data[0].principal_name as string };
 }
 
 Deno.serve(async (req: Request) => {
@@ -137,19 +137,20 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json();
     if (body.action === "login") {
+      const name = String(body.name || "").trim();
       const code = String(body.code || "").trim();
       const rawFingerprint = `${req.headers.get("x-forwarded-for") || "unknown"}|${req.headers.get("user-agent") || "unknown"}`;
       const token = randomToken();
       const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase.rpc("chem_exchange_access_code", {
-        p_code: code, p_fingerprint_hash: await sha256(rawFingerprint), p_token_hash: await sha256(token), p_expires_at: expiresAt,
+        p_name: name, p_code: code, p_fingerprint_hash: await sha256(rawFingerprint), p_token_hash: await sha256(token), p_expires_at: expiresAt,
       });
       if (error) throw error;
-      if (!data?.length) return reply(req, { error: "访问码不正确或尝试过于频繁。" }, 401);
+      if (!data?.length) return reply(req, { error: "姓名或登录码不正确，或尝试过于频繁。" }, 401);
       const identity = data[0];
       const { data: student, error: profileError } = await supabase.from("chem_students_v2").select("display_name").eq("id", identity.student_id).single();
       if (profileError) throw profileError;
-      const session = { role: identity.access_role, token, displayName: student.display_name, expiresAt };
+      const session = { role: identity.access_role, token, displayName: identity.principal_name || student.display_name, expiresAt };
       const dashboard = identity.access_role === "guardian" ? await guardianDashboard(identity.student_id) : await studentDashboard(identity.student_id);
       return reply(req, { session, dashboard });
     }
@@ -164,7 +165,7 @@ Deno.serve(async (req: Request) => {
       if (planError) throw planError;
       const [cards, questions, attemptCount] = await Promise.all([
         supabase.from("chem_knowledge_cards").select("*").in("skill_id", plan.skill_ids).eq("review_status", "approved"),
-        supabase.from("chem_questions").select("*").eq("grade_band", (await supabase.from("chem_students_v2").select("grade_band").eq("id", identity.studentId).single()).data?.grade_band).eq("review_status", "approved").neq("scope_status", "OUT").limit(7),
+        supabase.from("chem_questions").select("*").eq("grade_band", (await supabase.from("chem_students_v2").select("grade_band").eq("id", identity.studentId).single()).data?.grade_band).in("skill_id", plan.skill_ids).eq("review_status", "approved").neq("scope_status", "OUT").limit(7),
         supabase.from("chem_learning_attempts").select("id", { count: "exact", head: true }).eq("plan_day_id", plan.id),
       ]);
       if (cards.error || questions.error || attemptCount.error) throw cards.error || questions.error || attemptCount.error;
