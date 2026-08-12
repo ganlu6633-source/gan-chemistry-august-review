@@ -137,9 +137,14 @@ export interface LearningPlanDay {
   mode: LearningMode
   title: string
   skillIds: string[]
+  knowledgeSummaries: string[]
   estimatedMinutes: number
   source: 'course' | 'exam' | 'memory' | 'mastery' | 'mixed'
   isScheduled: boolean
+  attemptCount: number
+  firstScore: number | null
+  latestScore: number | null
+  latestCompletedAt: string | null
 }
 
 export interface QuestionCandidate {

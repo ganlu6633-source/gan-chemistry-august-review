@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { BookOpen, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, Map as MapIcon, RotateCcw, Sparkles, Trophy } from 'lucide-react'
 import type { KnowledgeCard, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { SKILLS } from '../data/catalog'
@@ -9,6 +9,11 @@ type PlanPayload = { plan: LearningPlanDay; cards: KnowledgeCard[]; questions: Q
 
 const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
   if (plan.date < enrollment) return '加入前｜可补学'
+  if (plan.attemptCount > 0) {
+    if (plan.latestCompletedAt && plan.date > plan.latestCompletedAt.slice(0, 10)) return '已提前完成'
+    if (plan.firstScore !== null && plan.latestScore !== null && plan.latestScore > plan.firstScore) return `复习后提升 ${plan.firstScore}→${plan.latestScore}`
+    return plan.attemptCount > 1 ? `已复习 ${plan.attemptCount} 次` : '已完成'
+  }
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   if (plan.date < today) return '可再次复习'
   if (plan.date > today) return '可提前复习'
@@ -24,8 +29,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
-  const cyclePlans = dashboard.plans.filter((plan) => plan.date >= '2026-08-13' && plan.date <= '2026-09-09')
-  const skillMap = useMemo(() => new Map(dashboard.skillDefinitions.map((skill) => [skill.id, skill])), [dashboard.skillDefinitions])
+  const cyclePlans = dashboard.plans.filter((plan) => plan.date >= '2026-08-01' && plan.date <= '2026-09-09')
 
   async function openPlan(plan: LearningPlanDay) {
     setBusy(true)
@@ -61,7 +65,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
           </section>
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.mode === 'CLASS_QUIZ' ? '课堂回声' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><p>{todayPlan.skillIds.map((id) => skillMap.get(id)?.title).filter(Boolean).join(' · ')}</p><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>不会提前显示后续总题量</span></div></div>
+            <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>不会提前显示后续总题量</span></div></div>
             <button className="primary-button compact" onClick={() => openPlan(todayPlan)} disabled={busy}>{busy ? '正在准备…' : '开始第一轮'}<ChevronRight size={18} /></button>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
@@ -76,10 +80,25 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
   )
 }
 
+function splitCalendarWeeks(plans: LearningPlanDay[]) {
+  const sorted = [...plans].sort((a, b) => a.date.localeCompare(b.date))
+  const weeks: LearningPlanDay[][] = []
+  let cursor = 0
+  while (cursor < sorted.length) {
+    const weekday = new Date(`${sorted[cursor].date}T12:00:00+08:00`).getUTCDay()
+    const remainingInWeek = weekday === 0 ? 1 : 8 - weekday
+    weeks.push(sorted.slice(cursor, cursor + remainingInWeek))
+    cursor += remainingInWeek
+  }
+  return weeks
+}
+
+const weekdayLabel = (date: string) => `周${'日一二三四五六'[new Date(`${date}T12:00:00+08:00`).getUTCDay()]}`
+
 function PlanCalendar({ plans, enrollment, onOpen, busy }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean }) {
-  const weeks = plans.reduce<LearningPlanDay[][]>((acc, plan, index) => { const week = Math.floor(index / 7); (acc[week] ||= []).push(plan); return acc }, [])
-  return <section><div className="page-title"><span className="eyebrow">2026年8月13日—9月9日</span><h1>我的四周学习计划</h1><p>过去可以重做，未来可以提前学；提前完成不会改变原来的计划日期。</p></div>
-    <div className="week-stack">{weeks.map((week, index) => <div className="week-card" key={index}><div className="week-label">第 {index + 1} 周</div><div className="week-grid">{week.map((plan) => <button key={plan.id} className="plan-day" onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)}</span><b>{plan.title}</b><small>{plan.skillIds.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button>)}</div></div>)}</div>
+  const weeks = splitCalendarWeeks(plans)
+  return <section><div className="page-title"><span className="eyebrow">2026年8月1日—9月9日</span><h1>我的长期复习计划</h1><p>从8月1日起按自然周排列；过去可以重做，未来可以提前复习，原定日期始终保留。</p></div>
+    <div className="week-stack">{weeks.map((week, index) => <div className="week-card" key={week[0]?.date ?? index}><div className="week-label">{index === 0 ? '8月起始周' : `第 ${index} 周`}</div><div className="week-grid">{week.map((plan) => <button key={plan.id} className="plan-day" onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span><b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button>)}</div></div>)}</div>
   </section>
 }
 
@@ -120,8 +139,8 @@ function LearningRound({ session, payload, onExit, onComplete }: { session: Sess
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">一分钟知识卡 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1><div className="core-rule">{card.core}</div><details><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b>{card.commonMistakes.join('；')}</div><p><b>小例子：</b>{card.microExample}</p></details></article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
-    <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button className="primary-button" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始小测'}<ChevronRight size={18} /></button></div></section>
+  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">一分钟知识卡 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1><div className="core-rule">{card.core}</div><details><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b>{card.commonMistakes.join('；')}</div><p><b>小例子：</b>{card.microExample}</p></details></article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+    <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button className="primary-button" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
     const isCorrect = selected === question.correctOption

@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { appendAttempt, planDayStatus, scoreComparison } from './plan'
 import type { LearningAttempt, LearningPlanDay } from './types'
 
-const plan: LearningPlanDay = { id: 'p', studentId: 's', date: '2026-08-10', mode: 'REVIEW', title: '复习', skillIds: [], estimatedMinutes: 5, source: 'memory', isScheduled: true }
+const plan: LearningPlanDay = {
+  id: 'p', studentId: 's', date: '2026-08-10', mode: 'REVIEW', title: '复习',
+  skillIds: [], knowledgeSummaries: ['核心概念', '判断依据', '常见误区'],
+  estimatedMinutes: 5, source: 'memory', isScheduled: true,
+  attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null,
+}
 const attempt = (id: string, kind: 'scheduled'|'review', sequence: number, score: number): LearningAttempt => ({ id, studentId: 's', planDayId: 'p', attemptKind: kind, sequence, mode: 'REVIEW', startedAt: '2026-08-10T08:00:00Z', completedAt: '2026-08-10T08:05:00Z', answers: [], firstScore: score })
 
 describe('learning plan history', () => {

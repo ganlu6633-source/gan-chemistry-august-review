@@ -1,8 +1,13 @@
 import { expect, test } from '@playwright/test'
 
+const reviewPlans = Array.from({ length: 40 }, (_, index) => {
+  const date = new Date(Date.UTC(2026, 7, 1 + index)).toISOString().slice(0, 10)
+  return { id: `p${index + 1}`, studentId: 'demo', date, mode: 'REVIEW', title: `第${index + 1}天复习`, skillIds: ['H1-CLASSIFY'], knowledgeSummaries: ['分类依据', '氧化物判别', '常见误区'], estimatedMinutes: 16, source: 'mixed', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null }
+})
+
 const studentDashboard = {
   profile: { id: 'demo', displayName: '测试学生', gradeBand: '高一', enrollmentStartDate: '2026-08-01', needsInitialDiagnostic: false },
-  plans: [{ id: 'p1', studentId: 'demo', date: '2026-08-12', mode: 'REVIEW', title: '物质分类与氧化物', skillIds: ['H1-CLASSIFY','H1-OXIDE'], estimatedMinutes: 6, source: 'mixed', isScheduled: true }],
+  plans: reviewPlans,
   skillStates: [{ studentId:'demo', skillId:'H1-CLASSIFY', verifiedLevel:2, candidateLevel:3, maxLevel:4, stability:'verified', evidence:[], consecutiveErrors:0, nextReviewAt:null, reviewIntervalIndex:1, lastReviewedAt:null, teacherIntervention:false }],
   skillDefinitions: [{ id:'H1-CLASSIFY', title:'物质分类', moduleId:'F01', gradeBand:'高一', maxLevel:4, examImportance:5, examDepth:3, prerequisites:[], levelCriteria:[] }],
   todayQuestionCount: 6,
@@ -50,6 +55,11 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.getByRole('button', { name: /能力星图/ })).toBeVisible()
   await expect(page.getByText('家长端')).toHaveCount(0)
   await page.getByRole('button', { name: /学习计划/ }).click()
+  await expect(page.locator('.plan-day')).toHaveCount(40)
+  await expect(page.locator('.week-card')).toHaveCount(7)
+  await expect(page.locator('.plan-day').first()).toContainText('08-01 · 周六')
+  await expect(page.locator('.plan-day').last()).toContainText('09-09 · 周三')
+  await expect(page.locator('.plan-day').first().locator('li')).toHaveCount(3)
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 

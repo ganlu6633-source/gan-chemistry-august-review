@@ -54,11 +54,20 @@ const stateShape = (row: Record<string, unknown> & { chem_skills?: Record<string
   nextReviewAt: row.next_review_at, reviewIntervalIndex: row.review_interval_index,
   lastReviewedAt: row.last_reviewed_at, teacherIntervention: row.teacher_intervention,
 });
-const planShape = (row: Record<string, unknown>) => ({
-  id: row.id, studentId: row.student_id, date: row.plan_date, mode: row.mode, title: row.title,
-  skillIds: row.skill_ids || [], estimatedMinutes: row.estimated_minutes, source: row.source,
-  isScheduled: row.is_scheduled,
-});
+const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<string, unknown>> = []) => {
+  const attempts = attemptRows
+    .filter((attempt) => attempt.plan_day_id === row.id)
+    .sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
+  const first = attempts.find((attempt) => attempt.attempt_kind === "scheduled") || attempts[0];
+  const latest = attempts.at(-1);
+  return {
+    id: row.id, studentId: row.student_id, date: row.plan_date, mode: row.mode, title: row.title,
+    skillIds: row.skill_ids || [], knowledgeSummaries: row.knowledge_summaries || [],
+    estimatedMinutes: row.estimated_minutes, source: row.source, isScheduled: row.is_scheduled,
+    attemptCount: attempts.length, firstScore: first?.first_score ?? null,
+    latestScore: latest?.first_score ?? null, latestCompletedAt: latest?.completed_at ?? null,
+  };
+};
 const questionShape = (row: Record<string, unknown>) => ({
   id: row.id, motherId: row.mother_id, skillId: row.skill_id, level: row.level,
   gradeBand: row.grade_band, stem: row.stem, options: row.options, correctOption: row.correct_option,
@@ -74,17 +83,18 @@ const cardShape = (row: Record<string, unknown>) => ({
 async function studentDashboard(studentId: string) {
   const profileResult = await supabase.from("chem_students_v2").select("*").eq("id", studentId).single();
   if (profileResult.error) throw profileResult.error;
-  const [planResult, stateResult, skillResult] = await Promise.all([
+  const [planResult, stateResult, skillResult, attemptResult] = await Promise.all([
     supabase.from("chem_learning_plans").select("*").eq("student_id", studentId).order("plan_date"),
     supabase.from("chem_student_skill_state").select("*,chem_skills(max_level)").eq("student_id", studentId),
     supabase.from("chem_skills").select("*").eq("active", true).eq("grade_band", profileResult.data.grade_band).order("module_id"),
+    supabase.from("chem_learning_attempts").select("plan_day_id,attempt_kind,sequence,first_score,completed_at").eq("student_id", studentId).order("completed_at"),
   ]);
-  for (const result of [planResult, stateResult, skillResult]) if (result.error) throw result.error;
+  for (const result of [planResult, stateResult, skillResult, attemptResult]) if (result.error) throw result.error;
   const states = (stateResult.data || []).map((r) => stateShape(r as never));
   const completed = states.filter((s) => ["verified", "stable", "recovered"].includes(String(s.stability))).length;
   return {
     profile: profileShape(profileResult.data),
-    plans: (planResult.data || []).map(planShape),
+    plans: (planResult.data || []).map((plan) => planShape(plan, attemptResult.data || [])),
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
     todayQuestionCount: 6,
