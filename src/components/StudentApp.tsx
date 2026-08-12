@@ -77,7 +77,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
 
 function PlanCalendar({ plans, enrollment, onOpen, busy }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean }) {
   const weeks = plans.reduce<LearningPlanDay[][]>((acc, plan, index) => { const week = Math.floor(index / 7); (acc[week] ||= []).push(plan); return acc }, [])
-  return <section><div className="page-title"><span className="eyebrow">从2026年8月1日开始</span><h1>我的长期学习计划</h1><p>过去可以重做，未来可以提前学；提前完成不会改变原来的计划日期。</p></div>
+  return <section><div className="page-title"><span className="eyebrow">2026年8月13日—9月9日</span><h1>我的四周学习计划</h1><p>过去可以重做，未来可以提前学；提前完成不会改变原来的计划日期。</p></div>
     <div className="week-stack">{weeks.map((week, index) => <div className="week-card" key={index}><div className="week-label">第 {index + 1} 周</div><div className="week-grid">{week.map((plan) => <button key={plan.id} className="plan-day" onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)}</span><b>{plan.title}</b><small>{plan.skillIds.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button>)}</div></div>)}</div>
   </section>
 }
@@ -146,6 +146,6 @@ function LearningRound({ session, payload, onExit, onComplete }: { session: Sess
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><RotateCcw /><p>{text}</p></div> }
 
 function moduleName(id: string) {
-  const names: Record<string, string> = { F01: '物质世界', F02: '元素规律', F03: '微粒世界', F04: '离子反应', F05: '反应世界', F06: '计量世界', E01: '钠的世界', E02: '氯的世界', H201: '速率与平衡', H202: '平衡计算', H203: '水溶液', H204: '电化学', H301: '离子基础', H302: '工艺流程', H303: '有机世界', H304: '结构世界', J01: '微粒启蒙', J02: '物质基础' }
+  const names: Record<string, string> = { F01: '物质世界', F02: '元素规律', F03: '微粒世界', F04: '离子反应', F05: '反应世界', F06: '计量世界', 'H1-F01': '物质分类', 'H1-F01A': '电解质基础', 'H1-F02': '元素周期律', 'H1-F03': '氧化还原', 'H1-F04': '离子反应', 'H1-F05': '物质的量', 'H1-F05A': '物质的量基础', 'H1-F06': '钠和氯', E01: '钠的世界', E02: '氯的世界', H201: '速率与平衡', H202: '平衡计算', H203: '水溶液', H204: '电化学', H301: '离子基础', H302: '工艺流程', H303: '有机世界', H304: '结构世界', J01: '微粒启蒙', J02: '物质基础' }
   return names[id] ?? id
 }
