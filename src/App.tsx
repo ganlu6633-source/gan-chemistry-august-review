@@ -46,6 +46,6 @@ function AccessExperience() {
   if (loading) return <AppShell><div className="center-loading">正在读取属于你的学习档案…</div></AppShell>
   if (!session || !dashboard) return <AppShell>{error && <div className="inline-alert">{error}</div>}<AccessGate onSuccess={success} /></AppShell>
   if (session.role === 'student') return <AppShell identity={session.displayName} onLogout={logout}><StudentApp session={session} initialDashboard={dashboard as StudentDashboardData} onDashboard={setDashboard} /></AppShell>
-  if (session.role === 'guardian') return <AppShell identity={`${session.displayName}家长`} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} /></AppShell>
+  if (session.role === 'guardian') return <AppShell identity={session.displayName} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} /></AppShell>
   return <AppShell><AccessGate onSuccess={success} /></AppShell>
 }

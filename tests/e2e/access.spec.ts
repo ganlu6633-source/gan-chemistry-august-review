@@ -49,6 +49,8 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.getByRole('heading', { name: /测试学生，今天先把/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /能力星图/ })).toBeVisible()
   await expect(page.getByText('家长端')).toHaveCount(0)
+  await page.getByRole('button', { name: /学习计划/ }).click()
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 
 test('guardian code routes directly to the concise guardian explanation', async ({ page }) => {

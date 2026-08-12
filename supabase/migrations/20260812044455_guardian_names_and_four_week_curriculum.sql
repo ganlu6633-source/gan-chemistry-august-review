@@ -10,11 +10,18 @@ create table if not exists app_private.chem_guardian_contacts (
 );
 
 alter table app_private.chem_guardian_contacts enable row level security;
+drop policy if exists guardian_contacts_deny_client_access on app_private.chem_guardian_contacts;
+create policy guardian_contacts_deny_client_access
+  on app_private.chem_guardian_contacts
+  for all
+  to public
+  using (false)
+  with check (false);
 alter table app_private.chem_app_sessions add column if not exists principal_name text;
 
 drop function if exists public.chem_exchange_access_code(text,text,text,timestamptz);
 
-create function public.chem_exchange_access_code(
+create or replace function public.chem_exchange_access_code(
   p_name text,
   p_code text,
   p_fingerprint_hash text,
