@@ -29,7 +29,9 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
-  const cyclePlans = dashboard.plans.filter((plan) => plan.date >= '2026-08-01' && plan.date <= '2026-09-09')
+  const cyclePlans = dashboard.plans
+    .filter((plan) => plan.mode === 'REVIEW')
+    .sort((a, b) => a.date.localeCompare(b.date))
 
   async function openPlan(plan: LearningPlanDay) {
     setBusy(true)
@@ -97,8 +99,11 @@ const weekdayLabel = (date: string) => `周${'日一二三四五六'[new Date(`$
 
 function PlanCalendar({ plans, enrollment, onOpen, busy }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean }) {
   const weeks = splitCalendarWeeks(plans)
-  return <section><div className="page-title"><span className="eyebrow">2026年8月1日—9月9日</span><h1>我的长期复习计划</h1><p>从8月1日起按自然周排列；过去可以重做，未来可以提前复习，原定日期始终保留。</p></div>
-    <div className="week-stack">{weeks.map((week, index) => <div className="week-card" key={week[0]?.date ?? index}><div className="week-label">{index === 0 ? '8月起始周' : `第 ${index} 周`}</div><div className="week-grid">{week.map((plan) => <button key={plan.id} className="plan-day" onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span><b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button>)}</div></div>)}</div>
+  const first = plans[0]?.date
+  const last = plans.at(-1)?.date
+  const displayDate = (date?: string) => date ? `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日` : ''
+  return <section><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span><h1>我的长期复习计划</h1><p>{displayDate(first)}是复习第1天；此后按自然周排列，过去可以重做，未来可以提前预习。</p></div>
+    <div className="week-stack">{weeks.map((week, index) => <div className="week-card" key={week[0]?.date ?? index}><div className="week-label">{index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => <button key={plan.id} className="plan-day" onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span><b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button>)}</div></div>)}</div>
   </section>
 }
 

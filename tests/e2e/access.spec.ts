@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 const reviewPlans = Array.from({ length: 40 }, (_, index) => {
-  const date = new Date(Date.UTC(2026, 7, 1 + index)).toISOString().slice(0, 10)
+  const date = new Date(Date.UTC(2026, 7, 15 + index)).toISOString().slice(0, 10)
   return { id: `p${index + 1}`, studentId: 'demo', date, mode: 'REVIEW', title: `第${index + 1}天复习`, skillIds: ['H1-CLASSIFY'], knowledgeSummaries: ['分类依据', '氧化物判别', '常见误区'], estimatedMinutes: 16, source: 'mixed', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null }
 })
 
@@ -57,8 +57,10 @@ test('student code routes to student experience without guardian entry', async (
   await page.getByRole('button', { name: /学习计划/ }).click()
   await expect(page.locator('.plan-day')).toHaveCount(40)
   await expect(page.locator('.week-card')).toHaveCount(7)
-  await expect(page.locator('.plan-day').first()).toContainText('08-01 · 周六')
-  await expect(page.locator('.plan-day').last()).toContainText('09-09 · 周三')
+  await expect(page.locator('.page-title')).toContainText('8月15日—9月23日')
+  await expect(page.locator('.page-title')).toContainText('8月15日是复习第1天')
+  await expect(page.locator('.plan-day').first()).toContainText('08-15 · 周六')
+  await expect(page.locator('.plan-day').last()).toContainText('09-23 · 周三')
   await expect(page.locator('.plan-day').first().locator('li')).toHaveCount(3)
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })

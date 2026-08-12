@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { REVIEW_TOPICS, reviewSummaries } from './review-topic-map.mjs'
 
 const d = (title, skills, minutes = 18) => ({ title, skills, minutes, mode: 'REVIEW' })
+const cohortStarts = { high1_current: '2026-08-15' }
+const defaultStart = '2026-08-01'
 const history = {
   junior_foundation: [
     d('化学变化与物理变化', ['J_CHEM_LANG'],14), d('元素符号与粒子个数', ['J_CHEM_LANG'],14), d('质子数与元素身份', ['J09_ATOM'],15), d('原子和离子的转换', ['J09_ATOM'],15), d('实验安全与仪器选择', ['J_EXPERIMENT'],14), d('化学式与物质组成', ['J_CHEM_LANG','J09_ATOM'],17), d('读数与误差方向', ['J_EXPERIMENT'],15), d('宏观—微观—符号连接', ['J_CHEM_LANG','J09_ATOM'],17), d('气密性与操作顺序', ['J_EXPERIMENT'],16), d('初中基础阶段回收', ['J_CHEM_LANG','J09_ATOM','J_EXPERIMENT'],20), d('元素与原子结构回想', ['J09_ATOM'],15), d('初中化学基础当天回收', ['J_CHEM_LANG','J09_ATOM'],18),
@@ -26,19 +28,19 @@ const quote = (value) => `'${String(value).replaceAll("'", "''")}'`
 const historyRows = []
 for (const [cohort, days] of Object.entries(history)) days.forEach((day, index) => {
   const summaries = reviewSummaries(day.skills, index)
-  historyRows.push(`(${quote(cohort)},${index},${quote(day.title)},array[${day.skills.map(quote).join(',')}]::text[],array[${summaries.map(quote).join(',')}]::text[],${day.minutes})`)
+  historyRows.push(`(${quote(cohort)},date ${quote(cohortStarts[cohort] ?? defaultStart)},${index},${quote(day.title)},array[${day.skills.map(quote).join(',')}]::text[],array[${summaries.map(quote).join(',')}]::text[],${day.minutes})`)
 })
 const topicRows = Object.entries(REVIEW_TOPICS).map(([skillId, topics]) => `(${quote(skillId)},array[${topics.map(quote).join(',')}]::text[])`)
 
 const sql = `-- Completes the REVIEW-only August calendar without changing the independent quiz site.\n` +
 `begin;\n` +
 `alter table public.chem_learning_plans add column if not exists knowledge_summaries text[] not null default array[]::text[];\n` +
-`create temporary table review_history_template(cohort text,day_index integer,title text,skill_ids text[],knowledge_summaries text[],estimated_minutes smallint) on commit drop;\n` +
+`create temporary table review_history_template(cohort text,start_date date,day_index integer,title text,skill_ids text[],knowledge_summaries text[],estimated_minutes smallint) on commit drop;\n` +
 `insert into review_history_template values\n${historyRows.join(',\n')};\n` +
 `insert into public.chem_learning_plans(student_id,plan_date,mode,title,skill_ids,knowledge_summaries,estimated_minutes,source,is_scheduled)\n` +
-`select s.id,date '2026-08-01'+t.day_index,'REVIEW',t.title,t.skill_ids,t.knowledge_summaries,t.estimated_minutes,'mixed',true\n` +
+`select s.id,t.start_date+t.day_index,'REVIEW',t.title,t.skill_ids,t.knowledge_summaries,t.estimated_minutes,'mixed',true\n` +
 `from public.chem_students_v2 s join review_history_template t on t.cohort=s.metadata->>'curriculumCohort'\n` +
-`where s.record_status <> 'legacy' and not exists (select 1 from public.chem_learning_plans p where p.student_id=s.id and p.plan_date=date '2026-08-01'+t.day_index);\n` +
+`where s.record_status <> 'legacy' and not exists (select 1 from public.chem_learning_plans p where p.student_id=s.id and p.plan_date=t.start_date+t.day_index);\n` +
 `create temporary table review_skill_topics(skill_id text primary key,topics text[]) on commit drop;\n` +
 `insert into review_skill_topics values\n${topicRows.join(',\n')};\n` +
 `update public.chem_learning_plans p set\n` +
@@ -51,8 +53,8 @@ const sql = `-- Completes the REVIEW-only August calendar without changing the i
 `  )\n` +
 `from public.chem_students_v2 s\n` +
 `where p.student_id=s.id and s.record_status <> 'legacy' and s.metadata->>'curriculumCohort' is not null\n` +
-`  and p.plan_date between date '2026-08-01' and date '2026-09-09';\n` +
+`  and p.plan_date between date '2026-08-01' and date '2026-09-23';\n` +
 `commit;\n`
 
 writeFileSync(resolve('supabase/migrations/20260812080000_complete_review_calendar.sql'), sql, 'utf8')
-console.log(JSON.stringify({ cohorts: Object.keys(history).length, historyDays: historyRows.length, topicSkills: topicRows.length, start: '2026-08-01', end: '2026-09-09' }))
+console.log(JSON.stringify({ cohorts: Object.keys(history).length, historyDays: historyRows.length, topicSkills: topicRows.length, defaultStart, high1CurrentStart: cohortStarts.high1_current }))
