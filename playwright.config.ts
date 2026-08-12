@@ -6,7 +6,7 @@ export default defineConfig({
   forbidOnly: true,
   retries: 1,
   reporter: [['html', { open: 'never' }], ['list']],
-  use: { baseURL: 'http://127.0.0.1:4173', trace: 'on-first-retry', serviceWorkers: 'block' },
+  use: { baseURL: 'http://127.0.0.1:4173', trace: 'on-first-retry' },
   webServer: {
     command: 'pnpm build && pnpm preview --host 127.0.0.1',
     url: 'http://127.0.0.1:4173/gan-chemistry-august-review/',

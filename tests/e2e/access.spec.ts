@@ -49,6 +49,8 @@ test('access page contains name and code inputs with no role selector', async ({
   await expect(page.getByRole('radio')).toHaveCount(0)
   await expect(page.getByRole('combobox')).toHaveCount(0)
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
+  await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).filter((registration) => registration.scope.includes('/gan-chemistry-august-review/')).length)).toBe(0)
+  await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter((key) => key.startsWith('gan-chemistry-shell')).length)).toBe(0)
 })
 
 test('student code routes to student experience without guardian entry', async ({ page }) => {

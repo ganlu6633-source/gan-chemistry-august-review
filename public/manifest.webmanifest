@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#f3f7f9",
   "theme_color": "#071c33",
-  "description": "课堂小测、长期复习与化学能力星图",
+  "description": "理解规律、灵活迁移、持续成长",
   "icons": [
     { "src": "chemistry-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]

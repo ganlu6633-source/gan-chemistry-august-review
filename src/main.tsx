@@ -13,5 +13,14 @@ createRoot(document.getElementById('root')!).render(
 )
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`))
+  window.addEventListener('load', async () => {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.all(registrations
+      .filter((registration) => registration.scope.includes('/gan-chemistry-august-review/'))
+      .map((registration) => registration.unregister()))
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.filter((key) => key.startsWith('gan-chemistry-shell')).map((key) => caches.delete(key)))
+    }
+  })
 }
