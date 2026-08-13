@@ -79,7 +79,6 @@ const cardShape = (row: Record<string, unknown>) => ({
   steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
   structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
   asset: row.asset, reviewStatus: row.review_status,
-  structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
 });
 
 function formatDuration(value: unknown) {
