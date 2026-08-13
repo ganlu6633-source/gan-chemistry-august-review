@@ -32,13 +32,14 @@ const classificationCard = {
   detail: '每次都从物质出发，一层一层判断。', steps: ['先分纯净物和混合物', '再分单质和化合物'],
   commonMistakes: ['把溶液当纯净物'], microExample: 'H₂SO₄是二元强酸和含氧酸。', reviewStatus: 'approved',
   structuredContent: {
-    version: 1, intro: '假设你现在完全不记得：从最上面的物质开始，一层一层往下走。',
-    rootTree: { label: '物质', rule: '先按样品中有几种物质分类。', children: [
+    version: 2, intro: '假设你现在完全不记得：从最上面的物质开始，一层一层往下走。',
+    overview: ['先分纯净物和混合物。', '纯净物再分单质和化合物。', '化合物继续分氧化物、酸、碱、盐。', '横向再判断电解质。'],
+    rootTree: { label: '物质', rule: '先按样品中有几种物质分类。', examples: ['空气是混合物', '液氯是纯净物'], visualSteps: ['物质', '数物质种类', '纯净物/混合物'], children: [
       { label: '混合物', rule: '含两种或两种以上物质。', examples: ['空气', '盐酸'] },
-      { label: '纯净物', rule: '只含一种物质。', children: [
-        { label: '单质', rule: '纯净物中只含一种元素。' },
-        { label: '化合物', rule: '纯净物中含两种或两种以上元素。', children: [
-          { label: '无机化合物', rule: '本讲继续分氧化物、酸、碱和盐。' },
+      { label: '纯净物', rule: '只含一种物质。', examples: ['液氯Cl₂'], children: [
+        { label: '单质', rule: '纯净物中只含一种元素。', examples: ['O₂'] },
+        { label: '化合物', rule: '纯净物中含两种或两种以上元素。', examples: ['H₂O'], children: [
+          { label: '无机化合物', rule: '本讲继续分氧化物、酸、碱和盐。', examples: ['NaCl'] },
         ] },
       ] },
     ] },
@@ -49,7 +50,7 @@ const classificationCard = {
       ] },
       { title: '碱也要沿三条独立的线分类', summary: '元数、强弱和溶解性分别判断。', items: [
         { label: '按可电离的OH⁻个数', rule: '分一元碱、二元碱和三元碱。', examples: ['一元：NaOH', '二元：Ca(OH)₂'] },
-        { label: '按溶解性', rule: '分易溶、微溶和难溶。', caution: 'Ca(OH)₂微溶但属于强碱。' },
+        { label: '按溶解性', rule: '分易溶、微溶和难溶。', examples: ['微溶：Ca(OH)₂'], caution: 'Ca(OH)₂微溶但属于强碱。' },
       ] },
     ],
     workedExamples: [{ substance: 'H₂SO₄', path: '纯净物 → 化合物 → 无机化合物 → 酸', labels: ['二元酸', '强酸', '含氧酸'] }],
@@ -58,6 +59,24 @@ const classificationCard = {
 }
 
 const classificationQuestion = { id:'q-classify', motherId:'m-classify', skillId:'H1_CLASSIFY', level:1, gradeBand:'高一', stem:'物质分类的第一个分叉是', options:['单质和化合物','纯净物和混合物','酸和碱','金属和非金属'], correctOption:1, explanation:'先分纯净物和混合物。', scaffold:'从物质树根开始。', reviewStatus:'approved', scopeStatus:'IN', sourceKind:'teacher_original' }
+const redoxCard = {
+  id: 'KC_H1_REDOX', skillId: 'H1_REDOX', title: '氧化还原：把电子转移的逻辑完整接起来',
+  core: '标价只是入口，电子守恒才是主线。', detail: '从化合价变化追到得失电子。',
+  steps: ['标价', '找升降', '配电子', '查守恒'], commonMistakes: ['只背口诀'], microExample: 'FeS₂被O₂氧化。', reviewStatus: 'approved',
+  structuredContent: {
+    version: 2,
+    intro: '先标出反应前后化合价，再追踪得失电子，最后用守恒把方程式闭合。',
+    overview: ['标出反应前后化合价。', '确定升降与电子数。', '求最小公倍数并定系数。', '用原子、电荷和电子守恒校验。'],
+    sections: [
+      { title: '标价', summary: '先找真正变价的元素。', items: [{ label: '标反应前后价态', rule: '根据单质为0和化合价代数和规则，标出同一元素反应前后的价态。', examples: ['【示范：FeS₂被O₂氧化】FeS₂中Fe为+2、S为-1，O₂中O为0；产物中Fe为+3、SO₄²⁻中S为+6。'], visualSteps: ['读反应式', '标价', '找变价元素'] }] },
+      { title: '升降与电子数', summary: '每个粒子的变价原子数也要计入。', items: [{ label: '计算得失电子', rule: '化合价变化数乘变价原子个数，得到一个粒子得失的电子数。', examples: ['【示范：FeS₂被O₂氧化】Fe由+2到+3失1e⁻，两个S由-1到+6共失14e⁻，所以每个FeS₂共失15e⁻。'], visualSteps: ['Fe失1e⁻', '2个S失14e⁻', '每个FeS₂失15e⁻'] }] },
+      { title: '最小公倍数', summary: '总失电子必须等于总得电子。', items: [{ label: '先定氧化还原骨架', rule: '求升降电子数的最小公倍数，先确定氧化剂、还原剂及对应产物的系数。', examples: ['【示范：FeS₂被O₂氧化】O₂中两个O由0到-2共得4e⁻；15和4的最小公倍数是60，先定4FeS₂和15O₂。'], visualSteps: ['失15e⁻', '得4e⁻', '最小公倍数60', '4:15'] }] },
+      { title: '守恒校验', summary: '先补介质，再查三类守恒。', items: [{ label: '补齐并复核', rule: '按酸碱介质补H₂O、H⁺或OH⁻，最后核对原子、电荷与得失电子总数。', examples: ['【示范：FeS₂被O₂氧化】4FeS₂+15O₂+2H₂O=4Fe³⁺+8SO₄²⁻+4H⁺；Fe、S、O、H原子守恒，左右总电荷均为0。'], visualSteps: ['补H₂O/H⁺', '查原子', '查电荷', '查电子'] }] },
+    ],
+    workedExamples: [{ substance: 'FeS₂被O₂氧化', path: '标价→升降电子数→最小公倍数→补介质→三重守恒。', labels: ['标价', '电子数', '60', '守恒'] }],
+    checkpoints: ['我能正确标价。', '我能计算一个粒子的电子数。', '我会用最小公倍数定系数。', '我会做三类守恒检查。'],
+  },
+}
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/functions/v1/chemistry-access', async (route) => {
@@ -66,7 +85,7 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ status: 204, headers: { ...responseHeaders, 'Access-Control-Allow-Headers': 'apikey,content-type,x-app-session' } })
       return
     }
-    const body = route.request().postDataJSON() as { action: string; name?: string; code?: string }
+    const body = route.request().postDataJSON() as { action: string; name?: string; code?: string; data?: { planId?: string } }
     if (body.action === 'login') {
       if (body.code === '33333333') {
         await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ session: { role: 'teacher', token: 'teacher-test-token', displayName: '甘老师', expiresAt: '2099-01-01T00:00:00Z' } }) })
@@ -77,7 +96,8 @@ test.beforeEach(async ({ page }) => {
       return
     }
     if (body.action === 'start_plan') {
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: reviewPlans[0], cards: [classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
+      const useRedox = body.data?.planId === 'p2'
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: useRedox ? reviewPlans[1] : reviewPlans[0], cards: [useRedox ? redoxCard : classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: body.action === 'guardian_dashboard' ? guardianDashboard : studentDashboard }) })
@@ -129,7 +149,11 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.locator('.plan-day').first().locator('li')).toHaveCount(3)
   await page.locator('.plan-day').first().click()
   await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '物质分类总树' })).toBeVisible()
+  await expect(page.locator('.quick-recall')).toContainText('30秒梗概')
+  await expect(page.locator('.quick-recall')).toContainText('先分纯净物和混合物')
+  await expect(page.locator('.classification-map')).not.toBeVisible()
+  await page.locator('.full-explanation > summary').click()
+  await expect(page.getByRole('heading', { name: '知识总树' })).toBeVisible()
   await expect(page.locator('.knowledge-tree')).toContainText('混合物')
   await expect(page.locator('.knowledge-tree')).toContainText('纯净物')
   await expect(page.locator('.knowledge-tree')).toContainText('单质')
@@ -140,6 +164,11 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.locator('.classification-map')).toContainText('二元酸')
   await expect(page.locator('.classification-map')).toContainText('多元酸')
   await expect(page.locator('.classification-map')).toContainText('微溶但属于强碱')
+  await expect(page.locator('.classification-item')).toHaveCount(4)
+  await expect(page.locator('.classification-item .point-demo')).toHaveCount(4)
+  await expect(page.locator('.classification-item .memory-diagram')).toHaveCount(4)
+  await expect(page.locator('.knowledge-tree .point-demo')).toHaveCount(6)
+  await expect(page.locator('.knowledge-tree .memory-diagram')).toHaveCount(6)
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 
@@ -151,6 +180,26 @@ test('guardian code routes directly to the concise guardian explanation', async 
   await expect(page.getByRole('heading', { name: '测试学生的化学成长说明' })).toBeVisible()
   await expect(page.getByText('真实问题不回避')).toBeVisible()
   await expect(page.locator('body')).not.toContainText('下节课单独追问')
+})
+
+test('a full zero-forgetting card pairs every redox point with a demo and visual flow', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: /学习计划/ }).click()
+  await page.locator('.plan-day').nth(1).click()
+  await expect(page.getByRole('heading', { name: '氧化还原：把电子转移的逻辑完整接起来' })).toBeVisible()
+  await expect(page.locator('.quick-recall')).toContainText('求最小公倍数并定系数')
+  await expect(page.locator('.classification-map')).not.toBeVisible()
+  await page.locator('.full-explanation > summary').click()
+  await expect(page.locator('.classification-item')).toHaveCount(4)
+  await expect(page.locator('.classification-item .point-demo')).toHaveCount(4)
+  await expect(page.locator('.classification-item .memory-diagram')).toHaveCount(4)
+  await expect(page.locator('.classification-map')).toContainText('Fe由+2到+3失1e⁻')
+  await expect(page.locator('.classification-map')).toContainText('标价')
+  await expect(page.locator('.classification-map')).toContainText('最小公倍数')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 
 test('teacher name and code use the same entry and open the private workspace', async ({ page }) => {

@@ -123,6 +123,7 @@ export interface KnowledgeTreeNode {
   label: string
   rule: string
   examples?: string[]
+  visualSteps?: string[]
   caution?: string
   children?: KnowledgeTreeNode[]
 }
@@ -142,10 +143,13 @@ export interface KnowledgeWorkedExample {
 export interface StructuredKnowledgeContent {
   version: number
   intro: string
-  rootTree: KnowledgeTreeNode
+  overview?: string[]
+  rootTree?: KnowledgeTreeNode
   sections: KnowledgeSection[]
   workedExamples?: KnowledgeWorkedExample[]
   checkpoints?: string[]
+  scopeNote?: string
+  sourceBasis?: string
 }
 
 export interface CourseMapNode {

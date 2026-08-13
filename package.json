@@ -9,9 +9,10 @@
     "publish:static": "pnpm build && node scripts/publish-static.mjs",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
+    "validate:content": "node scripts/validate-zero-forgetting-content.mjs && node scripts/audit-science-content.mjs",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check": "pnpm lint && pnpm test && pnpm build",
+    "check": "pnpm validate:content && pnpm lint && pnpm test && pnpm build",
     "preview": "vite preview"
   },
   "dependencies": {
