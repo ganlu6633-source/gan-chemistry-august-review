@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, KeyRound, LayoutDashboard, LogIn, MessageSquareText, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
 import type { TeacherDashboardData, TeacherObservation } from '../domain/types'
@@ -19,11 +19,24 @@ function TeacherWorkspace() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
-  async function refresh() {
-    setLoading(true); setError('')
-    try { const result = await loadTeacherDashboard(); setDashboard(result.dashboard) } catch (reason) { setError(reason instanceof Error ? reason.message : '教师数据读取失败。') } finally { setLoading(false) }
-  }
-  useEffect(() => { void refresh() }, [])
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    setError('')
+    try { const result = await loadTeacherDashboard(); setDashboard(result.dashboard) } catch (reason) { setError(reason instanceof Error ? reason.message : '教师数据读取失败。') } finally { if (!silent) setLoading(false) }
+  }, [])
+  useEffect(() => {
+    void refresh()
+    const silentRefresh = () => { void refresh(true) }
+    const onVisibility = () => { if (document.visibilityState === 'visible') silentRefresh() }
+    const timer = window.setInterval(silentRefresh, 10000)
+    window.addEventListener('focus', silentRefresh)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', silentRefresh)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [refresh])
 
   return <div className="teacher-workspace"><aside className="teacher-sidebar"><div className="teacher-brand"><Shield /><div><b>甘老师工作台</b><span>证据驱动教学</span></div></div><nav>
     <button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}><LayoutDashboard />今日总览</button>
@@ -34,7 +47,7 @@ function TeacherWorkspace() {
     <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings2 />权限与访问码</button>
   </nav><button className="logout-button" onClick={() => { clearAccessSession(); window.location.assign(`${window.location.origin}${import.meta.env.BASE_URL}`) }}><LogIn />退出登录</button></aside>
   <main className="teacher-main">{error && <div className="inline-alert">{error}</div>}{loading || !dashboard ? <div className="center-loading"><RefreshCw className="spin" />读取统一数据层…</div> : <>
-    {view === 'overview' && <TeacherOverview dashboard={dashboard} onRefresh={refresh} />}
+    {view === 'overview' && <TeacherOverview dashboard={dashboard} onRefresh={() => { void refresh() }} />}
     {view === 'observation' && <ObservationForm dashboard={dashboard} />}
     {view === 'students' && <StudentTable dashboard={dashboard} />}
     {view === 'plans' && <PlanEditor dashboard={dashboard} />}
@@ -44,10 +57,17 @@ function TeacherWorkspace() {
 }
 
 function TeacherOverview({ dashboard, onRefresh }: { dashboard: TeacherDashboardData; onRefresh: () => void }) {
-  return <><div className="teacher-page-head"><div><span className="eyebrow">北京时间凌晨1点自动生成</span><h1>今天最值得看的事</h1></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={17} />刷新证据</button></div>
-    <div className="teacher-metrics"><article><Users /><b>{dashboard.students.length}</b><span>统一学生档案</span></article><article><CheckCircle2 /><b>{dashboard.dailySummary.classQuizCount}</b><span>课堂小测完成</span></article><article><RefreshCw /><b>{dashboard.dailySummary.reviewCount}</b><span>长期复习完成</span></article><article><AlertCircle /><b>{dashboard.dailySummary.interventionCount}</b><span>建议教师介入</span></article></div>
+  return <><div className="teacher-page-head"><div><span className="eyebrow">小测完成后自动更新（约10秒）</span><h1>今天最值得看的事</h1></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={17} />刷新证据</button></div>
+    <div className="teacher-metrics"><article><Users /><b>{dashboard.students.length}</b><span>统一学生档案</span></article><article><CheckCircle2 /><b>{dashboard.dailySummary.classQuizCount}</b><span>即时小测轮次</span></article><article><RefreshCw /><b>{dashboard.dailySummary.reviewCount}</b><span>长期复习完成</span></article><article><AlertCircle /><b>{dashboard.dailySummary.interventionCount}</b><span>建议教师介入</span></article></div>
+    <section className="teacher-panel"><div className="panel-head"><h2>今日即时小测</h2><span>{dashboard.dailySummary.quizCompletedStudentCount}/{dashboard.dailySummary.quizRosterCount} 名学生已完成 · 共 {dashboard.dailySummary.classQuizCount} 轮</span></div><div className="audit-list">{dashboard.recentQuizSessions.map((session) => <article key={session.id}><div><b>{session.studentName} · 第{session.round}轮</b><p>{session.trainingTheme} · {new Date(session.completedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}{session.wrongTags.length ? ` · 需巩固：${session.wrongTags.join('、')}` : ' · 本轮无错题'}{session.slowTags.length ? ` · 偏慢：${session.slowTags.join('、')}` : ''}</p></div><div className="quiz-session-score"><b>{session.correctCount}/{session.totalCount}</b><span>{formatDuration(session.totalSec)}</span></div></article>)}{!dashboard.recentQuizSessions.length && <div className="empty-state"><RefreshCw /><p>今天还没有学生完成即时小测。</p></div>}</div></section>
     <section className="teacher-panel"><div className="panel-head"><h2>优先提醒</h2><span>只显示3—5件最值得看的事</span></div><div className="alert-list">{dashboard.alerts.slice(0,5).map((alert) => { const student = dashboard.students.find((item) => item.id === alert.studentId); return <article key={alert.id} className={alert.severity}><AlertCircle /><div><b>{student?.displayName ?? '学生'} · {alert.title}</b><p>{alert.reason}</p></div></article> })}{!dashboard.alerts.length && <div className="empty-state"><CheckCircle2 /><p>当前没有需要立即处理的提醒。</p></div>}</div></section>
   </>
+}
+
+function formatDuration(totalSec: number) {
+  const minutes = Math.floor(totalSec / 60)
+  const seconds = Math.round(totalSec % 60)
+  return minutes ? `${minutes}分${seconds}秒` : `${seconds}秒`
 }
 
 function ObservationForm({ dashboard }: { dashboard: TeacherDashboardData }) {

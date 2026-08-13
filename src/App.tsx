@@ -30,6 +30,35 @@ function AccessExperience() {
     load.then((result) => setDashboard(result.dashboard)).catch((reason) => { clearAccessSession(); setSession(null); setError(reason instanceof Error ? reason.message : '会话已失效。') }).finally(() => setLoading(false))
   }, [session, navigate])
 
+  useEffect(() => {
+    if (session?.role !== 'guardian') return
+    let active = true
+    let refreshing = false
+    const refreshGuardian = async () => {
+      if (refreshing) return
+      refreshing = true
+      try {
+        const result = await loadGuardianDashboard(session)
+        if (active) setDashboard(result.dashboard)
+      } catch {
+        // Keep the last successful view during a transient background refresh failure.
+      } finally {
+        refreshing = false
+      }
+    }
+    const onFocus = () => { void refreshGuardian() }
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshGuardian() }
+    const timer = window.setInterval(() => { void refreshGuardian() }, 10000)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [session])
+
   function success(nextSession: SessionIdentity, nextDashboard?: Dashboard) {
     writeAccessSession(nextSession)
     setSession(nextSession)

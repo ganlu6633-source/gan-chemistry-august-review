@@ -15,14 +15,15 @@ const studentDashboard = {
 }
 
 const guardianDashboard = {
-  student: { displayName: '测试学生', gradeBand: '高一' }, weeklyCompleted: 5, weeklyPlanned: 6, stableSkillCount: 2, growingSkillCount: 1, forgottenSkillCount: 1, teacherAttentionCount: 1,
+  student: { displayName: '测试学生', gradeBand: '高一' }, weeklyCompleted: 5, weeklyPlanned: 6, weeklyQuizCompleted: 2, stableSkillCount: 2, growingSkillCount: 1, forgottenSkillCount: 1, teacherAttentionCount: 1,
   progress: ['氧化物定义经过两次新母题检验后已经稳定。'], concerns: ['交叉分类仍需继续巩固，系统已经安排同技能新题。'],
-  behaviorSignals: [], timeline: [{ id:'t1', at:'2026-08-12T08:00:00Z', type:'progress', title:'通过氧化物定义检验', description:'系统记录了两个独立证据。' }],
+  behaviorSignals: [], timeline: [{ id:'q1', at:'2026-08-13T02:10:00Z', type:'attempt', title:'完成即时小测 · 第2轮', description:'物质的量：答对 13/15，用时5分10秒；需要继续巩固：物质的量计算' }, { id:'t1', at:'2026-08-12T08:00:00Z', type:'progress', title:'通过氧化物定义检验', description:'系统记录了两个独立证据。' }],
 }
 
 const teacherDashboard = {
   students: [{ id:'demo', displayName:'测试学生', gradeBand:'高一', status:'active', needsInitialDiagnostic:false, guardianNames:['测试家长'], curriculumCohort:'high1_completed', planDays:40 }],
-  alerts: [], dailySummary: { generatedAt:'2026-08-12T01:00:00Z', classQuizCount:0, reviewCount:1, interventionCount:0 },
+  alerts: [], dailySummary: { generatedAt:'2026-08-13T02:10:05Z', classQuizCount:1, quizCompletedStudentCount:1, quizRosterCount:5, reviewCount:1, interventionCount:0 },
+  recentQuizSessions: [{ id:'q1', studentId:'demo', studentName:'测试学生', round:2, trainingTheme:'物质的量', correctCount:13, totalCount:15, totalSec:310, wrongTags:['物质的量计算'], slowTags:[], completedAt:'2026-08-13T02:10:00Z' }],
   pendingCourseNodes: 0, pendingQuestions: 0,
 }
 
@@ -203,6 +204,8 @@ test('guardian code routes directly to the concise guardian explanation', async 
   await page.getByLabel('登录码').fill('22222222')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: '测试学生的化学成长说明' })).toBeVisible()
+  await expect(page.getByText(/本周已有 2 轮即时小测同步到这里/)).toBeVisible()
+  await expect(page.getByText('完成即时小测 · 第2轮')).toBeVisible()
   await expect(page.getByText('真实问题不回避')).toBeVisible()
   await expect(page.locator('body')).not.toContainText('下节课单独追问')
 })
@@ -252,6 +255,8 @@ test('teacher name and code use the same entry and open the private workspace', 
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page).toHaveURL(/\/teacher$/)
   await expect(page.getByRole('heading', { name: '今天最值得看的事' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '今日即时小测' })).toBeVisible()
+  await expect(page.getByText('测试学生 · 第2轮')).toBeVisible()
   await expect(page.getByText('甘老师工作台')).toBeVisible()
   await expect(page.getByLabel('教师邮箱')).toHaveCount(0)
   await expect(page.getByText('白名单')).toHaveCount(0)

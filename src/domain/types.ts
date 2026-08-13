@@ -279,6 +279,7 @@ export interface GuardianDashboardData {
   student: Pick<StudentProfile, 'displayName' | 'gradeBand'>
   weeklyCompleted: number
   weeklyPlanned: number
+  weeklyQuizCompleted: number
   stableSkillCount: number
   growingSkillCount: number
   forgottenSkillCount: number
@@ -292,7 +293,20 @@ export interface GuardianDashboardData {
 export interface TeacherDashboardData {
   students: Array<Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'status' | 'needsInitialDiagnostic'> & { guardianNames: string[]; curriculumCohort: string | null; planDays: number }>
   alerts: Array<{ id: string; studentId: string; severity: 'info' | 'attention' | 'urgent'; title: string; reason: string }>
-  dailySummary: { generatedAt: string | null; classQuizCount: number; reviewCount: number; interventionCount: number }
+  dailySummary: { generatedAt: string | null; classQuizCount: number; quizCompletedStudentCount: number; quizRosterCount: number; reviewCount: number; interventionCount: number }
+  recentQuizSessions: Array<{
+    id: string
+    studentId: string | null
+    studentName: string
+    round: number
+    trainingTheme: string
+    correctCount: number
+    totalCount: number
+    totalSec: number
+    wrongTags: string[]
+    slowTags: string[]
+    completedAt: string
+  }>
   pendingCourseNodes: number
   pendingQuestions: number
 }

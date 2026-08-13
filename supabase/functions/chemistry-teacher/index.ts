@@ -29,8 +29,18 @@ async function teacher(req: Request) {
   return { displayName: data[0].principal_name || "甘老师" };
 }
 
+function shanghaiDayRange() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const date = `${value.year}-${value.month}-${value.day}`;
+  const start = new Date(`${date}T00:00:00+08:00`);
+  return { start: start.toISOString(), end: new Date(start.getTime() + 86400000).toISOString() };
+}
+
 async function dashboard() {
-  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans] = await Promise.all([
+  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks] = await Promise.all([
     admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata").order("grade_band").order("display_name"),
     admin.from("chem_teacher_alerts").select("id,student_id,severity,title,reason").is("resolved_at", null).order("created_at", { ascending: false }).limit(20),
     admin.from("chem_daily_reports").select("*").order("report_date", { ascending: false }).limit(1).maybeSingle(),
@@ -38,16 +48,54 @@ async function dashboard() {
     admin.from("chem_questions").select("id", { count: "exact", head: true }).in("review_status", ["draft", "needs_review"]),
     admin.rpc("chem_list_guardian_contacts"),
     admin.from("chem_learning_plans").select("student_id").gte("plan_date", "2026-08-13").lte("plan_date", "2026-09-09"),
+    admin.from("students").select("id,display_name").eq("active", true).order("display_name"),
+    admin.from("chem_quiz_student_links").select("quiz_student_id,chem_student_id"),
   ]);
-  for (const result of [students, alerts, courseCount, questionCount, guardians, fourWeekPlans]) if (result.error) throw result.error;
+  for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks]) if (result.error) throw result.error;
+  const dayRange = shanghaiDayRange();
+  const activeQuizIds = (quizStudents.data || []).map((student) => student.id);
+  const quizSessions = activeQuizIds.length
+    ? await admin.from("quiz_sessions")
+      .select("id,student_id,round,training_theme,correct_count,total_count,total_sec,wrong_tags,slow_tags,completed_at")
+      .in("student_id", activeQuizIds)
+      .gte("completed_at", dayRange.start)
+      .lt("completed_at", dayRange.end)
+      .order("completed_at", { ascending: false })
+      .limit(250)
+    : { data: [], error: null };
+  if (quizSessions.error) throw quizSessions.error;
   const guardianNames = new Map<string, string[]>();
   for (const contact of guardians.data || []) guardianNames.set(contact.student_id, [...(guardianNames.get(contact.student_id) || []), contact.display_name]);
   const planDays = new Map<string, number>();
   for (const plan of fourWeekPlans.data || []) planDays.set(plan.student_id, (planDays.get(plan.student_id) || 0) + 1);
+  const quizNames = new Map((quizStudents.data || []).map((student) => [student.id, student.display_name]));
+  const chemIds = new Map((quizLinks.data || []).map((link) => [link.quiz_student_id, link.chem_student_id]));
+  const liveQuizRows = quizSessions.data || [];
+  const quizCompletedStudentCount = new Set(liveQuizRows.map((session) => session.student_id)).size;
   return {
     students: (students.data || []).map((s) => ({ id: s.id, displayName: s.display_name, gradeBand: s.grade_band, status: s.record_status, needsInitialDiagnostic: s.needs_initial_diagnostic, guardianNames: guardianNames.get(s.id) || [], curriculumCohort: s.metadata?.curriculumCohort || null, planDays: planDays.get(s.id) || 0 })),
     alerts: (alerts.data || []).map((a) => ({ id: a.id, studentId: a.student_id, severity: a.severity, title: a.title, reason: a.reason })),
-    dailySummary: { generatedAt: report.data?.generated_at || null, classQuizCount: report.data?.class_quiz_count || 0, reviewCount: report.data?.review_count || 0, interventionCount: report.data?.intervention_count || 0 },
+    dailySummary: {
+      generatedAt: new Date().toISOString(),
+      classQuizCount: liveQuizRows.length,
+      quizCompletedStudentCount,
+      quizRosterCount: activeQuizIds.length,
+      reviewCount: report.data?.review_count || 0,
+      interventionCount: report.data?.intervention_count || 0,
+    },
+    recentQuizSessions: liveQuizRows.map((session) => ({
+      id: session.id,
+      studentId: chemIds.get(session.student_id) || null,
+      studentName: quizNames.get(session.student_id) || "未识别学生",
+      round: session.round,
+      trainingTheme: session.training_theme || "即时小测",
+      correctCount: session.correct_count,
+      totalCount: session.total_count,
+      totalSec: session.total_sec,
+      wrongTags: session.wrong_tags || [],
+      slowTags: session.slow_tags || [],
+      completedAt: session.completed_at,
+    })),
     pendingCourseNodes: courseCount.count || 0, pendingQuestions: questionCount.count || 0,
   };
 }

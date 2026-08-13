@@ -79,7 +79,22 @@ const cardShape = (row: Record<string, unknown>) => ({
   steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
   structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
   asset: row.asset, reviewStatus: row.review_status,
+  structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
 });
+
+function formatDuration(value: unknown) {
+  const totalSec = Math.max(0, Number(value) || 0);
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = Math.round(totalSec % 60);
+  return minutes ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+}
+
+function parentQuizDescription(row: Record<string, unknown>) {
+  const theme = String(row.training_theme || "即时小测");
+  const wrongTags = Array.isArray(row.wrong_tags) ? row.wrong_tags.map(String).filter(Boolean).slice(0, 3) : [];
+  const result = `${theme}：答对 ${Number(row.correct_count) || 0}/${Number(row.total_count) || 0}，用时${formatDuration(row.total_sec)}`;
+  return wrongTags.length ? `${result}；需要继续巩固：${wrongTags.join("、")}` : `${result}；本轮没有发现错题。`;
+}
 
 async function studentDashboard(studentId: string) {
   const profileResult = await supabase.from("chem_students_v2").select("*").eq("id", studentId).single();
@@ -105,6 +120,17 @@ async function studentDashboard(studentId: string) {
 
 async function guardianDashboard(studentId: string) {
   const weekStart = new Date(Date.now() - 7 * 86400000).toISOString();
+  const linkResult = await supabase.from("chem_quiz_student_links").select("quiz_student_id").eq("chem_student_id", studentId).maybeSingle();
+  if (linkResult.error) throw linkResult.error;
+  const quizResult = linkResult.data?.quiz_student_id
+    ? await supabase.from("quiz_sessions")
+      .select("id,round,training_theme,correct_count,total_count,total_sec,wrong_tags,completed_at")
+      .eq("student_id", linkResult.data.quiz_student_id)
+      .gte("completed_at", weekStart)
+      .order("completed_at", { ascending: false })
+      .limit(50)
+    : { data: [], error: null };
+  if (quizResult.error) throw quizResult.error;
   const [profileResult, plansResult, attemptsResult, statesResult, signalsResult, observationsResult] = await Promise.all([
     supabase.from("chem_students_v2").select("display_name,grade_band").eq("id", studentId).single(),
     supabase.from("chem_learning_plans").select("id").eq("student_id", studentId).gte("plan_date", weekStart.slice(0, 10)),
@@ -117,13 +143,16 @@ async function guardianDashboard(studentId: string) {
   const states = statesResult.data || [];
   const attempts = attemptsResult.data || [];
   const observations = observationsResult.data || [];
+  const quizSessions = quizResult.data || [];
   const timeline = [
     ...attempts.map((a) => ({ id: a.id, at: a.completed_at, type: "attempt", title: a.mode === "CLASS_QUIZ" ? "完成课堂小测" : "完成一次复习", description: `本次首轮答对 ${a.first_score} 题。` })),
+    ...quizSessions.map((q) => ({ id: `quiz-${q.id}`, at: q.completed_at, type: "attempt", title: `完成即时小测 · 第${q.round}轮`, description: parentQuizDescription(q) })),
     ...observations.map((o) => ({ id: o.id, at: o.created_at, type: "teacher_action", title: o.taught_content, description: o.guardian_message })),
-  ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 12);
+  ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 20);
   return {
     student: { displayName: profileResult.data.display_name, gradeBand: profileResult.data.grade_band },
     weeklyCompleted: attempts.length, weeklyPlanned: (plansResult.data || []).length,
+    weeklyQuizCompleted: quizSessions.length,
     stableSkillCount: states.filter((s) => ["verified", "stable", "recovered"].includes(s.stability)).length,
     growingSkillCount: states.filter((s) => s.stability === "learning").length,
     forgottenSkillCount: states.filter((s) => s.stability === "forgotten").length,

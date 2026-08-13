@@ -3,7 +3,7 @@ import type { GuardianDashboardData } from '../domain/types'
 
 export function GuardianApp({ dashboard }: { dashboard: GuardianDashboardData }) {
   return <div className="guardian-dashboard">
-    <section className="guardian-hero"><div><span className="eyebrow">30秒看懂孩子这一周</span><h1>{dashboard.student.displayName}的化学成长说明</h1><p>这里同时呈现进步与需要关注的地方，也会告诉您系统和甘老师已经做了什么。</p></div><div className="completion-ring"><b>{dashboard.weeklyCompleted}/{dashboard.weeklyPlanned}</b><span>本周完成</span></div></section>
+    <section className="guardian-hero"><div><span className="eyebrow">30秒看懂孩子这一周</span><h1>{dashboard.student.displayName}的化学成长说明</h1><p>这里同时呈现进步与需要关注的地方，也会告诉您系统和甘老师已经做了什么。</p><p className="live-sync-note"><CheckCircle2 size={17} />本周已有 {dashboard.weeklyQuizCompleted} 轮即时小测同步到这里，完成后约10秒更新。</p></div><div className="completion-ring"><b>{dashboard.weeklyCompleted}/{dashboard.weeklyPlanned}</b><span>本周复习</span></div></section>
     <section className="guardian-metrics">
       <article className="positive"><Sparkles /><b>+{dashboard.stableSkillCount}</b><span>新增稳定技能</span></article>
       <article className="working"><BookOpenCheck /><b>{dashboard.growingSkillCount}</b><span>正在巩固</span></article>
