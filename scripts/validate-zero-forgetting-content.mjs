@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { zeroForgettingCards } from './zero-forgetting-content.mjs'
+import { classificationVisualSummary } from './knowledge-visual-summaries.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -16,6 +17,7 @@ let sectionCount = 0
 let knowledgePointCount = 0
 let inlineExampleCount = 0
 let visualAidCount = 0
+let quickVisualCount = 0
 const ids = zeroForgettingCards.map((entry) => entry.skillId)
 const missing = expected.filter((id) => !ids.includes(id))
 const unexpected = ids.filter((id) => !expected.includes(id))
@@ -23,11 +25,20 @@ const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index)
 if (missing.length) errors.push(`缺少模块：${missing.join(', ')}`)
 if (unexpected.length) errors.push(`出现计划外模块：${unexpected.join(', ')}`)
 if (duplicates.length) errors.push(`模块重复：${[...new Set(duplicates)].join(', ')}`)
+if (classificationVisualSummary.kind !== 'tree' || !classificationVisualSummary.tree || (classificationVisualSummary.axes?.length ?? 0) < 4) errors.push('H1_CLASSIFY: 物质分类总树或横向分类轴不完整')
 
 for (const entry of zeroForgettingCards) {
   if (entry.version !== 2) errors.push(`${entry.skillId}: version 必须为 2`)
   if (entry.intro.length < 45) errors.push(`${entry.skillId}: intro 过短`)
   if (entry.overview.length < 4) errors.push(`${entry.skillId}: overview 少于 4 条`)
+  if (!entry.visualSummary?.kind || !entry.visualSummary?.title) errors.push(`${entry.skillId}: 缺少30秒关系图`)
+  else {
+    quickVisualCount += 1
+    const visual = entry.visualSummary
+    if ((visual.kind === 'flow' || visual.kind === 'cycle') && (visual.steps?.length ?? 0) < 4) errors.push(`${entry.skillId}: 流程图节点不足`)
+    if ((visual.kind === 'compare' || visual.kind === 'network' || visual.kind === 'balance') && (visual.groups?.length ?? 0) < 2) errors.push(`${entry.skillId}: 关系图分组不足`)
+    if (visual.kind === 'tree' && !visual.tree) errors.push(`${entry.skillId}: 树状图缺少根节点`)
+  }
   if (entry.sections.length < 4) errors.push(`${entry.skillId}: sections 少于 4 节`)
   if (entry.workedExamples.length < 2) errors.push(`${entry.skillId}: 完整例题少于 2 个`)
   if (entry.checkpoints.length < 4) errors.push(`${entry.skillId}: 自查点少于 4 个`)
@@ -93,5 +104,6 @@ console.log(JSON.stringify({
   knowledgePoints: knowledgePointCount,
   inlineExamples: inlineExampleCount,
   visualAids: visualAidCount,
+  quickVisuals: quickVisualCount + 1,
   scopePatternHits: 0,
 }, null, 2))

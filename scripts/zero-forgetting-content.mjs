@@ -1,4 +1,5 @@
 import { sectionDemos } from './zero-forgetting-section-demos.mjs'
+import { knowledgeVisualSummaries } from './knowledge-visual-summaries.mjs'
 
 const item = (label, rule, examples = [], caution) => ({ label, rule, ...(examples.length ? { examples } : {}), ...(caution ? { caution } : {}) })
 const section = (title, summary, items) => ({ title, summary, items })
@@ -17,6 +18,7 @@ const card = (skillId, intro, overview, sections, workedExamples, checkpoints) =
     version: 2,
     intro,
     overview,
+    visualSummary: knowledgeVisualSummaries[skillId],
     sections: sections.map((knowledgeSection, sectionIndex) => ({
       ...knowledgeSection,
       items: knowledgeSection.items.map((knowledgeItem) => {

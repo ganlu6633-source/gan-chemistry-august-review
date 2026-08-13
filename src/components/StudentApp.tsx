@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { BookOpen, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, Map as MapIcon, RotateCcw, Sparkles, Trophy } from 'lucide-react'
-import type { KnowledgeCard, KnowledgeTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
+import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
 import { accessApi, submitAttempt } from '../lib/api'
 
@@ -144,7 +144,7 @@ function LearningRound({ session, payload, onExit, onComplete }: { session: Sess
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零讲清楚 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1><div className="core-rule">{card.core}</div>{card.structuredContent ? <StructuredKnowledgeMap content={card.structuredContent} /> : <details open><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}>{mistake}</li>)}</ul></div><p><b>完整例子：</b>{card.microExample}</p></details>}</article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零讲清楚 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1>{!card.structuredContent?.visualSummary ? <div className="core-rule">{card.core}</div> : null}{card.structuredContent ? <StructuredKnowledgeMap content={card.structuredContent} /> : <details open><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}>{mistake}</li>)}</ul></div><p><b>完整例子：</b>{card.microExample}</p></details>}</article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
     <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button className="primary-button" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
@@ -188,10 +188,39 @@ function NodeLearningAid({ node }: { node: KnowledgeTreeNode }) {
   </aside>
 }
 
+function visualTreeFromKnowledge(node: KnowledgeTreeNode): KnowledgeVisualTreeNode {
+  return { label: node.label, children: node.children?.map(visualTreeFromKnowledge) }
+}
+
+function QuickTreeBranch({ node }: { node: KnowledgeVisualTreeNode }) {
+  return <li className="quick-tree-branch"><span className="quick-tree-node">{node.label}</span>{node.children?.length ? <ul className="quick-tree-children">{node.children.map((child) => <QuickTreeBranch key={`${node.label}-${child.label}`} node={child} />)}</ul> : null}</li>
+}
+
+function fallbackVisual(content: StructuredKnowledgeContent): KnowledgeVisualSummary {
+  if (content.rootTree) return { kind: 'tree', title: '知识关系总图', tree: visualTreeFromKnowledge(content.rootTree) }
+  return {
+    kind: 'flow',
+    title: '先看逻辑路线',
+    steps: content.sections.slice(0, 6).map((section, index) => ({ label: section.title, caption: `${index + 1}` })),
+  }
+}
+
+function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
+  const groups = visual.groups ?? []
+  return <figure className={`quick-visual quick-visual-${visual.kind}`} aria-label={`30秒图解：${visual.title}`}>
+    <figcaption><span>30秒图解</span><b>{visual.title}</b></figcaption>
+    {visual.kind === 'tree' && visual.tree ? <div className="quick-tree-visual"><ul className="quick-tree"><QuickTreeBranch node={visual.tree} /></ul>{visual.axes?.length ? <div className="quick-tree-axes"><b>横向分类轴</b>{visual.axes.map((axis) => <div className="quick-axis" key={axis.label}><strong>{axis.label}</strong><div>{axis.items.map((item) => <span key={item}>{item}</span>)}</div></div>)}</div> : null}</div> : null}
+    {(visual.kind === 'flow' || visual.kind === 'cycle') && visual.steps?.length ? <ol className="quick-flow">{visual.steps.map((step, index) => <Fragment key={`${step.label}-${index}`}><li><small>{step.caption ?? String(index + 1).padStart(2, '0')}</small><b>{step.label}</b></li>{index < visual.steps!.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}{visual.kind === 'cycle' ? <i className="cycle-return" aria-label="回到起点">↺</i> : null}</ol> : null}
+    {visual.kind === 'compare' ? <div className="quick-compare">{groups.map((group) => <section key={group.label}><b>{group.label}</b><div>{group.items.map((item) => <span key={item}>{item}</span>)}</div></section>)}</div> : null}
+    {visual.kind === 'network' ? <div className="quick-network"><div className="network-hub">{visual.center ?? visual.title}</div><div className="network-branches">{groups.map((group) => <section key={group.label}><b>{group.label}</b>{group.items.map((item) => <span key={item}>{item}</span>)}</section>)}</div></div> : null}
+    {visual.kind === 'balance' ? <div className="quick-balance">{groups.map((group, index) => <Fragment key={group.label}><section><b>{group.label}</b>{group.items.map((item) => <span key={item}>{item}</span>)}</section>{index < groups.length - 1 ? <i aria-hidden="true">{visual.center ?? '='}</i> : null}</Fragment>)}</div> : null}
+  </figure>
+}
+
 function StructuredKnowledgeMap({ content }: { content: StructuredKnowledgeContent }) {
   const offset = content.rootTree ? 2 : 1
   return <div className="knowledge-explainer">
-    <section className="quick-recall" aria-label="30秒知识梗概"><div><span>30秒梗概</span><b>先把主线接回来</b></div><p>{content.intro}</p>{content.overview?.length ? <ul>{content.overview.map((point) => <li key={point}>{point}</li>)}</ul> : null}</section>
+    <QuickVisualSummary visual={content.visualSummary ?? fallbackVisual(content)} />
     <details className="full-explanation"><summary><span><b>从零学会</b><small>展开完整讲解、例子、易错边界与自查</small></span><i aria-hidden="true">⌄</i></summary><div className="classification-map">
       {content.rootTree ? <section className="knowledge-tree-panel" aria-labelledby="knowledge-tree-title"><div className="map-section-title"><span>01</span><div><h2 id="knowledge-tree-title">知识总树</h2><p>先沿纵向主干走完，再补横向标签。</p></div></div><ul className="knowledge-tree"><KnowledgeBranch node={content.rootTree} /></ul></section> : null}
       {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + offset).padStart(2, '0')}</span><div><h2>{section.title}</h2>{section.summary && <p>{section.summary}</p>}</div></div><div className="classification-items">{section.items.map((item) => <article className="classification-item point-with-demo" key={item.label}><div className="point-copy"><b>{item.label}</b><p>{item.rule}</p>{item.caution && <div className="branch-caution">注意：{item.caution}</div>}</div><NodeLearningAid node={item} /></article>)}</div></section>)}

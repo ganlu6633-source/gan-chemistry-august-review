@@ -140,10 +140,36 @@ export interface KnowledgeWorkedExample {
   labels: string[]
 }
 
+export interface KnowledgeVisualTreeNode {
+  label: string
+  children?: KnowledgeVisualTreeNode[]
+}
+
+export interface KnowledgeVisualStep {
+  label: string
+  caption?: string
+}
+
+export interface KnowledgeVisualGroup {
+  label: string
+  items: string[]
+}
+
+export interface KnowledgeVisualSummary {
+  kind: 'tree' | 'flow' | 'cycle' | 'compare' | 'network' | 'balance'
+  title: string
+  center?: string
+  steps?: KnowledgeVisualStep[]
+  groups?: KnowledgeVisualGroup[]
+  tree?: KnowledgeVisualTreeNode
+  axes?: KnowledgeVisualGroup[]
+}
+
 export interface StructuredKnowledgeContent {
   version: number
   intro: string
   overview?: string[]
+  visualSummary?: KnowledgeVisualSummary
   rootTree?: KnowledgeTreeNode
   sections: KnowledgeSection[]
   workedExamples?: KnowledgeWorkedExample[]

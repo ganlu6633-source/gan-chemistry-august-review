@@ -1,12 +1,14 @@
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { zeroForgettingCards } from './zero-forgetting-content.mjs'
+import { classificationVisualSummary } from './knowledge-visual-summaries.mjs'
 
 const output = process.argv[2]
 if (!output) throw new Error('请传入由 supabase migration new 创建的迁移文件路径。')
 
 const classificationPatch = {
   version: 2,
+  visualSummary: classificationVisualSummary,
   overview: [
     '先按“样品含几种物质”分成纯净物和混合物；这是整棵树的第一刀。',
     '纯净物再按元素种类分成单质和化合物；混合物不能直接进入这条分支。',

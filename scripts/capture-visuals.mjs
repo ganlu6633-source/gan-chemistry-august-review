@@ -7,7 +7,7 @@ await mkdir('test-results/visual', { recursive: true })
 const server = await preview({ preview: { host: 'localhost', port: 4173 } })
 const browser = await chromium.launch()
 
-async function capture(name, options, code) {
+async function capture(name, options, code, displayName = '演示学生') {
   const context = await browser.newContext(options)
   const page = await context.newPage()
   const errors = []
@@ -15,7 +15,8 @@ async function capture(name, options, code) {
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(base, { waitUntil: 'networkidle' })
   if (code) {
-    await page.getByLabel('访问码').fill(code)
+    await page.getByLabel('输入姓名').fill(displayName)
+    await page.getByLabel('登录码').fill(code)
     await page.getByRole('button', { name: /进入我的化学世界/ }).click()
     try {
       await page.waitForSelector(code === '22222222' ? '.guardian-dashboard' : '.student-theme', { timeout: 15000 })
@@ -30,10 +31,32 @@ async function capture(name, options, code) {
   await context.close()
 }
 
+async function captureClassificationTree() {
+  const context = await browser.newContext({ ...devices['Pixel 5'], viewport: { width: 360, height: 800 } })
+  const page = await context.newPage()
+  await page.goto(base, { waitUntil: 'networkidle' })
+  await page.getByLabel('输入姓名').fill('演示学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: '学习计划' }).click()
+  await page.locator('.plan-day').first().click()
+  await page.locator('.quick-visual-tree').waitFor({ state: 'visible' })
+  await page.screenshot({ path: 'test-results/visual/mobile-classification-tree.png', fullPage: true })
+  const qa = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    treeNodes: document.querySelectorAll('.quick-tree-node').length,
+    axes: document.querySelectorAll('.quick-axis').length,
+    oldBulletSummary: document.querySelectorAll('.quick-recall').length,
+  }))
+  console.log(JSON.stringify({ name: 'mobile-classification-tree', ...qa }))
+  await context.close()
+}
+
 await capture('desktop-login', { viewport: { width: 1440, height: 1000 } })
 await capture('desktop-student', { viewport: { width: 1440, height: 1000 } }, '11111111')
 await capture('desktop-guardian', { viewport: { width: 1440, height: 1000 } }, '22222222')
 await capture('mobile-student', devices['Pixel 7'], '11111111')
 await capture('mobile-guardian', devices['Pixel 7'], '22222222')
+await captureClassificationTree()
 await browser.close()
 await server.close()

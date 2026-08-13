@@ -34,6 +34,10 @@ const classificationCard = {
   structuredContent: {
     version: 2, intro: '假设你现在完全不记得：从最上面的物质开始，一层一层往下走。',
     overview: ['先分纯净物和混合物。', '纯净物再分单质和化合物。', '化合物继续分氧化物、酸、碱、盐。', '横向再判断电解质。'],
+    visualSummary: { kind: 'tree', title: '物质分类总树', tree: { label: '物质', children: [
+      { label: '混合物', children: [{ label: '分散系', children: [{ label: '溶液' }, { label: '胶体' }, { label: '浊液' }] }] },
+      { label: '纯净物', children: [{ label: '单质' }, { label: '化合物', children: [{ label: '有机化合物' }, { label: '无机化合物', children: [{ label: '氧化物' }, { label: '酸' }, { label: '碱' }, { label: '盐' }] }] }] },
+    ] }, axes: [{ label: '化合物｜电离', items: ['电解质', '非电解质'] }, { label: '酸｜三条轴', items: ['元数', '强弱', '含氧与否'] }] },
     rootTree: { label: '物质', rule: '先按样品中有几种物质分类。', examples: ['空气是混合物', '液氯是纯净物'], visualSteps: ['物质', '数物质种类', '纯净物/混合物'], children: [
       { label: '混合物', rule: '含两种或两种以上物质。', examples: ['空气', '盐酸'] },
       { label: '纯净物', rule: '只含一种物质。', examples: ['液氯Cl₂'], children: [
@@ -67,6 +71,7 @@ const redoxCard = {
     version: 2,
     intro: '先标出反应前后化合价，再追踪得失电子，最后用守恒把方程式闭合。',
     overview: ['标出反应前后化合价。', '确定升降与电子数。', '求最小公倍数并定系数。', '用原子、电荷和电子守恒校验。'],
+    visualSummary: { kind: 'balance', title: '氧化还原电子天平', center: 'e⁻总数相等', groups: [{ label: '升价｜失电子', items: ['被氧化', '还原剂'] }, { label: '降价｜得电子', items: ['被还原', '氧化剂'] }] },
     sections: [
       { title: '标价', summary: '先找真正变价的元素。', items: [{ label: '标反应前后价态', rule: '根据单质为0和化合价代数和规则，标出同一元素反应前后的价态。', examples: ['【示范：FeS₂被O₂氧化】FeS₂中Fe为+2、S为-1，O₂中O为0；产物中Fe为+3、SO₄²⁻中S为+6。'], visualSteps: ['读反应式', '标价', '找变价元素'] }] },
       { title: '升降与电子数', summary: '每个粒子的变价原子数也要计入。', items: [{ label: '计算得失电子', rule: '化合价变化数乘变价原子个数，得到一个粒子得失的电子数。', examples: ['【示范：FeS₂被O₂氧化】Fe由+2到+3失1e⁻，两个S由-1到+6共失14e⁻，所以每个FeS₂共失15e⁻。'], visualSteps: ['Fe失1e⁻', '2个S失14e⁻', '每个FeS₂失15e⁻'] }] },
@@ -77,6 +82,15 @@ const redoxCard = {
     checkpoints: ['我能正确标价。', '我能计算一个粒子的电子数。', '我会用最小公倍数定系数。', '我会做三类守恒检查。'],
   },
 }
+
+const visualKindCards = [
+  { kind: 'tree', title: '层级树', tree: { label: '根', children: [{ label: '分支甲' }, { label: '分支乙' }] } },
+  { kind: 'flow', title: '步骤流', steps: [{ label: '第一步' }, { label: '第二步' }, { label: '第三步' }, { label: '第四步' }] },
+  { kind: 'cycle', title: '循环图', steps: [{ label: '旧状态' }, { label: '扰动' }, { label: '新状态' }, { label: '再出发' }] },
+  { kind: 'compare', title: '对照图', groups: [{ label: '左侧', items: ['特点甲'] }, { label: '右侧', items: ['特点乙'] }] },
+  { kind: 'network', title: '关系网络', center: '中心', groups: [{ label: '入口甲', items: ['关系甲'] }, { label: '入口乙', items: ['关系乙'] }] },
+  { kind: 'balance', title: '守恒天平', center: '=', groups: [{ label: '左边', items: ['数量甲'] }, { label: '右边', items: ['数量乙'] }] },
+].map((visualSummary, index) => ({ ...redoxCard, id: `visual-${index}`, title: `${visualSummary.title}验收卡`, structuredContent: { ...redoxCard.structuredContent, visualSummary } }))
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/functions/v1/chemistry-access', async (route) => {
@@ -97,7 +111,8 @@ test.beforeEach(async ({ page }) => {
     }
     if (body.action === 'start_plan') {
       const useRedox = body.data?.planId === 'p2'
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: useRedox ? reviewPlans[1] : reviewPlans[0], cards: [useRedox ? redoxCard : classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
+      const useVisualKinds = body.data?.planId === 'p3'
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: useVisualKinds ? reviewPlans[2] : useRedox ? reviewPlans[1] : reviewPlans[0], cards: useVisualKinds ? visualKindCards : [useRedox ? redoxCard : classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: body.action === 'guardian_dashboard' ? guardianDashboard : studentDashboard }) })
@@ -149,8 +164,18 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.locator('.plan-day').first().locator('li')).toHaveCount(3)
   await page.locator('.plan-day').first().click()
   await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
-  await expect(page.locator('.quick-recall')).toContainText('30秒梗概')
-  await expect(page.locator('.quick-recall')).toContainText('先分纯净物和混合物')
+  await expect(page.locator('.quick-visual-tree')).toBeVisible()
+  await expect(page.locator('.quick-visual-tree')).toContainText('物质分类总树')
+  await expect(page.locator('.quick-tree')).toContainText('物质')
+  await expect(page.locator('.quick-tree')).toContainText('纯净物')
+  await expect(page.locator('.quick-tree')).toContainText('混合物')
+  await expect(page.locator('.quick-tree')).toContainText('氧化物')
+  await expect(page.locator('.quick-tree')).toContainText('酸')
+  await expect(page.locator('.quick-tree')).toContainText('碱')
+  await expect(page.locator('.quick-tree')).toContainText('盐')
+  await expect(page.locator('.quick-tree-axes')).toContainText('横向分类轴')
+  await expect(page.locator('.quick-recall')).toHaveCount(0)
+  await expect(page.locator('.knowledge-card .core-rule')).toHaveCount(0)
   await expect(page.locator('.classification-map')).not.toBeVisible()
   await page.locator('.full-explanation > summary').click()
   await expect(page.getByRole('heading', { name: '知识总树' })).toBeVisible()
@@ -190,7 +215,9 @@ test('a full zero-forgetting card pairs every redox point with a demo and visual
   await page.getByRole('button', { name: /学习计划/ }).click()
   await page.locator('.plan-day').nth(1).click()
   await expect(page.getByRole('heading', { name: '氧化还原：把电子转移的逻辑完整接起来' })).toBeVisible()
-  await expect(page.locator('.quick-recall')).toContainText('求最小公倍数并定系数')
+  await expect(page.locator('.quick-visual-balance')).toContainText('氧化还原电子天平')
+  await expect(page.locator('.quick-visual-balance')).toContainText('升价｜失电子')
+  await expect(page.locator('.quick-visual-balance')).toContainText('e⁻总数相等')
   await expect(page.locator('.classification-map')).not.toBeVisible()
   await page.locator('.full-explanation > summary').click()
   await expect(page.locator('.classification-item')).toHaveCount(4)
@@ -200,6 +227,22 @@ test('a full zero-forgetting card pairs every redox point with a demo and visual
   await expect(page.locator('.classification-map')).toContainText('标价')
   await expect(page.locator('.classification-map')).toContainText('最小公倍数')
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
+})
+
+test('all six quick visual types render without adding student-side text work', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: /学习计划/ }).click()
+  await page.locator('.plan-day').nth(2).click()
+  for (const kind of ['tree', 'flow', 'cycle', 'compare', 'network', 'balance']) {
+    await expect(page.locator(`.quick-visual-${kind}`)).toBeVisible()
+    await expect(page.locator('.quick-recall')).toHaveCount(0)
+    await expect(page.locator('.knowledge-card .core-rule')).toHaveCount(0)
+    await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
+    if (kind !== 'balance') await page.getByRole('button', { name: '下一张' }).click()
+  }
 })
 
 test('teacher name and code use the same entry and open the private workspace', async ({ page }) => {
