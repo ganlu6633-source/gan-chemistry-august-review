@@ -87,7 +87,16 @@ async function dashboard() {
   const liveQuizRows = quizSessions.data || [];
   const quizCompletedStudentCount = new Set(liveQuizRows.map((session) => session.student_id)).size;
   return {
-    students: (students.data || []).map((s) => ({ id: s.id, displayName: s.display_name, gradeBand: s.grade_band, status: s.record_status, needsInitialDiagnostic: s.needs_initial_diagnostic, guardianNames: guardianNames.get(s.id) || [], curriculumCohort: s.metadata?.curriculumCohort || null, planDays: planDays.get(s.id) || 0 })),
+    students: (students.data || []).map((s) => ({
+      id: s.id,
+      displayName: s.display_name,
+      gradeBand: s.grade_band,
+      status: s.record_status,
+      needsInitialDiagnostic: s.needs_initial_diagnostic,
+      guardianNames: s.metadata?.demo ? [] : guardianNames.get(s.id) || [],
+      curriculumCohort: s.metadata?.curriculumCohort || null,
+      planDays: planDays.get(s.id) || 0,
+    })),
     alerts: (alerts.data || []).map((a) => ({ id: a.id, studentId: a.student_id, severity: a.severity, title: a.title, reason: a.reason })),
     dailySummary: {
       generatedAt: new Date().toISOString(),
