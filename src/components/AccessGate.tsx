@@ -73,8 +73,8 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
         <h1>把逻辑真正接起来，<br /><span>让理解自然迁移。</span></h1>
         <p>课堂刚学的、快要遗忘的、下一节要用的，系统会在合适的时候用新题带你重新找回来。</p>
         <div className="hero-proof">
-          <div><b>≤ 8题</b><span>默认每日必做预算</span></div>
-          <div><b>新母题</b><span>举一反三，不背原答案</span></div>
+          <div><b>首轮 5 题</b><span>小步定位真正卡点</span></div>
+          <div><b>最多 5 轮</b><span>当天举一反三接稳</span></div>
           <div><b>能力地图</b><span>看见知识之间怎样连接</span></div>
         </div>
       </div>
