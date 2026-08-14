@@ -20,6 +20,71 @@ async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
+function validUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+function validVideoUrl(provider: string, value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    const label = provider.toLowerCase();
+    if (label.includes("bilibili") || label.includes("哔哩") || label.includes("b站")) {
+      return host === "b23.tv" || host === "bilibili.com" || host.endsWith(".bilibili.com");
+    }
+    if (label.includes("niconico") || label.includes("nico")) {
+      return host === "nico.ms" || host === "nicovideo.jp" || host.endsWith(".nicovideo.jp");
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const videoRecommendationShape = (row: Record<string, unknown>) => ({
+  id: row.id,
+  studentId: row.student_id,
+  studentName: row.student_name,
+  skillId: row.skill_id,
+  skillTitle: row.skill_title,
+  unresolvedOn: row.unresolved_on,
+  sourceAttemptId: row.source_attempt_id,
+  sourceAlertId: row.source_alert_id,
+  title: row.title,
+  provider: row.provider,
+  url: row.external_url,
+  teacherReason: row.teacher_reason,
+  trackingCapability: row.tracking_capability,
+  status: row.status,
+  createdBy: row.created_by,
+  reviewedBy: row.reviewed_by,
+  reviewedAt: row.reviewed_at,
+  publishedBy: row.published_by,
+  publishedAt: row.published_at,
+  withdrawnBy: row.withdrawn_by,
+  withdrawnAt: row.withdrawn_at,
+  createdAt: row.created_at,
+  progress: {
+    openedAt: row.opened_at,
+    lastEngagedAt: row.last_engaged_at,
+    progressSeconds: Number(row.progress_position_seconds) || 0,
+    durationSeconds: row.duration_seconds === null || row.duration_seconds === undefined ? null : Number(row.duration_seconds),
+    completionPercent: row.completion_percent === null || row.completion_percent === undefined ? null : Number(row.completion_percent),
+    trackingMethod: row.tracking_method,
+    completedAt: row.completed_at,
+    eventCount: Number(row.event_count) || 0,
+  },
+});
+
+async function listVideoRecommendations(studentId: string | null, includeUnpublished = true) {
+  const { data, error } = await admin.rpc("chem_video_list_recommendations", {
+    p_student_id: studentId,
+    p_include_unpublished: includeUnpublished,
+  });
+  if (error) throw error;
+  const rows = (data || []) as Array<Record<string, unknown>>;
+  return rows.map((row) => videoRecommendationShape(row));
+}
 
 async function teacher(req: Request) {
   const token = req.headers.get("x-app-session");
@@ -54,7 +119,7 @@ function shanghaiDayRange() {
 }
 
 async function dashboard() {
-  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks] = await Promise.all([
+  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks, videoRecommendations] = await Promise.all([
     admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata").order("grade_band").order("display_name"),
     admin.from("chem_teacher_alerts").select("id,student_id,severity,title,reason").is("resolved_at", null).order("created_at", { ascending: false }).limit(20),
     admin.from("chem_daily_reports").select("*").order("report_date", { ascending: false }).limit(1).maybeSingle(),
@@ -64,6 +129,7 @@ async function dashboard() {
     admin.from("chem_learning_plans").select("student_id").gte("plan_date", "2026-08-13").lte("plan_date", "2026-09-09"),
     admin.from("students").select("id,display_name").eq("active", true).order("display_name"),
     admin.from("chem_quiz_student_links").select("quiz_student_id,chem_student_id"),
+    listVideoRecommendations(null, true),
   ]);
   for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks]) if (result.error) throw result.error;
   const dayRange = shanghaiDayRange();
@@ -86,6 +152,7 @@ async function dashboard() {
   const chemIds = new Map((quizLinks.data || []).map((link) => [link.quiz_student_id, link.chem_student_id]));
   const liveQuizRows = quizSessions.data || [];
   const quizCompletedStudentCount = new Set(liveQuizRows.map((session) => session.student_id)).size;
+  const pendingVideoCount = videoRecommendations.filter((item) => item.status === "draft").length;
   return {
     students: (students.data || []).map((s) => ({
       id: s.id,
@@ -105,6 +172,8 @@ async function dashboard() {
       quizRosterCount: activeQuizIds.length,
       reviewCount: report.data?.review_count || 0,
       interventionCount: report.data?.intervention_count || 0,
+      pendingVideoCount,
+      publishedVideoCount: videoRecommendations.filter((item) => item.status === "published").length,
     },
     recentQuizSessions: liveQuizRows.map((session) => ({
       id: session.id,
@@ -120,6 +189,7 @@ async function dashboard() {
       completedAt: session.completed_at,
     })),
     pendingCourseNodes: courseCount.count || 0, pendingQuestions: questionCount.count || 0,
+    recentVideoRecommendations: videoRecommendations.slice(0, 20),
   };
 }
 
@@ -134,6 +204,92 @@ Deno.serve(async (req: Request) => {
     if (body.action === "student_preview_dashboard" || body.action === "preview_start_plan" || body.action === "student_learning_record") {
       const preview = await readOnlyStudentPreview(req, body.action, body.data);
       return reply(req, preview.payload, preview.status);
+    }
+    if (body.action === "list_video_recommendations") {
+      const requestedStudentId = body.data?.studentId ? String(body.data.studentId) : null;
+      const requestedStatus = body.data?.status ? String(body.data.status) : null;
+      const requestedDate = body.data?.date ? String(body.data.date) : null;
+      if (requestedStudentId && !validUuid(requestedStudentId)) return reply(req, { error: "学生信息无效。" }, 400);
+      if (requestedStatus && !["draft", "published", "withdrawn"].includes(requestedStatus)) {
+        return reply(req, { error: "视频审核状态无效。" }, 400);
+      }
+      if (requestedDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) return reply(req, { error: "筛选日期无效。" }, 400);
+      const recommendations = await listVideoRecommendations(requestedStudentId, true);
+      return reply(req, {
+        recommendations: recommendations.filter((item) => (
+          (!requestedStatus || item.status === requestedStatus)
+          && (!requestedDate || item.unresolvedOn === requestedDate)
+        )),
+      });
+    }
+    if (body.action === "create_video_recommendation") {
+      const data = body.data || {};
+      const studentId = String(data.studentId || "");
+      const skillId = String(data.skillId || "").trim();
+      const title = String(data.title || "").trim();
+      const provider = String(data.provider || "");
+      const url = String(data.url || "").trim();
+      const teacherReason = String(data.teacherReason || "").trim();
+      const trackingCapability = String(data.trackingCapability || "self_reported");
+      const unresolvedOn = data.unresolvedOn || data.unresolvedDate ? String(data.unresolvedOn || data.unresolvedDate) : null;
+      const sourceAttemptId = data.sourceAttemptId ? String(data.sourceAttemptId) : null;
+      const sourceAlertId = data.sourceAlertId ? String(data.sourceAlertId) : null;
+      if (!validUuid(studentId) || !skillId || title.length < 1 || title.length > 160 || teacherReason.length < 1 || teacherReason.length > 1000) {
+        return reply(req, { error: "请完整填写学生、知识点、视频标题和推荐说明。" }, 400);
+      }
+      if (!provider || provider.length > 60 || !validVideoUrl(provider, url)) {
+        return reply(req, { error: "视频来源或 HTTPS 链接无效。" }, 400);
+      }
+      if (!["link_open_only", "self_reported", "player_tracked"].includes(trackingCapability)) {
+        return reply(req, { error: "观看记录方式无效。" }, 400);
+      }
+      if (trackingCapability === "player_tracked" && !provider.includes("甘老师")) {
+        return reply(req, { error: "外部网页不能声明为播放器自动追踪，请选择“学生自报进度”或“仅记录打开”。" }, 400);
+      }
+      if (unresolvedOn && !/^\d{4}-\d{2}-\d{2}$/.test(unresolvedOn)) return reply(req, { error: "待解决日期无效。" }, 400);
+      if ((sourceAttemptId && !validUuid(sourceAttemptId)) || (sourceAlertId && !validUuid(sourceAlertId))) {
+        return reply(req, { error: "关联的学习证据无效。" }, 400);
+      }
+      const created = await admin.rpc("chem_video_create_recommendation", {
+        p_student_id: studentId,
+        p_skill_id: skillId,
+        p_title: title,
+        p_provider: provider,
+        p_external_url: url,
+        p_teacher_reason: teacherReason,
+        p_tracking_capability: trackingCapability,
+        p_unresolved_on: unresolvedOn,
+        p_source_attempt_id: sourceAttemptId,
+        p_source_alert_id: sourceAlertId,
+        p_actor_name: user.displayName,
+      });
+      if (created.error) {
+        console.warn("video recommendation rejected", created.error.message);
+        return reply(req, { error: "推荐未保存：请确认学生、知识点和关联的未解决记录一致。" }, 400);
+      }
+      const recommendations = await listVideoRecommendations(studentId, true);
+      return reply(req, { recommendation: recommendations.find((item) => item.id === created.data) || null }, 201);
+    }
+    if (["publish_video_recommendation", "withdraw_video_recommendation"].includes(body.action)) {
+      const recommendationId = String(body.data?.recommendationId || "");
+      if (!validUuid(recommendationId)) return reply(req, { error: "视频推荐信息无效。" }, 400);
+      const targetStatus = body.action === "publish_video_recommendation" ? "published" : "withdrawn";
+      const changed = await admin.rpc("chem_video_set_recommendation_status", {
+        p_recommendation_id: recommendationId,
+        p_target_status: targetStatus,
+        p_actor_name: user.displayName,
+      });
+      if (changed.error) {
+        console.warn("video status change rejected", changed.error.message);
+        return reply(req, {
+          error: targetStatus === "published"
+            ? "当前状态不能发布，请刷新审核列表后重试。"
+            : "当前状态不能执行这一步，请刷新审核列表后重试。",
+        }, 409);
+      }
+      if (!changed.data) return reply(req, { error: "视频推荐不存在。" }, 404);
+      const recommendations = await listVideoRecommendations(null, true);
+      return reply(req, { recommendation: recommendations.find((item) => item.id === recommendationId) || null });
     }
     if (body.action === "save_observation") {
       const o = body.data || {};

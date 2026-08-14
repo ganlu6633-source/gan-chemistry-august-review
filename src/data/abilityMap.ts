@@ -42,13 +42,14 @@ export const ABILITY_MAP_BLUEPRINTS: Record<GradeBand, AbilityMapBlueprint> = {
     stages: [
       { id: 'h1-foundation', title: '认识物质', summary: '先建立分类树，再看元素结构与周期规律。', skillIds: ['H1_CLASSIFY', 'H1_PERIODIC'] },
       { id: 'h1-change', title: '理解微粒与变化', summary: '从电离、电子转移和物质的量理解反应。', skillIds: ['H1_ELECTROLYTE_INTRO', 'H1_REDOX', 'H1_MOLE_INTRO'] },
-      { id: 'h1-language', title: '表达与计算', summary: '把微观变化写成方程式，把宏观数量换成物质的量。', skillIds: ['H1_ELECTROLYTE', 'H1_MOLE'] },
+      { id: 'h1-language', title: '表达与计算', summary: '把微观变化写成方程式，把质量、粒子数与气体体积接到物质的量。', skillIds: ['H1_ELECTROLYTE', 'H1_GAS_MOLAR_VOLUME', 'H1_MOLE'] },
       { id: 'h1-transfer', title: '迁移到元素世界', summary: '用规律、电子、离子和计量解释钠与氯。', skillIds: ['H1_NACL'] },
     ],
     relations: [
       { from: 'H1_CLASSIFY', to: 'H1_ELECTROLYTE_INTRO', kind: 'main' },
       { from: 'H1_ELECTROLYTE_INTRO', to: 'H1_ELECTROLYTE', kind: 'main' },
-      { from: 'H1_MOLE_INTRO', to: 'H1_MOLE', kind: 'main' },
+      { from: 'H1_MOLE_INTRO', to: 'H1_GAS_MOLAR_VOLUME', kind: 'main' },
+      { from: 'H1_GAS_MOLAR_VOLUME', to: 'H1_MOLE', kind: 'main' },
       { from: 'H1_PERIODIC', to: 'H1_NACL', kind: 'support' },
       { from: 'H1_REDOX', to: 'H1_NACL', kind: 'support' },
       { from: 'H1_ELECTROLYTE', to: 'H1_NACL', kind: 'support' },

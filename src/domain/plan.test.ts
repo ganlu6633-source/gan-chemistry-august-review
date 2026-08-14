@@ -7,6 +7,8 @@ const plan: LearningPlanDay = {
   skillIds: [], knowledgeSummaries: ['核心概念', '判断依据', '常见误区'],
   estimatedMinutes: 5, source: 'memory', isScheduled: true,
   attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null,
+  questionCount: 5, roundLimit: 5, maxQuestionLevel: 3,
+  isResolved: false, isComplete: false, roundsRemaining: 5,
 }
 const attempt = (id: string, kind: 'scheduled'|'review', sequence: number, score: number): LearningAttempt => ({ id, studentId: 's', planDayId: 'p', attemptKind: kind, sequence, mode: 'REVIEW', startedAt: '2026-08-10T08:00:00Z', completedAt: '2026-08-10T08:05:00Z', answers: [], firstScore: score })
 

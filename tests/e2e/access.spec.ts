@@ -3,14 +3,14 @@ import { expect, test } from '@playwright/test'
 const TEST_TEACHER_CODE = process.env.E2E_TEACHER_CODE ?? '904422'
 
 const reviewPlans = Array.from({ length: 40 }, (_, index) => {
-  const date = new Date(Date.UTC(2026, 7, 15 + index)).toISOString().slice(0, 10)
-  return { id: `p${index + 1}`, studentId: 'demo', date, mode: 'REVIEW', title: `第${index + 1}天复习`, skillIds: ['H1_CLASSIFY'], knowledgeSummaries: ['分类依据', '氧化物判别', '常见误区'], estimatedMinutes: 16, source: 'mixed', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null }
+  const date = new Date(Date.UTC(2026, 7, 17 + index)).toISOString().slice(0, 10)
+  return { id: `p${index + 1}`, studentId: 'demo', date, mode: 'REVIEW', title: `第${index + 1}天复习`, skillIds: ['H1_CLASSIFY'], knowledgeSummaries: ['分类依据', '氧化物判别', '常见误区'], estimatedMinutes: 35, source: 'mixed', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null, questionCount: 5, roundLimit: 5, maxQuestionLevel: 3, isResolved: false, isComplete: false, roundsRemaining: 5 }
 })
 
 const demoSkillCatalog = {
   高一: [
     ['H1_CLASSIFY', '物质的分类'], ['H1_PERIODIC', '元素周期律'], ['H1_ELECTROLYTE_INTRO', '电解质基础'], ['H1_REDOX', '氧化还原'],
-    ['H1_MOLE_INTRO', '物质的量基础'], ['H1_ELECTROLYTE', '离子反应'], ['H1_MOLE', '物质的量计算'], ['H1_NACL', '钠和氯'],
+    ['H1_MOLE_INTRO', '物质的量基础'], ['H1_ELECTROLYTE', '离子反应'], ['H1_GAS_MOLAR_VOLUME', '气体摩尔体积基础'], ['H1_MOLE', '物质的量计算'], ['H1_NACL', '钠和氯'],
   ],
   高二: [
     ['H2_THERMO', '反应热与方向'], ['H2_RATE', '化学反应速率'], ['H2_EQUIL', '化学平衡'], ['H2_K', '平衡常数'],
@@ -32,7 +32,7 @@ const studentDashboard = {
   plans: reviewPlans,
   skillStates: [{ studentId:'demo', skillId:'H1_CLASSIFY', verifiedLevel:2, candidateLevel:3, maxLevel:4, stability:'verified', evidence:[], consecutiveErrors:0, nextReviewAt:null, reviewIntervalIndex:1, lastReviewedAt:null, teacherIntervention:false }],
   skillDefinitions: definitionsFor('高一'),
-  todayQuestionCount: 6,
+  todayQuestionCount: 5,
   achievements: [{ id:'a1', title:'物质分类 L2 已点亮', description:'真棒，通过了L2的检验。', earnedAt:'2026-08-12T08:00:00Z' }],
 }
 
@@ -139,6 +139,7 @@ const classificationCard = {
 }
 
 const classificationQuestion = { id:'q-classify', motherId:'m-classify', skillId:'H1_CLASSIFY', level:1, gradeBand:'高一', stem:'物质分类的第一个分叉是', options:['单质和化合物','纯净物和混合物','酸和碱','金属和非金属'], correctOption:1, explanation:'先分纯净物和混合物。', scaffold:'从物质树根开始。', reviewStatus:'approved', scopeStatus:'IN', sourceKind:'teacher_original' }
+const roundQuestions = Array.from({ length: 5 }, (_, index) => ({ ...classificationQuestion, id: `q-classify-${index + 1}`, motherId: `m-classify-${index + 1}`, stem: index === 0 ? classificationQuestion.stem : `第${index + 1}个分类判断：物质分类的第一个分叉是` }))
 const redoxCard = {
   id: 'KC_H1_REDOX', skillId: 'H1_REDOX', title: '氧化还原：把电子转移的逻辑完整接起来',
   core: '标价只是入口，电子守恒才是主线。', detail: '从化合价变化追到得失电子。',
@@ -189,13 +190,14 @@ const visualKindCards = [
 ].map((visualSummary, index) => ({ ...redoxCard, id: `visual-${index}`, title: `${visualSummary.title}验收卡`, structuredContent: { ...redoxCard.structuredContent, visualSummary } }))
 
 test.beforeEach(async ({ page }) => {
+  let mockAttemptCount = 0
   await page.route('**/functions/v1/chemistry-access', async (route) => {
     const responseHeaders = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }
     if (route.request().method() === 'OPTIONS') {
       await route.fulfill({ status: 204, headers: { ...responseHeaders, 'Access-Control-Allow-Headers': 'apikey,content-type,x-app-session' } })
       return
     }
-    const body = route.request().postDataJSON() as { action: string; name?: string; code?: string; data?: { planId?: string; gradeBand?: '高一' | '高二' | '高三'; studentId?: string } }
+    const body = route.request().postDataJSON() as { action: string; name?: string; code?: string; data?: { planId?: string; planDayId?: string; gradeBand?: '高一' | '高二' | '高三'; studentId?: string; previewRound?: number } }
     if (body.action === 'recover_access_code') {
       await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ ok: true, message: '登录码已更新，请使用新登录码进入。' }) })
       return
@@ -226,7 +228,16 @@ test.beforeEach(async ({ page }) => {
       const useRedox = body.data?.planId === 'p2'
       const useVisualKinds = body.data?.planId === 'p3'
       const usePeriodic = body.data?.planId === 'p4'
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: usePeriodic ? reviewPlans[3] : useVisualKinds ? reviewPlans[2] : useRedox ? reviewPlans[1] : reviewPlans[0], cards: usePeriodic ? [periodicCard] : useVisualKinds ? visualKindCards : [useRedox ? redoxCard : classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
+      const attemptSequence = body.data?.studentId && body.data.previewRound ? body.data.previewRound - 1 : mockAttemptCount
+      const basePlan = usePeriodic ? reviewPlans[3] : useVisualKinds ? reviewPlans[2] : useRedox ? reviewPlans[1] : reviewPlans[0]
+      const plan = { ...basePlan, attemptCount: attemptSequence, roundsRemaining: Math.max(0, 5 - attemptSequence) }
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan, cards: usePeriodic ? [periodicCard] : useVisualKinds ? visualKindCards : [useRedox ? redoxCard : classificationCard], questions: roundQuestions, attemptSequence, roundNumber: attemptSequence + 1, roundLimit: 5, questionCount: 5, isResolved: false, isComplete: false, roundsRemaining: Math.max(0, 5 - attemptSequence) } }) })
+      return
+    }
+    if (body.action === 'submit_attempt') {
+      mockAttemptCount += 1
+      const plans = reviewPlans.map((plan) => plan.id === body.data?.planDayId ? { ...plan, attemptCount: mockAttemptCount, latestScore: 0, latestCompletedAt: new Date().toISOString(), isComplete: mockAttemptCount >= 5, roundsRemaining: Math.max(0, 5 - mockAttemptCount) } : plan)
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: { ...studentDashboard, plans }, achievements: [] }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: body.action === 'guardian_dashboard' ? guardianDashboard : studentDashboard }) })
@@ -238,13 +249,13 @@ test.beforeEach(async ({ page }) => {
       return
     }
     expect(route.request().headers()['x-app-session']).toBe('teacher-test-token')
-    const body = route.request().postDataJSON() as { action: string; data?: { studentId?: string; planId?: string } }
+    const body = route.request().postDataJSON() as { action: string; data?: { studentId?: string; planId?: string; previewRound?: number } }
     if (body.action === 'preview_start_plan') expect(body.data?.studentId).toBeTruthy()
     const response = body.action === 'list_course_nodes' ? { nodes: [] }
       : body.action === 'list_questions' ? { questions: [] }
       : body.action === 'student_preview_dashboard' ? { dashboard: body.data?.studentId === 'high2-demo' ? demoDashboardFor('高二') : body.data?.studentId === 'high3-demo' ? demoDashboardFor('高三') : studentDashboard }
       : body.action === 'student_learning_record' ? { record: learningRecord }
-      : body.action === 'preview_start_plan' ? { payload: { plan: reviewPlans.find((plan) => plan.id === body.data?.planId) ?? reviewPlans[0], cards: [classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }
+      : body.action === 'preview_start_plan' ? { payload: { plan: reviewPlans.find((plan) => plan.id === body.data?.planId) ?? reviewPlans[0], cards: [classificationCard], questions: roundQuestions, attemptSequence: (body.data?.previewRound ?? 1) - 1, roundNumber: body.data?.previewRound ?? 1, roundLimit: 5, questionCount: 5, isResolved: false, isComplete: false, roundsRemaining: 6 - (body.data?.previewRound ?? 1) } }
       : { dashboard: teacherDashboard }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify(response) })
   })
@@ -281,7 +292,7 @@ test('forgotten code can be reset with a private recovery phrase', async ({ page
 })
 
 test('student code routes to student experience without guardian entry', async ({ page }) => {
-  await page.clock.setFixedTime(new Date('2026-08-15T08:00:00+08:00'))
+  await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
   await page.getByLabel('登录码').fill('11111111')
@@ -292,14 +303,14 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.getByRole('button', { name: '学习计划' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '我的学习计划' })).toBeVisible()
   await expect(page.locator('.plan-day')).toHaveCount(40)
-  await expect(page.locator('.week-card')).toHaveCount(7)
+  await expect(page.locator('.week-card')).toHaveCount(6)
   await expect(page.locator('.plan-day[aria-current="date"]')).toHaveCount(1)
   await expect(page.locator('.plan-day[aria-current="date"]')).toContainText('今天')
   await expect(page.locator('.week-card.is-current-week')).toHaveCount(1)
-  await expect(page.locator('.page-title')).toContainText('8月15日—9月23日')
-  await expect(page.locator('.page-title')).toContainText('8月15日是复习第1天')
-  await expect(page.locator('.plan-day').first()).toContainText('08-15 · 周六')
-  await expect(page.locator('.plan-day').last()).toContainText('09-23 · 周三')
+  await expect(page.locator('.page-title')).toContainText('8月17日—9月25日')
+  await expect(page.locator('.page-title')).toContainText('8月17日是复习第1天')
+  await expect(page.locator('.plan-day').first()).toContainText('08-17 · 周一')
+  await expect(page.locator('.plan-day').last()).toContainText('09-25 · 周五')
   await expect(page.locator('.plan-day').first().locator('li')).toHaveCount(3)
   await page.locator('.plan-day').first().click()
   await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
@@ -359,6 +370,7 @@ test('student can change the code and set a private recovery phrase after login'
 })
 
 test('demo student can switch among all three high-school grades without writing a real record', async ({ page }) => {
+  test.setTimeout(90_000)
   await page.clock.setFixedTime(new Date('2026-08-14T08:00:00+08:00'))
   const startedFor: string[] = []
   page.on('request', (request) => {
@@ -372,7 +384,7 @@ test('demo student can switch among all three high-school grades without writing
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   const switcher = page.getByLabel('切换演示年级')
   await expect(switcher).toContainText('演示练习不会写入任何真实学生档案')
-  const mapExpectations = { 高一: { nodes: 8, edges: 7, title: '高一化学基础主干' }, 高二: { nodes: 8, edges: 7, title: '选择性必修一·反应原理地图' }, 高三: { nodes: 11, edges: 11, title: '高考化学综合能力地图' } } as const
+  const mapExpectations = { 高一: { nodes: 9, edges: 8, title: '高一化学基础主干' }, 高二: { nodes: 8, edges: 7, title: '选择性必修一·反应原理地图' }, 高三: { nodes: 11, edges: 11, title: '高考化学综合能力地图' } } as const
   for (const grade of ['高二', '高三', '高一'] as const) {
     await switcher.getByRole('button', { name: grade }).click()
     await expect(switcher.getByRole('button', { name: grade })).toHaveClass(/active/)
@@ -397,7 +409,7 @@ test('demo student can switch among all three high-school grades without writing
 })
 
 test('ability map remains one readable vertical route on a compact phone', async ({ page }) => {
-  await page.clock.setFixedTime(new Date('2026-08-15T08:00:00+08:00'))
+  await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
@@ -407,11 +419,48 @@ test('ability map remains one readable vertical route on a compact phone', async
 
   await expect(page.locator('.ability-atlas')).toHaveCount(1)
   await expect(page.locator('.ability-map-stage')).toHaveCount(4)
-  await expect(page.locator('.ability-node')).toHaveCount(8)
-  await expect(page.locator('.ability-map-links > path')).toHaveCount(7)
+  await expect(page.locator('.ability-node')).toHaveCount(9)
+  await expect(page.locator('.ability-map-links > path')).toHaveCount(8)
   await expect(page.locator('.ability-node[aria-current="step"]')).toHaveCount(1)
   await expect(page.locator('.ability-node[aria-current="step"]')).toContainText('你在这里')
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((element) => element.clientWidth))
+})
+
+test('a real review day uses five questions per round and stops after the fifth round', async ({ page }) => {
+  test.setTimeout(90_000)
+  await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
+  const submissions: Array<{ sequence: number; answers: unknown[] }> = []
+  page.on('request', (request) => {
+    if (!request.url().includes('/functions/v1/chemistry-access') || request.method() !== 'POST') return
+    const body = request.postDataJSON() as { action?: string; data?: { sequence?: number; answers?: unknown[] } }
+    if (body.action === 'submit_attempt' && typeof body.data?.sequence === 'number' && Array.isArray(body.data.answers)) submissions.push({ sequence: body.data.sequence, answers: body.data.answers })
+  })
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await expect(page.locator('.daily-orb')).toContainText('5')
+  await page.locator('.focus-card').getByRole('button', { name: '开始第一轮' }).click()
+  await page.getByRole('button', { name: /我理解了，开始练习/ }).click()
+
+  for (let round = 1; round <= 5; round += 1) {
+    await expect(page.locator('.round-track')).toHaveAttribute('aria-label', `今天共5轮，当前第${round}轮`)
+    for (let question = 0; question < 5; question += 1) {
+      await page.locator('.option-list button').first().click()
+      await page.getByRole('button', { name: '提交答案' }).click()
+      await expect(page.locator('.answer-feedback')).toContainText('先把关键一步稳住')
+      if (question < 4) await page.getByRole('button', { name: '下一题' }).click()
+    }
+    await page.getByRole('button', { name: `完成第 ${round} 轮` }).click()
+    await expect(page.getByText(`今天第 ${round} 轮完成`)).toBeVisible()
+    if (round < 5) await page.getByRole('button', { name: `进入第 ${round + 1} 轮` }).click()
+  }
+
+  await expect(page.getByRole('button', { name: '进入第 6 轮' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '查看今日成果' })).toBeVisible()
+  expect(submissions).toHaveLength(5)
+  expect(submissions.map((item) => item.sequence)).toEqual([0, 1, 2, 3, 4])
+  expect(submissions.every((item) => item.answers.length === 5)).toBe(true)
 })
 
 test('guardian code routes directly to the concise guardian explanation', async ({ page }) => {
@@ -420,6 +469,10 @@ test('guardian code routes directly to the concise guardian explanation', async 
   await page.getByLabel('登录码').fill('22222222')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: '测试学生的化学成长说明' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '当天发现，当天接稳' })).toBeVisible()
+  await expect(page.locator('.guardian-care-design')).toContainText('第一轮 5 题')
+  await expect(page.locator('.guardian-care-design')).toContainText('最多 5 轮举一反三')
+  await expect(page.locator('.guardian-care-design')).toContainText('甘老师复核错因后安排讲解')
   await expect(page.getByText(/本周已有 2 轮即时小测同步到这里/)).toBeVisible()
   await expect(page.getByText('完成即时小测 · 第2轮')).toBeVisible()
   await expect(page.getByText('下一步重点')).toBeVisible()
@@ -428,6 +481,7 @@ test('guardian code routes directly to the concise guardian explanation', async 
 })
 
 test('student can replay learned, partly lit and unlit skills with exact answered-question evidence', async ({ page }) => {
+  test.setTimeout(90_000)
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
   await page.getByLabel('登录码').fill('11111111')
@@ -596,11 +650,14 @@ test('teacher name and code use the same entry and open the private workspace', 
   await page.locator('.focus-card').getByRole('button', { name: /开始第一轮/ }).click()
   await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
   await page.getByRole('button', { name: /我理解了，开始练习/ }).click()
-  await page.locator('.option-list button').nth(1).click()
-  await page.getByRole('button', { name: '提交答案' }).click()
-  await expect(page.locator('.answer-feedback')).toContainText('判断正确')
-  await page.getByRole('button', { name: '完成第一轮' }).click()
-  await expect(page.getByText('演示练习完成')).toBeVisible()
+  for (let index = 0; index < 5; index += 1) {
+    await page.locator('.option-list button').nth(1).click()
+    await page.getByRole('button', { name: '提交答案' }).click()
+    await expect(page.locator('.answer-feedback')).toContainText('判断正确')
+    if (index < 4) await page.getByRole('button', { name: '下一题' }).click()
+  }
+  await page.getByRole('button', { name: '完成第 1 轮' }).click()
+  await expect(page.getByText('演示第 1 轮完成')).toBeVisible()
   expect(forbiddenWrites).toEqual([])
   await page.getByRole('button', { name: '返回演示计划' }).click()
   await page.getByRole('button', { name: /返回教师后台/ }).click()

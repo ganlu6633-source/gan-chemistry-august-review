@@ -5,16 +5,36 @@ import { SKILLS } from '../data/catalog'
 import { accessApi, loadLearningRecord, submitAttempt, teacherApi } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { LearningRecordPanel } from './LearningRecordPanel'
+import { StudentVideoSection } from './VideoLearning'
 
 type StudentView = 'today' | 'map' | 'growth' | 'settings'
-type PlanPayload = { plan: LearningPlanDay; cards: KnowledgeCard[]; questions: Question[]; attemptSequence: number }
+type PlanPayload = {
+  plan: LearningPlanDay
+  cards: KnowledgeCard[]
+  questions: Question[]
+  attemptSequence: number
+  roundNumber: number
+  roundLimit: number
+  questionCount: number
+  isResolved: boolean
+  isComplete: boolean
+  roundsRemaining: number
+}
+
+const nextRoundLabel = (plan: LearningPlanDay) => {
+  if (plan.isResolved) return '今日问题已接稳'
+  if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
+  return plan.attemptCount === 0 ? '开始第一轮' : `继续第 ${plan.attemptCount + 1} 轮`
+}
 
 const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
   if (plan.date < enrollment) return '加入前｜可补学'
   if (plan.attemptCount > 0) {
+    if (plan.isResolved) return `第 ${plan.attemptCount} 轮已接稳`
+    if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
     if (plan.latestCompletedAt && plan.date > plan.latestCompletedAt.slice(0, 10)) return '已提前完成'
     if (plan.firstScore !== null && plan.latestScore !== null && plan.latestScore > plan.firstScore) return `复习后提升 ${plan.firstScore}→${plan.latestScore}`
-    return plan.attemptCount > 1 ? `已复习 ${plan.attemptCount} 次` : '已完成'
+    return `已完成 ${plan.attemptCount}/${plan.roundLimit} 轮`
   }
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   if (plan.date < today) return '可再次复习'
@@ -33,19 +53,27 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
   const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
 
-  async function openPlan(plan: LearningPlanDay) {
+  async function openPlan(plan: LearningPlanDay, previewRound?: number) {
     setBusy(true)
     setError('')
     try {
       const result = previewMode
-        ? await teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id })
-        : await accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {}) })
+        ? await teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) })
+        : await accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) })
       setActivePlan(result.payload)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '学习内容暂时无法打开。')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function continuePlan(nextDashboard: StudentDashboardData, planId: string, nextRound: number) {
+    setDashboard(nextDashboard)
+    onDashboard(nextDashboard)
+    setActivePlan(null)
+    const nextPlan = nextDashboard.plans.find((plan) => plan.id === planId)
+    if (nextPlan) await openPlan(nextPlan, previewMode || nextDashboard.profile.isDemo ? nextRound : undefined)
   }
 
   async function switchDemoGrade(gradeBand: string) {
@@ -65,7 +93,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   if (activePlan) {
-    return <LearningRound session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} onExit={() => setActivePlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+    return <LearningRound session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
   }
 
   return (
@@ -81,15 +109,16 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {view === 'today' && <>
           <section className="welcome-banner">
             <div><span className="eyebrow">今天也只走一小步</span><h1>{dashboard.profile.displayName}，今天先把最值得的几件事稳住。</h1><p>{dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了第一轮。'}</p></div>
-            <div className="daily-orb"><b>{Math.min(dashboard.todayQuestionCount || 6, 8)}</b><span>第一轮题目</span></div>
+            <div className="daily-orb"><b>{dashboard.todayQuestionCount || todayPlan?.questionCount || 5}</b><span>每轮题目</span></div>
           </section>
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>切换年级，检查不同学习路线</h2><p>演示练习不会写入任何真实学生档案。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>每轮聚焦当前最值得掌握的内容</span></div></div>
-            <button className="primary-button compact" onClick={() => openPlan(todayPlan)} disabled={busy}>{busy ? '正在准备…' : '开始第一轮'}<ChevronRight size={18} /></button>
+            <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>每轮 {todayPlan.questionCount} 题 · 共 {todayPlan.roundLimit} 轮 · 当天把问题接稳</span></div></div>
+            <button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : openPlan(todayPlan)} disabled={busy}>{busy ? '正在准备…' : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
-          <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
+          <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
+          <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={(plan) => plan.isComplete && !previewMode && !dashboard.profile.isDemo ? setView('growth') : openPlan(plan)} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b>{item.title}</b><p>{item.description}</p></div></article>)}</div>
           </section>
@@ -184,7 +213,7 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
     grid.scrollLeft += buttonRect.left - gridRect.left - (grid.clientWidth - button.offsetWidth) / 2
   }, [today, first, last])
   return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title"><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习计划</h2> : <h1 id="learning-plan-title">我的学习计划</h1>}<p>计划就在首页；今天的任务会自动点亮。{displayDate(first)}是复习第1天，过去可以重做，未来可以提前预习。</p></div>
-    <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{currentWeek ? '本周 · 今天已点亮' : nextWeek ? '下一次安排' : index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''}`} aria-current={isToday ? 'date' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
+    <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{currentWeek ? '本周 · 今天已点亮' : nextWeek ? '下一次安排' : index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''}`} aria-current={isToday ? 'date' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>每轮{plan.questionCount}题 · {plan.roundLimit}轮 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
   </section>
 }
 
@@ -208,8 +237,10 @@ function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDas
   return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience={previewMode ? 'teacher' : 'student'} />
 }
 
-function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onComplete: (data: StudentDashboardData) => void }) {
-  const [phase, setPhase] = useState<'cards' | 'quiz' | 'result'>('cards')
+function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
+  const roundNumber = payload.roundNumber || payload.attemptSequence + 1
+  const roundLimit = payload.roundLimit || payload.plan.roundLimit || 5
+  const [phase, setPhase] = useState<'cards' | 'quiz' | 'result'>(roundNumber === 1 ? 'cards' : 'quiz')
   const [cardIndex, setCardIndex] = useState(0)
   const [questionIndex, setQuestionIndex] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
@@ -219,11 +250,14 @@ function LearningRound({ session, payload, practiceMode = false, practiceDashboa
   const [questionStartedAt, setQuestionStartedAt] = useState(Date.now())
   const [feedback, setFeedback] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button><div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零讲清楚 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1>{!card.structuredContent?.visualSummary ? <div className="core-rule">{card.core}</div> : null}{card.structuredContent ? <StructuredKnowledgeMap content={card.structuredContent} /> : <details open><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}>{mistake}</li>)}</ul></div><p><b>完整例子：</b>{card.microExample}</p></details>}</article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+  const roundTrack = <div className="round-track" aria-label={`今天共${roundLimit}轮，当前第${roundNumber}轮`}>{Array.from({ length: roundLimit }, (_, index) => <span key={index} className={index + 1 < roundNumber ? 'done' : index + 1 === roundNumber ? 'current' : ''}><i>{index + 1}</i><b>{index + 1 === roundNumber ? '本轮' : index + 1 < roundNumber ? '完成' : '待检验'}</b></span>)}</div>
+
+  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零讲清楚 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1>{!card.structuredContent?.visualSummary ? <div className="core-rule">{card.core}</div> : null}{card.structuredContent ? <StructuredKnowledgeMap content={card.structuredContent} /> : <details open><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}>{mistake}</li>)}</ul></div><p><b>完整例子：</b>{card.microExample}</p></details>}</article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
     <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button className="primary-button" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
@@ -239,6 +273,7 @@ function LearningRound({ session, payload, practiceMode = false, practiceDashboa
       const finalAnswers = [...answers, ...(feedback ? [] : [])]
       const attempt: LearningAttempt = { id: crypto.randomUUID(), studentId: practiceDashboard?.profile.id ?? '', planDayId: payload.plan.id, attemptKind: payload.attemptSequence === 0 ? 'scheduled' : 'review', sequence: payload.attemptSequence, mode: payload.plan.mode, startedAt, completedAt: new Date().toISOString(), answers: finalAnswers, firstScore: finalAnswers.filter((answer) => answer.correct).length }
       try {
+        setError('')
         if (practiceMode && practiceDashboard) {
           setNextDashboard(practiceDashboard)
           setPhase('result')
@@ -247,13 +282,17 @@ function LearningRound({ session, payload, practiceMode = false, practiceDashboa
           setNextDashboard(result.dashboard)
           setPhase('result')
         }
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : '这一轮暂时没有保存成功，请稍后再试。')
       } finally { setBusy(false) }
     }
-    return <section className="learning-stage"><div className="quiz-head"><span>第一轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span><h1>{question.stem}</h1><div className="option-list">{question.options.map((option, index) => <button disabled={feedback} className={`${selected === index ? 'selected' : ''} ${feedback && index === question.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== question.correctOption ? 'wrong' : ''}`} key={option} onClick={() => setSelected(index)}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}</div><label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? '判断正确' : '先把关键一步稳住'}</b><p>{question.explanation}</p>{!isCorrect && question.scaffold && <p><CircleHelp size={16} />提示：{question.scaffold}</p>}</div>}</article><div className="stage-actions">{!feedback ? <button className="primary-button" disabled={selected === null} onClick={submit}>提交答案</button> : <button className="primary-button" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : '完成第一轮'}<ChevronRight size={18} /></button>}</div></section>
+    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮换一种问法</b><p>系统会优先用同一逻辑的不同母题检验；第5轮再做最终确认。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>第 {roundNumber} 轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span><h1>{question.stem}</h1><div className="option-list">{question.options.map((option, index) => <button disabled={feedback} className={`${selected === index ? 'selected' : ''} ${feedback && index === question.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== question.correctOption ? 'wrong' : ''}`} key={option} onClick={() => setSelected(index)}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}</div><label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? '答案正确，再确认一次就更稳' : '判断正确' : '先把关键一步稳住'}</b><p>{question.explanation}</p>{!isCorrect && question.scaffold && <p><CircleHelp size={16} />提示：{question.scaffold}</p>}</div>}</article><div className="stage-actions">{!feedback ? <button className="primary-button" disabled={selected === null} onClick={submit}>提交答案</button> : <button className="primary-button" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
   }
 
   const correct = answers.filter((answer) => answer.correct).length
-  return <section className="learning-stage result-stage"><div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? '演示练习完成' : '今天的第一轮完成啦'}</span><h1>{practiceMode ? '界面、知识点、题目和解析都可以继续检查。' : '你已经完成了一次真实检验。'}</h1><p>本轮 {correct}/{answers.length}。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : '系统会用新的母题继续确认，不会让你机械重复原题。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{answers.filter((answer) => answer.uncertain).length}</b><span>不确定标记</span></div></div><button className="primary-button" disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : '查看我获得了什么'}<Trophy size={18} /></button></section>
+  const unresolved = answers.filter((answer) => !answer.correct || answer.uncertain).length
+  const hasNextRound = roundNumber < roundLimit && (practiceMode || unresolved > 0)
+  return <section className="learning-stage result-stage">{roundTrack}<div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : `今天第 ${roundNumber} 轮完成`}</span><h1>{unresolved === 0 ? '这一轮的逻辑已经接稳。' : `还有 ${unresolved} 个判断需要换一种方式确认。`}</h1><p>本轮答对 {correct}/{answers.length}，其中 {answers.filter((answer) => answer.uncertain).length} 题标记为不确定。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : hasNextRound ? '下一轮会优先更换母题，继续解决今天暴露的问题。' : '五轮记录已交给系统整理，甘老师可在后台查看并安排后续讲解。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{unresolved}</b><span>仍需确认</span></div></div><div className="result-actions">{hasNextRound && <button className="primary-button" disabled={!nextDashboard || busy} onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>{busy ? '正在准备…' : `进入第 ${roundNumber + 1} 轮`}<ChevronRight size={18} /></button>}<button className={hasNextRound ? 'secondary-button' : 'primary-button'} disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button></div></section>
 }
 
 function KnowledgeBranch({ node, depth = 0 }: { node: KnowledgeTreeNode; depth?: number }) {

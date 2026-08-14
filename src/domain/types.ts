@@ -205,6 +205,17 @@ export interface LearningPlanDay {
   firstScore: number | null
   latestScore: number | null
   latestCompletedAt: string | null
+  /** Number of questions in every review round. */
+  questionCount: number
+  /** Maximum review rounds allowed for this plan day. */
+  roundLimit: number
+  /** Optional teaching-scope difficulty ceiling fixed by the teacher. */
+  maxQuestionLevel: number | null
+  /** The latest complete round has no wrong or uncertain answer. */
+  isResolved: boolean
+  /** Resolved early or the configured round limit has been reached. */
+  isComplete: boolean
+  roundsRemaining: number
 }
 
 export interface QuestionCandidate {
@@ -266,6 +277,71 @@ export interface TimelineEvent {
   description: string
 }
 
+export type VideoRecommendationStatus = 'draft' | 'published' | 'withdrawn'
+export type VideoTrackingMethod = 'link_open_only' | 'self_reported' | 'player_tracked'
+
+export interface VideoRecommendationProgress {
+  openedAt: string | null
+  lastEngagedAt: string | null
+  progressSeconds: number
+  durationSeconds: number | null
+  completionPercent: number | null
+  completedAt: string | null
+  trackingMethod: VideoTrackingMethod | null
+  eventCount: number
+}
+
+export interface VideoRecommendation {
+  id: string
+  studentId: string
+  skillId: string
+  skillTitle: string
+  title: string
+  provider: string
+  url: string
+  teacherReason: string
+  trackingCapability?: VideoTrackingMethod
+  status: VideoRecommendationStatus
+  publishedAt: string | null
+  unresolvedOn?: string | null
+  sourceAttemptId?: string | null
+  sourceAlertId?: string | null
+  createdBy?: string | null
+  reviewedBy?: string | null
+  reviewedAt?: string | null
+  publishedBy?: string | null
+  withdrawnBy?: string | null
+  withdrawnAt?: string | null
+  createdAt?: string
+  progress: VideoRecommendationProgress
+}
+
+export interface RecordVideoEngagementInput {
+  recommendationId: string
+  event: 'open' | 'progress' | 'complete'
+  progressSeconds?: number
+  durationSeconds?: number
+  trackingMethod?: VideoTrackingMethod
+}
+
+export interface CreateVideoRecommendationInput {
+  studentId: string
+  skillId: string
+  title: string
+  provider: string
+  url: string
+  teacherReason: string
+  trackingCapability?: VideoTrackingMethod
+  unresolvedDate?: string
+  unresolvedSkillId?: string
+}
+
+export interface VideoRecommendationFilter {
+  studentId?: string
+  status?: VideoRecommendationStatus
+  date?: string
+}
+
 export interface StudentDashboardData {
   profile: Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'enrollmentStartDate' | 'needsInitialDiagnostic'> & {
     isDemo?: boolean
@@ -276,6 +352,7 @@ export interface StudentDashboardData {
   skillDefinitions: SkillDefinition[]
   todayQuestionCount: number
   achievements: Array<{ id: string; title: string; description: string; earnedAt: string }>
+  videoRecommendations?: VideoRecommendation[]
 }
 
 export type LearningRecordEvidenceStatus = 'full' | 'partial' | 'unlit'
@@ -380,6 +457,7 @@ export interface GuardianDashboardData {
   behaviorSignals: BehaviorSignal[]
   timeline: TimelineEvent[]
   skillSummary: LearningRecordData['summary']
+  videoRecommendations?: VideoRecommendation[]
 }
 
 export interface TeacherDashboardData {

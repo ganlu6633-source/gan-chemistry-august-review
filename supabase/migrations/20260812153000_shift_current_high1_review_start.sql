@@ -1,20 +1,26 @@
--- Moves only the five active high-one students' REVIEW calendar so 2026-08-15 is day one.
+-- Historical step: moves only the five approved active high-one profiles' REVIEW
+-- calendar so 2026-08-15 is day one. Public source identifies the private roster
+-- by one-way profile-id fingerprints rather than names or raw UUIDs.
 begin;
 
-create temporary table target_current_high1_students(id uuid primary key, expected_name text) on commit drop;
-insert into target_current_high1_students values
-  ('6423ac81-cda4-4cbb-9eb8-9cf9bb20d02b','洪杰'),
-  ('f0306011-7ef5-4da2-b784-90279c7580be','天佑'),
-  ('2e9dc98d-b4e3-4e67-a4fa-16298137c9bb','肖欣慧'),
-  ('afb34c18-e94e-4492-ae59-69300fb87db4','浩洋'),
-  ('b925f0b3-f827-41ec-b7ab-aa99b529f4a4','浩霖');
+create temporary table target_current_high1_students(id uuid primary key) on commit drop;
+insert into target_current_high1_students(id)
+select s.id
+from public.chem_students_v2 s
+where encode(extensions.digest(s.id::text,'sha256'),'hex') in (
+  '0a38a67e2152013689c87f2398e8d82711400f865597905f33a4bb204a534c86',
+  '7340cb871eb1519e1d8cada1e06504a9bc9b955c97fbe4fdecf85260fb013dd9',
+  '535bd2f422b89d30fca725096fe110c2b7aecb64abf75ed7335940ec3672f022',
+  '3d891e2a95488c044a5210163872d9bb24419bfff6e10db6a1721050f6904ae6',
+  'e77669d1f17b1f06a54a7e12161a24fc0dbc8af5eb10b2afee50cc30787a1400'
+);
 
 do $$
 begin
-  if exists (
+  if (select count(*) from target_current_high1_students) <> 5 or exists (
     select 1 from target_current_high1_students t
     left join public.chem_students_v2 s on s.id=t.id
-    where s.id is null or s.display_name<>t.expected_name or s.record_status<>'active'
+    where s.id is null or s.record_status<>'active'
       or s.metadata->>'curriculumCohort'<>'high1_current'
   ) then raise exception 'The five-student target set no longer matches the approved roster'; end if;
   if exists (

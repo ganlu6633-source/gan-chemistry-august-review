@@ -7,6 +7,7 @@ import { AbilityMap } from './AbilityMap'
 const titles: Record<string, string> = {
   H1_CLASSIFY: '物质的分类', H1_PERIODIC: '元素周期律', H1_ELECTROLYTE_INTRO: '电解质基础', H1_REDOX: '氧化还原',
   H1_MOLE_INTRO: '物质的量基础', H1_ELECTROLYTE: '离子反应', H1_MOLE: '物质的量计算', H1_NACL: '钠和氯',
+  H1_GAS_MOLAR_VOLUME: '气体摩尔体积基础',
 }
 
 const skillIds = ABILITY_MAP_BLUEPRINTS['高一'].stages.flatMap((stage) => stage.skillIds)
@@ -22,10 +23,10 @@ const state = (skillId: string, verifiedLevel: number, stability: StudentSkillSt
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
 const dashboard: StudentDashboardData = {
   profile: { id: 'student-1', displayName: '测试学生', gradeBand: '高一', enrollmentStartDate: '2026-08-01', needsInitialDiagnostic: false },
-  plans: [{ id: 'today-plan', studentId: 'student-1', date: today, mode: 'REVIEW', title: '今天复习氧化还原与计量', skillIds: ['H1_REDOX', 'H1_MOLE'], knowledgeSummaries: ['电子转移', '物质的量'], estimatedMinutes: 15, source: 'memory', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null }],
+  plans: [{ id: 'today-plan', studentId: 'student-1', date: today, mode: 'REVIEW', title: '今天复习氧化还原与计量', skillIds: ['H1_REDOX', 'H1_MOLE'], knowledgeSummaries: ['电子转移', '物质的量'], estimatedMinutes: 15, source: 'memory', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null, questionCount: 5, roundLimit: 5, maxQuestionLevel: 3, isResolved: false, isComplete: false, roundsRemaining: 5 }],
   skillDefinitions: definitions,
   skillStates: [state('H1_CLASSIFY', 2, 'stable'), state('H1_PERIODIC', 1, 'forgotten'), state('H1_REDOX', 1, 'learning')],
-  todayQuestionCount: 6,
+  todayQuestionCount: 5,
   achievements: [],
 }
 
@@ -36,7 +37,7 @@ describe('AbilityMap', () => {
     const { container } = render(<AbilityMap dashboard={dashboard} />)
 
     expect(container.querySelectorAll('.ability-atlas')).toHaveLength(1)
-    expect(container.querySelectorAll('.ability-node')).toHaveLength(8)
+    expect(container.querySelectorAll('.ability-node')).toHaveLength(9)
     expect(screen.getByRole('heading', { name: '高一化学基础主干' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /氧化还原，正在形成/ })).toHaveTextContent('你在这里')
     expect(screen.getByRole('button', { name: /物质的量计算，待建立证据/ })).toHaveTextContent('你在这里')
@@ -52,8 +53,8 @@ describe('AbilityMap', () => {
     expect(screen.getAllByText('该复习了')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: '需要复习' }))
-    expect(container.querySelectorAll('.ability-node')).toHaveLength(8)
-    expect(container.querySelectorAll('.ability-node.is-dimmed')).toHaveLength(7)
+    expect(container.querySelectorAll('.ability-node')).toHaveLength(9)
+    expect(container.querySelectorAll('.ability-node.is-dimmed')).toHaveLength(8)
     expect(screen.getByRole('button', { name: /元素周期律，该复习了/ })).not.toHaveClass('is-dimmed')
   })
 

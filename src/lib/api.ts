@@ -1,4 +1,4 @@
-import type { GuardianDashboardData, LearningAttempt, LearningRecordData, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
+import type { CreateVideoRecommendationInput, GuardianDashboardData, LearningAttempt, LearningRecordData, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
 import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
@@ -76,4 +76,24 @@ export async function loadTeacherDashboard() {
 
 export async function saveTeacherObservation(observation: Omit<TeacherObservation, 'id'>) {
   return teacherApi<{ observation: TeacherObservation }>('save_observation', observation)
+}
+
+export async function recordVideoEngagement(session: SessionIdentity, input: RecordVideoEngagementInput) {
+  return accessApi<{ recommendation?: VideoRecommendation; ok?: true }>(session, 'record_video_engagement', input)
+}
+
+export async function listVideoRecommendations(filter: VideoRecommendationFilter = {}) {
+  return teacherApi<{ recommendations: VideoRecommendation[] }>('list_video_recommendations', filter)
+}
+
+export async function createVideoRecommendation(input: CreateVideoRecommendationInput) {
+  return teacherApi<{ recommendation?: VideoRecommendation; ok?: true }>('create_video_recommendation', input)
+}
+
+export async function publishVideoRecommendation(recommendationId: string) {
+  return teacherApi<{ recommendation?: VideoRecommendation; ok?: true }>('publish_video_recommendation', { recommendationId })
+}
+
+export async function withdrawVideoRecommendation(recommendationId: string) {
+  return teacherApi<{ recommendation?: VideoRecommendation; ok?: true }>('withdraw_video_recommendation', { recommendationId })
 }

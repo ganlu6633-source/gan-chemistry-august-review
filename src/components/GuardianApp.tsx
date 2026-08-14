@@ -3,6 +3,7 @@ import { AlertTriangle, BookOpenCheck, Brain, CheckCircle2, Clock3, MessageCircl
 import type { GuardianDashboardData, LearningRecordData, SessionIdentity } from '../domain/types'
 import { loadLearningRecord } from '../lib/api'
 import { LearningRecordPanel } from './LearningRecordPanel'
+import { GuardianVideoSection } from './VideoLearning'
 
 export function GuardianApp({ dashboard, session }: { dashboard: GuardianDashboardData; session: SessionIdentity }) {
   const [record, setRecord] = useState<LearningRecordData | null>(null)
@@ -27,12 +28,14 @@ export function GuardianApp({ dashboard, session }: { dashboard: GuardianDashboa
 
   return <div className="guardian-dashboard">
     <section className="guardian-hero"><div><span className="eyebrow">30秒看懂孩子这一周</span><h1>{dashboard.student.displayName}的化学成长说明</h1><p>这里同时呈现进步与需要关注的地方，也会告诉您系统和甘老师已经做了什么。</p><p className="live-sync-note"><CheckCircle2 size={17} />本周已有 {dashboard.weeklyQuizCompleted} 轮即时小测同步到这里，完成后约10秒更新。</p></div><div className="completion-ring"><b>{dashboard.weeklyCompleted}/{dashboard.weeklyPlanned}</b><span>本周复习</span></div></section>
+    <section className="guardian-care-design" aria-labelledby="guardian-care-title"><div className="guardian-care-copy"><span className="eyebrow">甘老师为孩子设计的复习闭环</span><h2 id="guardian-care-title">当天发现，当天接稳</h2><p>每一步都从孩子真正学过的范围出发；系统负责整理证据，最终由甘老师判断怎样讲、推什么内容。</p></div><ol><li><Sparkles /><div><b>第一轮 5 题</b><span>小步开始，先找出真正卡住的逻辑。</span></div></li><li><RotateCcw /><div><b>最多 5 轮举一反三</b><span>优先更换母题，不让孩子只记住原题答案。</span></div></li><li><BookOpenCheck /><div><b>仍不稳就补讲解</b><span>甘老师复核错因后安排讲解，观看情况也会如实反馈。</span></div></li></ol></section>
     <section className="guardian-metrics">
       <article className="positive"><Sparkles /><b>{summary.full}</b><span>完全点亮</span></article>
       <article className="working"><BookOpenCheck /><b>{summary.partial}</b><span>点亮一部分</span></article>
       <article className="forget"><RotateCcw /><b>{summary.unlit}</b><span>待建立证据</span></article>
       <article className="teacher"><MessageCircle /><b>{dashboard.teacherAttentionCount}</b><span>老师持续关注</span></article>
     </section>
+    <GuardianVideoSection videos={dashboard.videoRecommendations ?? []} />
     <section className="guardian-record-wrap">
       {record ? <LearningRecordPanel record={record} gradeBand={dashboard.student.gradeBand} audience="guardian" />
         : recordError ? <div className="inline-alert" role="alert">{recordError}</div>

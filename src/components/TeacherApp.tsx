@@ -1,11 +1,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, Eye, GraduationCap, KeyRound, LayoutDashboard, LogIn, MessageSquareText, MonitorPlay, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
+import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, Eye, Film, GraduationCap, KeyRound, LayoutDashboard, LogIn, MessageSquareText, MonitorPlay, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
 import type { GradeBand, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
 import { loadTeacherDashboard, saveTeacherObservation, teacherApi } from '../lib/api'
 import { clearAccessSession, readAccessSession } from '../lib/session'
+import { TeacherVideoManager } from './VideoLearning'
 
-type TeacherView = 'overview' | 'observation' | 'students' | 'preview' | 'plans' | 'questions' | 'settings'
+type TeacherView = 'overview' | 'observation' | 'students' | 'preview' | 'videos' | 'plans' | 'questions' | 'settings'
 
 export function TeacherGate({ onPreviewStudent }: { onPreviewStudent?: (studentId: string) => void }) {
   const session = readAccessSession()
@@ -44,6 +45,7 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     <button className={view === 'observation' ? 'active' : ''} onClick={() => setView('observation')}><ClipboardPen />课堂记录</button>
     <button className={view === 'students' ? 'active' : ''} onClick={() => setView('students')}><Users />学生档案</button>
     <button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')}><MonitorPlay />模拟学生端</button>
+    <button className={view === 'videos' ? 'active' : ''} onClick={() => setView('videos')}><Film />视频讲解</button>
     <button className={view === 'plans' ? 'active' : ''} onClick={() => setView('plans')}><BookOpen />计划编辑器</button>
     <button className={view === 'questions' ? 'active' : ''} onClick={() => setView('questions')}><MessageSquareText />题库审核</button>
     <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings2 />权限与访问码</button>
@@ -53,6 +55,7 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     {view === 'observation' && <ObservationForm dashboard={dashboard} />}
     {view === 'students' && <StudentTable dashboard={dashboard} onPreview={(studentId) => { setPreviewStudentId(studentId); setView('preview') }} />}
     {view === 'preview' && <StudentPreview dashboard={dashboard} initialStudentId={previewStudentId} onOpenFull={onPreviewStudent} />}
+    {view === 'videos' && <TeacherVideoManager dashboard={dashboard} />}
     {view === 'plans' && <PlanEditor dashboard={dashboard} />}
     {view === 'questions' && <QuestionAudit dashboard={dashboard} />}
     {view === 'settings' && <AccessSettings dashboard={dashboard} />}

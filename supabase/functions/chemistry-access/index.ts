@@ -26,6 +26,32 @@ function cors(req: Request) {
 }
 const reply = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: cors(req) });
 
+class RequestError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "RequestError";
+    this.status = status;
+  }
+}
+
+function planQuestionCount(row: Record<string, unknown>) {
+  const value = Number(row.question_count);
+  return Number.isInteger(value) && value >= 1 && value <= 10 ? value : 5;
+}
+
+function planRoundLimit(row: Record<string, unknown>) {
+  const value = Number(row.round_limit);
+  return Number.isInteger(value) && value >= 1 && value <= 8 ? value : 5;
+}
+
+function planMaxQuestionLevel(row: Record<string, unknown>) {
+  if (row.max_question_level === null || row.max_question_level === undefined) return null;
+  const value = Number(row.max_question_level);
+  return Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -34,6 +60,9 @@ async function sha256(value: string) {
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+function validUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 const profileShape = (row: Record<string, unknown>) => ({
   id: row.id,
@@ -61,12 +90,21 @@ const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<strin
     .sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
   const first = attempts.find((attempt) => attempt.attempt_kind === "scheduled") || attempts[0];
   const latest = attempts.at(-1);
+  const questionCount = planQuestionCount(row);
+  const roundLimit = planRoundLimit(row);
+  const latestAnswers = Array.isArray(latest?.chem_attempt_answers)
+    ? latest.chem_attempt_answers as Array<Record<string, unknown>>
+    : [];
+  const isResolved = latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true);
+  const isComplete = isResolved || attempts.length >= roundLimit;
   return {
     id: row.id, studentId: row.student_id, date: row.plan_date, mode: row.mode, title: row.title,
     skillIds: row.skill_ids || [], knowledgeSummaries: row.knowledge_summaries || [],
     estimatedMinutes: row.estimated_minutes, source: row.source, isScheduled: row.is_scheduled,
+    questionCount, roundLimit, maxQuestionLevel: planMaxQuestionLevel(row),
     attemptCount: attempts.length, firstScore: first?.first_score ?? null,
     latestScore: latest?.first_score ?? null, latestCompletedAt: latest?.completed_at ?? null,
+    isResolved, isComplete, roundsRemaining: isComplete ? 0 : Math.max(0, roundLimit - attempts.length),
   };
 };
 const questionShape = (row: Record<string, unknown>) => ({
@@ -81,6 +119,50 @@ const cardShape = (row: Record<string, unknown>) => ({
   structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
   asset: row.asset, reviewStatus: row.review_status,
 });
+const videoRecommendationShape = (row: Record<string, unknown>) => ({
+  id: row.id,
+  studentId: row.student_id,
+  studentName: row.student_name,
+  skillId: row.skill_id,
+  skillTitle: row.skill_title,
+  unresolvedOn: row.unresolved_on,
+  sourceAttemptId: row.source_attempt_id,
+  sourceAlertId: row.source_alert_id,
+  title: row.title,
+  provider: row.provider,
+  url: row.external_url,
+  teacherReason: row.teacher_reason,
+  trackingCapability: row.tracking_capability,
+  status: row.status,
+  createdBy: row.created_by,
+  reviewedBy: row.reviewed_by,
+  reviewedAt: row.reviewed_at,
+  publishedBy: row.published_by,
+  publishedAt: row.published_at,
+  withdrawnBy: row.withdrawn_by,
+  withdrawnAt: row.withdrawn_at,
+  createdAt: row.created_at,
+  progress: {
+    openedAt: row.opened_at,
+    lastEngagedAt: row.last_engaged_at,
+    progressSeconds: Number(row.progress_position_seconds) || 0,
+    durationSeconds: row.duration_seconds === null || row.duration_seconds === undefined ? null : Number(row.duration_seconds),
+    completionPercent: row.completion_percent === null || row.completion_percent === undefined ? null : Number(row.completion_percent),
+    trackingMethod: row.tracking_method,
+    completedAt: row.completed_at,
+    eventCount: Number(row.event_count) || 0,
+  },
+});
+
+async function loadVideoRecommendations(studentId: string | null, includeUnpublished = false) {
+  const { data, error } = await supabase.rpc("chem_video_list_recommendations", {
+    p_student_id: studentId,
+    p_include_unpublished: includeUnpublished,
+  });
+  if (error) throw error;
+  const rows = (data || []) as Array<Record<string, unknown>>;
+  return rows.map((row) => videoRecommendationShape(row));
+}
 
 function formatDuration(value: unknown) {
   const totalSec = Math.max(0, Number(value) || 0);
@@ -119,9 +201,12 @@ function shanghaiWeekRange() {
   };
 }
 
-function curriculumSkillScope(gradeBand: string, cohort: string, allSkillIds: string[]) {
+function curriculumSkillScope(gradeBand: string, cohort: string, allSkillIds: string[], confirmedSkillIds: string[] = []) {
+  const available = new Set(allSkillIds);
+  const confirmed = [...new Set(confirmedSkillIds)].filter((skillId) => available.has(skillId));
+  if (confirmed.length) return confirmed;
   if (gradeBand === "高一") {
-    const foundation = ["H1_CLASSIFY", "H1_PERIODIC", "H1_ELECTROLYTE_INTRO", "H1_MOLE_INTRO"];
+    const foundation = ["H1_CLASSIFY", "H1_PERIODIC", "H1_MOLE_INTRO", "H1_GAS_MOLAR_VOLUME"];
     if (cohort === "high1_completed") return [...foundation, "H1_REDOX"];
     if (cohort === "high1_current") return foundation;
   }
@@ -136,11 +221,12 @@ function learnedSkillIds(
   answers: Array<Record<string, unknown>>,
   gradeBand: string,
   cohort: string,
+  confirmedSkillIds: string[] = [],
   today = shanghaiDate(),
 ) {
   const allSkillIds = skills.map((skill) => String(skill.id));
   const allowed = new Set(allSkillIds);
-  const learned = new Set(curriculumSkillScope(gradeBand, cohort, allSkillIds).filter((skillId) => allowed.has(skillId)));
+  const learned = new Set(curriculumSkillScope(gradeBand, cohort, allSkillIds, confirmedSkillIds).filter((skillId) => allowed.has(skillId)));
   for (const plan of plans) {
     if (String(plan.plan_date || "") > today) continue;
     for (const skillId of Array.isArray(plan.skill_ids) ? plan.skill_ids : []) {
@@ -159,9 +245,10 @@ function learningSummary(
   answers: Array<Record<string, unknown>>,
   gradeBand: string,
   cohort: string,
+  confirmedSkillIds: string[] = [],
   answeredQuestions = 0,
 ) {
-  const learned = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort);
+  const learned = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort, confirmedSkillIds);
   const stateBySkill = new Map(states.map((state) => [String(state.skill_id), state]));
   let full = 0;
   let partial = 0;
@@ -295,7 +382,10 @@ async function studentLearningRecord(studentId: string) {
   const stateBySkill = new Map(states.map((state) => [String(state.skill_id), state]));
   const questionById = new Map((questionsResult.data || []).map((question) => [String(question.id), question]));
   const cohort = String(profile.data.metadata?.curriculumCohort || "");
-  const learnedIds = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort);
+  const confirmedSkillIds = Array.isArray(profile.data.metadata?.confirmedLearnedSkillIds)
+    ? profile.data.metadata.confirmedLearnedSkillIds.map(String).filter(Boolean)
+    : [];
+  const learnedIds = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort, confirmedSkillIds);
   const now = Date.now();
   const today = shanghaiDate();
 
@@ -350,7 +440,7 @@ async function studentLearningRecord(studentId: string) {
   return {
     generatedAt: new Date().toISOString(),
     evidenceScope: "技能级证据；知识点列表仅说明模块包含什么，不代表每个知识点都已逐项验证。",
-    summary: learningSummary(skills, states, plans, answers, gradeBand, cohort, answersTotalInLoadedAttempts),
+    summary: learningSummary(skills, states, plans, answers, gradeBand, cohort, confirmedSkillIds, answersTotalInLoadedAttempts),
     historyWindow: {
       attemptLimit: attemptHistoryLimit,
       answerLimit: answerHistoryLimit,
@@ -370,11 +460,12 @@ async function studentLearningRecord(studentId: string) {
 async function studentDashboard(studentId: string) {
   const profileResult = await supabase.from("chem_students_v2").select("*").eq("id", studentId).single();
   if (profileResult.error) throw profileResult.error;
-  const [planResult, stateResult, skillResult, attemptResult] = await Promise.all([
+  const [planResult, stateResult, skillResult, attemptResult, videoRecommendations] = await Promise.all([
     supabase.from("chem_learning_plans").select("*").eq("student_id", studentId).order("plan_date"),
     supabase.from("chem_student_skill_state").select("*,chem_skills(max_level)").eq("student_id", studentId),
     supabase.from("chem_skills").select("*").eq("active", true).eq("grade_band", profileResult.data.grade_band).order("module_id"),
-    supabase.from("chem_learning_attempts").select("plan_day_id,attempt_kind,sequence,first_score,completed_at").eq("student_id", studentId).order("completed_at"),
+    supabase.from("chem_learning_attempts").select("id,plan_day_id,attempt_kind,sequence,first_score,completed_at,chem_attempt_answers(correct,uncertain)").eq("student_id", studentId).order("completed_at"),
+    loadVideoRecommendations(studentId),
   ]);
   for (const result of [planResult, stateResult, skillResult, attemptResult]) if (result.error) throw result.error;
   const rawStates = stateResult.data || [];
@@ -391,16 +482,19 @@ async function studentDashboard(studentId: string) {
       earnedAt: String(state.last_reviewed_at || state.updated_at),
     }));
   const isDemo = Boolean((profileResult.data.metadata as Record<string, unknown> | null)?.demo);
+  const plans = planResult.data || [];
+  const todayPlan = plans.find((plan) => String(plan.plan_date) === shanghaiDate());
   return {
     profile: {
       ...profileShape(profileResult.data),
       availableDemoGrades: isDemo ? ["高一", "高二", "高三"] : undefined,
     },
-    plans: (planResult.data || []).map((plan) => planShape(plan, attemptResult.data || [])),
+    plans: plans.map((plan) => planShape(plan, attemptResult.data || [])),
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
-    todayQuestionCount: 6,
+    todayQuestionCount: todayPlan ? planQuestionCount(todayPlan) : 5,
     achievements,
+    videoRecommendations,
   };
 }
 
@@ -418,13 +512,14 @@ async function guardianDashboard(studentId: string) {
       .limit(50)
     : { data: [], error: null, count: 0 };
   if (quizResult.error) throw quizResult.error;
-  const [profileResult, plansResult, attemptsResult, signalsResult, observationsResult, learningRecord] = await Promise.all([
+  const [profileResult, plansResult, attemptsResult, signalsResult, observationsResult, learningRecord, videoRecommendations] = await Promise.all([
     supabase.from("chem_students_v2").select("display_name,grade_band").eq("id", studentId).single(),
     supabase.from("chem_learning_plans").select("id").eq("student_id", studentId).gte("plan_date", week.startDate).lt("plan_date", week.endDate),
     supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at,mode,first_score").eq("student_id", studentId).gte("completed_at", week.startIso).lt("completed_at", week.endIso).order("completed_at", { ascending: false }),
     supabase.from("chem_behavior_signals").select("*").eq("student_id", studentId).eq("active", true),
     supabase.from("chem_teacher_observations").select("id,course_date,taught_content,guardian_message,created_at").eq("student_id", studentId).order("course_date", { ascending: false }).limit(10),
     studentLearningRecord(studentId),
+    loadVideoRecommendations(studentId),
   ]);
   for (const result of [profileResult, plansResult, attemptsResult, signalsResult, observationsResult]) if (result.error) throw result.error;
   if (!profileResult.data) throw new Error("Student profile not found");
@@ -463,6 +558,7 @@ async function guardianDashboard(studentId: string) {
     behaviorSignals: (signalsResult.data || []).map((s) => ({ kind: s.kind, evidenceCount: s.evidence_count, sessionCount: s.session_count, firstSeenAt: s.first_seen_at, lastSeenAt: s.last_seen_at, guardianCopy: s.guardian_copy })),
     timeline,
     skillSummary: learningRecord.summary,
+    videoRecommendations,
   };
 }
 
@@ -500,7 +596,12 @@ async function demoStudentForGrade(currentStudentId: string, gradeBand: string) 
   return target.data.id as string;
 }
 
-async function startPlanPayload(studentId: string, planId: string) {
+type StartPlanOptions = {
+  allowCompletedPreview?: boolean;
+  previewRound?: number;
+};
+
+async function startPlanPayload(studentId: string, planId: string, options: StartPlanOptions = {}) {
   const { data: plan, error: planError } = await supabase
     .from("chem_learning_plans")
     .select("*")
@@ -510,42 +611,99 @@ async function startPlanPayload(studentId: string, planId: string) {
   if (planError) throw planError;
   const gradeResult = await supabase.from("chem_students_v2").select("grade_band").eq("id", studentId).single();
   if (gradeResult.error) throw gradeResult.error;
+  const skillIds: string[] = Array.isArray(plan.skill_ids)
+    ? (plan.skill_ids as unknown[]).map((skillId) => String(skillId)).filter(Boolean)
+    : [];
+  if (!skillIds.length) throw new RequestError(422, "当天计划尚未配置可练习的知识模块，请联系甘老师。");
+  const questionCount = planQuestionCount(plan);
+  const roundLimit = planRoundLimit(plan);
+  const maxQuestionLevel = planMaxQuestionLevel(plan);
+  if (options.previewRound !== undefined && (!Number.isInteger(options.previewRound) || options.previewRound < 1 || options.previewRound > roundLimit)) {
+    throw new RequestError(400, `预览轮次必须在 1—${roundLimit} 之间。`);
+  }
   const questionUsageColumn = plan.mode === "CLASS_QUIZ"
     ? "usable_for_class_quiz"
     : plan.mode === "EXAM_SPRINT"
       ? "usable_for_exam_sprint"
       : "usable_for_review";
-  const eligibleQuestions = supabase
+  let eligibleQuestions = supabase
     .from("chem_questions")
     .select("*")
     .eq("grade_band", gradeResult.data.grade_band)
-    .in("skill_id", plan.skill_ids)
+    .in("skill_id", skillIds)
     .eq("review_status", "approved")
-    .neq("scope_status", "OUT")
+    .eq("scope_status", "IN")
     .eq(questionUsageColumn, true);
-  const [cards, questions, attemptCount, states, recentAttempts] = await Promise.all([
-    supabase.from("chem_knowledge_cards").select("*").in("skill_id", plan.skill_ids).eq("review_status", "approved"),
+  if (maxQuestionLevel !== null) eligibleQuestions = eligibleQuestions.lte("level", maxQuestionLevel);
+  const [cards, questions, planAttempts, states, recentAttempts] = await Promise.all([
+    supabase.from("chem_knowledge_cards").select("*").in("skill_id", skillIds).eq("review_status", "approved"),
     eligibleQuestions,
-    supabase.from("chem_learning_attempts").select("id", { count: "exact", head: true }).eq("plan_day_id", plan.id),
-    supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", studentId).in("skill_id", plan.skill_ids),
+    supabase.from("chem_learning_attempts").select("id,attempt_kind,sequence,first_score,completed_at").eq("student_id", studentId).eq("plan_day_id", plan.id).order("sequence"),
+    supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", studentId).in("skill_id", skillIds),
     supabase.from("chem_learning_attempts").select("id").eq("student_id", studentId).order("completed_at", { ascending: false }).limit(30),
   ]);
-  if (cards.error || questions.error || attemptCount.error || states.error || recentAttempts.error) {
-    throw cards.error || questions.error || attemptCount.error || states.error || recentAttempts.error;
+  if (cards.error || questions.error || planAttempts.error || states.error || recentAttempts.error) {
+    throw cards.error || questions.error || planAttempts.error || states.error || recentAttempts.error;
   }
-  const attemptIds = (recentAttempts.data || []).map((attempt) => attempt.id);
+  const attempts = planAttempts.data || [];
+  const actualAttemptCount = attempts.length;
+  const attemptIds = [...new Set([
+    ...(recentAttempts.data || []).map((attempt) => String(attempt.id)),
+    ...attempts.map((attempt) => String(attempt.id)),
+  ])];
   const history = attemptIds.length
-    ? await supabase.from("chem_attempt_answers").select("question_id,correct").in("attempt_id", attemptIds).in("skill_id", plan.skill_ids)
+    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,correct,uncertain").in("attempt_id", attemptIds).in("skill_id", skillIds)
     : { data: [], error: null };
   if (history.error) throw history.error;
-  const adaptiveQuestions = selectAdaptiveQuestions(questions.data || [], states.data || [], history.data || [], attemptCount.count || 0, 7);
-  const cardOrder = new Map((plan.skill_ids as string[]).map((skillId, index) => [skillId, index]));
+  const latestAttemptId = attempts.at(-1)?.id ? String(attempts.at(-1)?.id) : null;
+  const latestAnswers = latestAttemptId
+    ? (history.data || []).filter((answer) => String(answer.attempt_id) === latestAttemptId)
+    : [];
+  const isResolved = latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true);
+  const reachedRoundLimit = actualAttemptCount >= roundLimit;
+  if (!options.allowCompletedPreview && (reachedRoundLimit || isResolved)) {
+    throw new RequestError(
+      409,
+      isResolved
+        ? "今天这组问题已经全部解决，可以在战绩中回看。"
+        : `今天的 ${roundLimit} 轮已经完成，可以在战绩中回看。`,
+    );
+  }
+
+  const completedPreview = Boolean(options.allowCompletedPreview && actualAttemptCount > 0 && (reachedRoundLimit || isResolved));
+  const selectionSequence = options.previewRound !== undefined
+    ? options.previewRound - 1
+    : completedPreview
+      ? Math.max(0, Math.min(actualAttemptCount, roundLimit) - 1)
+      : Math.min(actualAttemptCount, roundLimit - 1);
+  const roundNumber = selectionSequence + 1;
+  const adaptiveQuestions = selectAdaptiveQuestions(questions.data || [], states.data || [], history.data || [], selectionSequence, questionCount);
+  if (adaptiveQuestions.length !== questionCount) {
+    throw new RequestError(
+      422,
+      `当天计划需要 ${questionCount} 道已审核且范围内的题目，但当前只有 ${adaptiveQuestions.length} 道可用，请联系甘老师补齐后再开始。`,
+    );
+  }
+  const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
   const orderedCards = [...(cards.data || [])].sort((a, b) => (cardOrder.get(a.skill_id) ?? 99) - (cardOrder.get(b.skill_id) ?? 99));
+  const planAttemptRows = attempts.map((attempt) => ({
+    ...attempt,
+    plan_day_id: plan.id,
+    chem_attempt_answers: (history.data || [])
+      .filter((answer) => String(answer.attempt_id) === String(attempt.id))
+      .map((answer) => ({ correct: answer.correct, uncertain: answer.uncertain })),
+  }));
   return {
-    plan: planShape(plan),
+    plan: planShape(plan, planAttemptRows),
     cards: orderedCards.map(cardShape),
     questions: adaptiveQuestions.map(questionShape),
-    attemptSequence: attemptCount.count || 0,
+    attemptSequence: selectionSequence,
+    roundNumber,
+    roundLimit,
+    questionCount,
+    isResolved,
+    isComplete: isResolved || reachedRoundLimit,
+    roundsRemaining: isResolved || reachedRoundLimit ? 0 : Math.max(0, roundLimit - actualAttemptCount),
   };
 }
 
@@ -606,6 +764,44 @@ Deno.serve(async (req: Request) => {
     if (body.action === "student_dashboard" && identity.role === "student" && identity.studentId) return reply(req, { dashboard: await studentDashboard(identity.studentId) });
     if (body.action === "guardian_dashboard" && identity.role === "guardian" && identity.studentId) return reply(req, { dashboard: await guardianDashboard(identity.studentId) });
 
+    if (body.action === "record_video_engagement" && identity.role === "student" && identity.studentId) {
+      if (await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号为只读账号。" }, 403);
+      const recommendationId = String(body.data?.recommendationId || "");
+      const event = String(body.data?.event || "");
+      if (!validUuid(recommendationId) || !["open", "progress", "complete"].includes(event)) {
+        return reply(req, { error: "视频学习记录信息无效。" }, 400);
+      }
+      const progressSeconds = event === "open" || body.data?.progressSeconds === undefined
+        ? null
+        : Number(body.data.progressSeconds);
+      const durationSeconds = event === "open" || body.data?.durationSeconds === undefined
+        ? null
+        : Number(body.data.durationSeconds);
+      const trackingMethod = event === "open" ? "link_open_only" : String(body.data?.trackingMethod || "");
+      if (
+        (event === "progress" && !Number.isInteger(progressSeconds))
+        || (progressSeconds !== null && !Number.isInteger(progressSeconds))
+        || (durationSeconds !== null && !Number.isInteger(durationSeconds))
+      ) {
+        return reply(req, { error: "请提供有效的观看位置；视频总时长可以留空。" }, 400);
+      }
+      const engagement = await supabase.rpc("chem_video_record_engagement", {
+        p_recommendation_id: recommendationId,
+        p_student_id: identity.studentId,
+        p_event_type: event,
+        p_progress_position_seconds: progressSeconds,
+        p_duration_seconds: durationSeconds,
+        p_tracking_method: trackingMethod,
+      });
+      if (engagement.error) {
+        console.warn("video engagement rejected", engagement.error.message);
+        return reply(req, { error: "该视频的观看进度无法按所选方式验证，请重新打开后再试。" }, 400);
+      }
+      if (!engagement.data) return reply(req, { error: "该讲解视频不存在、尚未发布或已撤回。" }, 404);
+      const recommendations = await loadVideoRecommendations(identity.studentId);
+      return reply(req, { recommendation: recommendations.find((item) => item.id === recommendationId) || null });
+    }
+
     if (body.action === "learning_record" && identity.role === "student" && identity.studentId) {
       const requestedStudentId = body.data?.studentId ? String(body.data.studentId) : undefined;
       const targetId = await resolveDemoTarget(identity.studentId, requestedStudentId);
@@ -641,7 +837,8 @@ Deno.serve(async (req: Request) => {
       const targetId = String(body.data?.studentId || "");
       const planId = String(body.data?.planId || "");
       if (!targetId || !planId) return reply(req, { error: "预览信息不完整。" }, 400);
-      return reply(req, { payload: await startPlanPayload(targetId, planId) });
+      const previewRound = body.data?.previewRound === undefined ? undefined : Number(body.data.previewRound);
+      return reply(req, { payload: await startPlanPayload(targetId, planId, { allowCompletedPreview: true, previewRound }) });
     }
 
     if (body.action === "change_own_code" && identity.role === "student") {
@@ -675,7 +872,12 @@ Deno.serve(async (req: Request) => {
       if (!targetId) return reply(req, { error: "无权打开该学习计划。" }, 403);
       const planId = String(body.data?.planId || "");
       if (!planId) return reply(req, { error: "学习计划信息不完整。" }, 400);
-      return reply(req, { payload: await startPlanPayload(targetId, planId) });
+      const previewRound = body.data?.previewRound === undefined ? undefined : Number(body.data.previewRound);
+      const demo = await isDemoStudent(targetId);
+      if (previewRound !== undefined && !demo) return reply(req, { error: "真实学习记录不能指定练习轮次。" }, 403);
+      return reply(req, {
+        payload: await startPlanPayload(targetId, planId, demo ? { allowCompletedPreview: true, previewRound } : {}),
+      });
     }
 
     if (body.action === "submit_attempt" && identity.role === "student" && identity.studentId) {
@@ -685,7 +887,6 @@ Deno.serve(async (req: Request) => {
         !attempt.studentId ||
         !attempt.planDayId ||
         !Array.isArray(attempt.answers) ||
-        attempt.answers.length === 0 ||
         attempt.answers.length > 10
       ) return reply(req, { error: "提交内容不完整。" }, 400);
       const targetId = await resolveDemoTarget(identity.studentId, String(attempt.studentId));
@@ -698,14 +899,20 @@ Deno.serve(async (req: Request) => {
 
       const { data: plan, error: planError } = await supabase
         .from("chem_learning_plans")
-        .select("id,student_id,mode,skill_ids")
+        .select("id,student_id,mode,skill_ids,question_count,round_limit,max_question_level")
         .eq("id", String(attempt.planDayId))
-        .eq("student_id", identity.studentId)
+        .eq("student_id", targetId)
         .maybeSingle();
       if (planError) throw planError;
       if (!plan) return reply(req, { error: "无权提交该学习记录。" }, 403);
 
       const submittedAnswers = attempt.answers as Array<Record<string, unknown>>;
+      const questionCount = planQuestionCount(plan);
+      const roundLimit = planRoundLimit(plan);
+      const maxQuestionLevel = planMaxQuestionLevel(plan);
+      if (submittedAnswers.length !== questionCount) {
+        return reply(req, { error: `每轮必须完整提交 ${questionCount} 道题，请重新打开本轮练习。` }, 400);
+      }
       const questionIds = submittedAnswers.map((answer) => String(answer.questionId || ""));
       if (questionIds.some((id) => !id) || new Set(questionIds).size !== questionIds.length) {
         return reply(req, { error: "题目记录无效，请重新打开本轮练习。" }, 400);
@@ -717,25 +924,48 @@ Deno.serve(async (req: Request) => {
         : plan.mode === "EXAM_SPRINT"
           ? "usable_for_exam_sprint"
           : "usable_for_review";
-      const [questionResult, attemptCountResult] = await Promise.all([
-        supabase
-          .from("chem_questions")
-          .select("id,mother_id,skill_id,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status")
-          .in("id", questionIds)
-          .eq("grade_band", targetProfile.data.grade_band)
-          .in("skill_id", planSkillIds)
-          .eq("review_status", "approved")
-          .neq("scope_status", "OUT")
-          .eq(questionUsageColumn, true),
+      let questionQuery = supabase
+        .from("chem_questions")
+        .select("id,mother_id,skill_id,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status")
+        .in("id", questionIds)
+        .eq("grade_band", targetProfile.data.grade_band)
+        .in("skill_id", planSkillIds)
+        .eq("review_status", "approved")
+        .eq("scope_status", "IN")
+        .eq(questionUsageColumn, true);
+      if (maxQuestionLevel !== null) questionQuery = questionQuery.lte("level", maxQuestionLevel);
+      const [questionResult, planAttemptsResult] = await Promise.all([
+        questionQuery,
         supabase
           .from("chem_learning_attempts")
-          .select("id", { count: "exact", head: true })
-          .eq("student_id", identity.studentId)
-          .eq("plan_day_id", plan.id),
+          .select("id,sequence")
+          .eq("student_id", targetId)
+          .eq("plan_day_id", plan.id)
+          .order("sequence"),
       ]);
-      if (questionResult.error || attemptCountResult.error) throw questionResult.error || attemptCountResult.error;
+      if (questionResult.error || planAttemptsResult.error) throw questionResult.error || planAttemptsResult.error;
       if ((questionResult.data || []).length !== questionIds.length) {
-        return reply(req, { error: "本轮包含未审核或不适用于当前计划的题目，请重新打开练习。" }, 400);
+        return reply(req, { error: "本轮包含未审核、超出范围或高于当前难度上限的题目，请重新打开练习。" }, 400);
+      }
+      const previousAttempts = planAttemptsResult.data || [];
+      const attemptSequence = previousAttempts.length;
+      if (attemptSequence >= roundLimit) {
+        return reply(req, { error: `今天的 ${roundLimit} 轮已经完成，不能再写入新的学习记录。` }, 409);
+      }
+      if (!Number.isInteger(Number(attempt.sequence)) || Number(attempt.sequence) !== attemptSequence) {
+        return reply(req, { error: "学习轮次已经变化，请刷新当天计划后再作答。" }, 409);
+      }
+      const latestAttemptId = previousAttempts.at(-1)?.id ? String(previousAttempts.at(-1)?.id) : null;
+      if (latestAttemptId) {
+        const latestAnswersResult = await supabase
+          .from("chem_attempt_answers")
+          .select("correct,uncertain")
+          .eq("attempt_id", latestAttemptId);
+        if (latestAnswersResult.error) throw latestAnswersResult.error;
+        const latestAnswers = latestAnswersResult.data || [];
+        if (latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true)) {
+          return reply(req, { error: "今天这组问题已经全部解决，不能再写入新的学习记录。" }, 409);
+        }
       }
 
       const questionById = new Map((questionResult.data || []).map((question) => [String(question.id), question]));
@@ -791,7 +1021,7 @@ Deno.serve(async (req: Request) => {
       const currentStatesResult = await supabase
         .from("chem_student_skill_state")
         .select("skill_id,verified_level,candidate_level,consecutive_errors,review_interval_index")
-        .eq("student_id", identity.studentId)
+        .eq("student_id", targetId)
         .in("skill_id", canonicalSkillIds);
       if (currentStatesResult.error) throw currentStatesResult.error;
       const currentStateBySkill = new Map((currentStatesResult.data || []).map((state) => [String(state.skill_id), state]));
@@ -801,17 +1031,18 @@ Deno.serve(async (req: Request) => {
       for (const answer of canonicalAnswers) {
         const current = computedStateBySkill.get(answer.skill_id) || currentStateBySkill.get(answer.skill_id);
         const previousErrors = Number(current?.consecutive_errors || 0);
+        const confidentlyCorrect = answer.correct && !answer.uncertain;
         computedStateBySkill.set(answer.skill_id, {
-          student_id: identity.studentId,
+          student_id: targetId,
           skill_id: answer.skill_id,
-          verified_level: Math.max(Number(current?.verified_level || 0), answer.correct ? answer.level : 0),
-          candidate_level: answer.correct ? answer.level : current?.candidate_level ?? null,
-          stability: answer.correct ? "verified" : "learning",
-          consecutive_errors: answer.correct ? 0 : previousErrors + 1,
-          next_review_at: new Date(completedAt.getTime() + (answer.correct ? 3 : 1) * 86400000).toISOString(),
-          review_interval_index: answer.correct ? Math.min(4, Number(current?.review_interval_index || 0) + 1) : 0,
+          verified_level: Math.max(Number(current?.verified_level || 0), confidentlyCorrect ? answer.level : 0),
+          candidate_level: confidentlyCorrect ? answer.level : current?.candidate_level ?? null,
+          stability: confidentlyCorrect ? "verified" : "learning",
+          consecutive_errors: confidentlyCorrect ? 0 : previousErrors + 1,
+          next_review_at: new Date(completedAt.getTime() + (confidentlyCorrect ? 3 : 1) * 86400000).toISOString(),
+          review_interval_index: confidentlyCorrect ? Math.min(4, Number(current?.review_interval_index || 0) + 1) : 0,
           last_reviewed_at: completedAtIso,
-          teacher_intervention: !answer.correct && previousErrors >= 2,
+          teacher_intervention: !confidentlyCorrect && previousErrors >= 2,
           updated_at: completedAtIso,
         });
       }
@@ -820,14 +1051,13 @@ Deno.serve(async (req: Request) => {
       const startedAt = Number.isFinite(submittedStartedAt.getTime()) && submittedStartedAt <= completedAt
         ? submittedStartedAt.toISOString()
         : completedAtIso;
-      const attemptSequence = attemptCountResult.count || 0;
       const attemptId = String(attempt.id || "");
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)) {
         return reply(req, { error: "提交标识无效，请重新打开本轮练习。" }, 400);
       }
       const { error: attemptError } = await supabase.from("chem_learning_attempts").insert({
         id: attemptId,
-        student_id: identity.studentId,
+        student_id: targetId,
         plan_day_id: plan.id,
         attempt_kind: attemptSequence === 0 ? "scheduled" : "review",
         sequence: attemptSequence,
@@ -836,24 +1066,28 @@ Deno.serve(async (req: Request) => {
         completed_at: completedAtIso,
         first_score: canonicalAnswers.filter((answer) => answer.correct).length,
       });
+      if (attemptError?.code === "23505") {
+        return reply(req, { error: "这一轮已经提交，不能重复写入。请返回学习计划刷新状态。" }, 409);
+      }
       if (attemptError) throw attemptError;
       const answers = canonicalAnswers.map((answer) => ({ attempt_id: attemptId, ...answer }));
       const { error: answersError } = await supabase.from("chem_attempt_answers").insert(answers);
       if (answersError) {
-        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", identity.studentId);
+        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", targetId);
         throw answersError;
       }
       const skillStateResult = await supabase
         .from("chem_student_skill_state")
         .upsert([...computedStateBySkill.values()], { onConflict: "student_id,skill_id" });
       if (skillStateResult.error) {
-        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", identity.studentId);
+        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", targetId);
         throw skillStateResult.error;
       }
-      return reply(req, { dashboard: await studentDashboard(identity.studentId), achievements: [] });
+      return reply(req, { dashboard: await studentDashboard(targetId), achievements: [] });
     }
     return reply(req, { error: "无权执行该操作。" }, 403);
   } catch (error) {
+    if (error instanceof RequestError) return reply(req, { error: error.message }, error.status);
     console.error(error);
     return reply(req, { error: "服务暂时不可用，请稍后重试。" }, 500);
   }
