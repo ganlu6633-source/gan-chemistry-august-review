@@ -11,6 +11,7 @@ describe('five-round review backend contract', () => {
 
   it('serves only approved IN-scope questions within the plan difficulty ceiling', () => {
     expect(accessFunction).toMatch(/\.eq\("review_status", "approved"\)[\s\S]*?\.eq\("scope_status", "IN"\)/)
+    expect(accessFunction).toContain('.not("mother_id", "is", null)')
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.lte("level", maxQuestionLevel)')
     expect(accessFunction).toContain('questionQuery = questionQuery.lte("level", maxQuestionLevel)')
   })
@@ -23,14 +24,30 @@ describe('five-round review backend contract', () => {
     expect(accessFunction).toContain('sequence: attemptSequence')
   })
 
+  it('enforces zero repeated questions and mother questions for the whole plan day', () => {
+    expect(accessFunction).toContain('const attemptIds = attempts.map')
+    expect(accessFunction).toContain('usedQuestionIds.has(String(question.id))')
+    expect(accessFunction).toContain('usedMotherIds.has(String(question.mother_id))')
+    expect(accessFunction).toContain('同一天的后续轮次不能重复题目或同一母题')
+    expect(accessFunction).toContain('题库变式不足，本轮已停止并通知甘老师')
+  })
+
   it('allows explicit round inspection only through teacher or demo preview paths', () => {
     expect(accessFunction).toContain('allowCompletedPreview: true, previewRound')
     expect(accessFunction).toContain('previewRound !== undefined && !demo')
     expect(accessFunction).toContain('options.previewRound - 1')
+    expect(accessFunction).toContain('for (let previewIndex = 0; previewIndex <= selectionSequence; previewIndex += 1)')
   })
 
   it('keeps correct-but-uncertain answers unresolved', () => {
     expect(accessFunction).toContain('answer.correct && !answer.uncertain')
     expect(accessFunction).toContain('answer.correct === true && answer.uncertain !== true')
+  })
+
+  it('rebuilds and verifies the exact adaptive five-question set on submit', () => {
+    expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.order("id")')
+    expect(accessFunction).toContain('const expectedPayload = await startPlanPayload(targetId, String(plan.id))')
+    expect(accessFunction).toContain('expectedQuestionIdSet.has(questionId)')
+    expect(accessFunction).toContain('不属于系统刚刚生成的自适应题组')
   })
 })

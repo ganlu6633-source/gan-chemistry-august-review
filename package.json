@@ -9,7 +9,7 @@
     "publish:static": "pnpm build && node scripts/publish-static.mjs",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "validate:content": "node scripts/validate-zero-forgetting-content.mjs && node scripts/audit-science-content.mjs && node scripts/audit-completeness-questions.mjs",
+    "validate:content": "node scripts/validate-zero-forgetting-content.mjs && node scripts/classification-deep-content.mjs && node scripts/audit-science-content.mjs && node scripts/audit-notation-contract.mjs && node scripts/audit-completeness-questions.mjs && node scripts/audit-review-five-round-question-bank.mjs",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "pnpm validate:content && pnpm lint && pnpm test && pnpm build",

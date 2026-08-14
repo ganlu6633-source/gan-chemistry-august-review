@@ -27,12 +27,12 @@ set structured_content = jsonb_set(structured_content, '{visualSummary}', $visua
 where id = 'KC_H1_ELECTROLYTE' and skill_id = 'H1_ELECTROLYTE' and review_status = 'approved';
 
 update public.chem_knowledge_cards
-set structured_content = jsonb_set(structured_content, '{visualSummary}', $visual${"kind":"network","title":"物质的量把宏观与微观接起来","center":"物质的量 n","groups":[{"label":"微观","items":["微粒数 N","N=nNₐ"]},{"label":"宏观","items":["质量 m","n=m/M"]},{"label":"对象","items":["分子/原子","离子/电子"]}]}$visual$::jsonb, true),
+set structured_content = jsonb_set(structured_content, '{visualSummary}', $visual${"kind":"network","title":"物质的量把宏观与微观接起来","center":"物质的量 n","groups":[{"label":"微观","items":["微粒数 N","N=nN_A"]},{"label":"宏观","items":["质量 m","n=m/M"]},{"label":"对象","items":["分子/原子","离子/电子"]}]}$visual$::jsonb, true),
     updated_at = now()
 where id = 'KC_H1_MOLE_INTRO' and skill_id = 'H1_MOLE_INTRO' and review_status = 'approved';
 
 update public.chem_knowledge_cards
-set structured_content = jsonb_set(structured_content, '{visualSummary}', $visual${"kind":"network","title":"所有已知量先汇入 n","center":"物质的量 n","groups":[{"label":"质量","items":["m/M"]},{"label":"微粒数","items":["N/Nₐ"]},{"label":"气体体积","items":["V/Vₘ"]},{"label":"溶液","items":["cV"]},{"label":"反应","items":["方程式系数比"]}]}$visual$::jsonb, true),
+set structured_content = jsonb_set(structured_content, '{visualSummary}', $visual${"kind":"network","title":"所有已知量先汇入 n","center":"物质的量 n","groups":[{"label":"质量","items":["m/M"]},{"label":"微粒数","items":["N/N_A"]},{"label":"气体体积","items":["V/Vₘ"]},{"label":"溶液","items":["cV"]},{"label":"反应","items":["方程式系数比"]}]}$visual$::jsonb, true),
     updated_at = now()
 where id = 'KC_H1_MOLE' and skill_id = 'H1_MOLE' and review_status = 'approved';
 

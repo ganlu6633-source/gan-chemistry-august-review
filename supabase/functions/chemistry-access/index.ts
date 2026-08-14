@@ -108,7 +108,7 @@ const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<strin
   };
 };
 const questionShape = (row: Record<string, unknown>) => ({
-  id: row.id, motherId: row.mother_id, skillId: row.skill_id, level: row.level,
+  id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key, level: row.level,
   gradeBand: row.grade_band, stem: row.stem, options: row.options, correctOption: row.correct_option,
   explanation: row.explanation, scaffold: row.scaffold, reviewStatus: row.review_status,
   scopeStatus: row.scope_status, sourceKind: row.source_kind, imageUrl: row.image_url,
@@ -633,31 +633,40 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     .in("skill_id", skillIds)
     .eq("review_status", "approved")
     .eq("scope_status", "IN")
+    .not("mother_id", "is", null)
     .eq(questionUsageColumn, true);
+  if (plan.mode === "REVIEW") eligibleQuestions = eligibleQuestions.not("concept_key", "is", null);
   if (maxQuestionLevel !== null) eligibleQuestions = eligibleQuestions.lte("level", maxQuestionLevel);
-  const [cards, questions, planAttempts, states, recentAttempts] = await Promise.all([
+  // The adaptive selector uses the source index as its final deterministic
+  // tie-breaker. Ordering by the immutable question id keeps the five issued
+  // questions reproducible when the server verifies them again on submit.
+  eligibleQuestions = eligibleQuestions.order("id");
+  const [cards, questions, planAttempts, states] = await Promise.all([
     supabase.from("chem_knowledge_cards").select("*").in("skill_id", skillIds).eq("review_status", "approved"),
     eligibleQuestions,
     supabase.from("chem_learning_attempts").select("id,attempt_kind,sequence,first_score,completed_at").eq("student_id", studentId).eq("plan_day_id", plan.id).order("sequence"),
     supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", studentId).in("skill_id", skillIds),
-    supabase.from("chem_learning_attempts").select("id").eq("student_id", studentId).order("completed_at", { ascending: false }).limit(30),
   ]);
-  if (cards.error || questions.error || planAttempts.error || states.error || recentAttempts.error) {
-    throw cards.error || questions.error || planAttempts.error || states.error || recentAttempts.error;
+  if (cards.error || questions.error || planAttempts.error || states.error) {
+    throw cards.error || questions.error || planAttempts.error || states.error;
   }
   const attempts = planAttempts.data || [];
   const actualAttemptCount = attempts.length;
-  const attemptIds = [...new Set([
-    ...(recentAttempts.data || []).map((attempt) => String(attempt.id)),
-    ...attempts.map((attempt) => String(attempt.id)),
-  ])];
+  // Questions may reappear on a later spaced-review date, but never during
+  // another round of the same plan day.
+  const attemptIds = attempts.map((attempt) => String(attempt.id));
   const history = attemptIds.length
-    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,correct,uncertain").in("attempt_id", attemptIds).in("skill_id", skillIds)
+    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,concept_key,correct,uncertain").in("attempt_id", attemptIds).in("skill_id", skillIds)
     : { data: [], error: null };
   if (history.error) throw history.error;
+  const sequenceByAttemptId = new Map(attempts.map((attempt) => [String(attempt.id), Number(attempt.sequence)]));
+  const historyRows = (history.data || []).map((answer) => ({
+    ...answer,
+    attempt_sequence: sequenceByAttemptId.get(String(answer.attempt_id)) ?? null,
+  }));
   const latestAttemptId = attempts.at(-1)?.id ? String(attempts.at(-1)?.id) : null;
   const latestAnswers = latestAttemptId
-    ? (history.data || []).filter((answer) => String(answer.attempt_id) === latestAttemptId)
+    ? historyRows.filter((answer) => String(answer.attempt_id) === latestAttemptId)
     : [];
   const isResolved = latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true);
   const reachedRoundLimit = actualAttemptCount >= roundLimit;
@@ -677,11 +686,52 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       ? Math.max(0, Math.min(actualAttemptCount, roundLimit) - 1)
       : Math.min(actualAttemptCount, roundLimit - 1);
   const roundNumber = selectionSequence + 1;
-  const adaptiveQuestions = selectAdaptiveQuestions(questions.data || [], states.data || [], history.data || [], selectionSequence, questionCount);
+  let selectionHistory = historyRows;
+  let adaptiveQuestions;
+  if (options.previewRound !== undefined) {
+    // Preview/demo answers are intentionally not stored. Reconstruct every
+    // preceding preview round as virtual unresolved evidence so rounds 2-5
+    // still contain completely different questions and mother questions.
+    selectionHistory = [];
+    adaptiveQuestions = [];
+    for (let previewIndex = 0; previewIndex <= selectionSequence; previewIndex += 1) {
+      adaptiveQuestions = selectAdaptiveQuestions(
+        questions.data || [],
+        states.data || [],
+        selectionHistory,
+        previewIndex,
+        questionCount,
+      );
+      if (adaptiveQuestions.length !== questionCount) break;
+      if (previewIndex < selectionSequence) {
+        selectionHistory = [
+          ...selectionHistory,
+          ...adaptiveQuestions.map((question) => ({
+            attempt_id: `preview-${previewIndex}`,
+            question_id: String(question.id),
+            mother_id: question.mother_id ? String(question.mother_id) : null,
+            skill_id: String(question.skill_id),
+            concept_key: question.concept_key ? String(question.concept_key) : null,
+            attempt_sequence: previewIndex,
+            correct: false,
+            uncertain: true,
+          })),
+        ];
+      }
+    }
+  } else {
+    adaptiveQuestions = selectAdaptiveQuestions(
+      questions.data || [],
+      states.data || [],
+      selectionHistory,
+      selectionSequence,
+      questionCount,
+    );
+  }
   if (adaptiveQuestions.length !== questionCount) {
     throw new RequestError(
       422,
-      `当天计划需要 ${questionCount} 道已审核且范围内的题目，但当前只有 ${adaptiveQuestions.length} 道可用，请联系甘老师补齐后再开始。`,
+      `第 ${roundNumber} 轮需要 ${questionCount} 道今天从未出现过的已审核题，但当前只有 ${adaptiveQuestions.length} 道新母题；题库变式不足，本轮已停止并通知甘老师。`,
     );
   }
   const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
@@ -926,13 +976,15 @@ Deno.serve(async (req: Request) => {
           : "usable_for_review";
       let questionQuery = supabase
         .from("chem_questions")
-        .select("id,mother_id,skill_id,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status")
+        .select("id,mother_id,skill_id,concept_key,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status")
         .in("id", questionIds)
         .eq("grade_band", targetProfile.data.grade_band)
         .in("skill_id", planSkillIds)
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
+        .not("mother_id", "is", null)
         .eq(questionUsageColumn, true);
+      if (plan.mode === "REVIEW") questionQuery = questionQuery.not("concept_key", "is", null);
       if (maxQuestionLevel !== null) questionQuery = questionQuery.lte("level", maxQuestionLevel);
       const [questionResult, planAttemptsResult] = await Promise.all([
         questionQuery,
@@ -955,16 +1007,49 @@ Deno.serve(async (req: Request) => {
       if (!Number.isInteger(Number(attempt.sequence)) || Number(attempt.sequence) !== attemptSequence) {
         return reply(req, { error: "学习轮次已经变化，请刷新当天计划后再作答。" }, 409);
       }
+      const previousAttemptIds = previousAttempts.map((item) => String(item.id));
+      const priorAnswersResult = previousAttemptIds.length
+        ? await supabase
+          .from("chem_attempt_answers")
+          .select("attempt_id,question_id,mother_id,concept_key,correct,uncertain")
+          .in("attempt_id", previousAttemptIds)
+        : { data: [], error: null };
+      if (priorAnswersResult.error) throw priorAnswersResult.error;
+      const priorAnswers = priorAnswersResult.data || [];
+      const usedQuestionIds = new Set(priorAnswers.map((answer) => String(answer.question_id)));
+      const usedMotherIds = new Set(priorAnswers.map((answer) => String(answer.mother_id)).filter(Boolean));
+      const submittedMothers = (questionResult.data || []).map((question) => String(question.mother_id));
+      if (
+        submittedMothers.some((motherId) => !motherId) ||
+        new Set(submittedMothers).size !== submittedMothers.length ||
+        (questionResult.data || []).some((question) =>
+          usedQuestionIds.has(String(question.id)) || usedMotherIds.has(String(question.mother_id))
+        )
+      ) {
+        return reply(req, { error: "同一天的后续轮次不能重复题目或同一母题，请重新打开本轮练习。" }, 409);
+      }
       const latestAttemptId = previousAttempts.at(-1)?.id ? String(previousAttempts.at(-1)?.id) : null;
       if (latestAttemptId) {
-        const latestAnswersResult = await supabase
-          .from("chem_attempt_answers")
-          .select("correct,uncertain")
-          .eq("attempt_id", latestAttemptId);
-        if (latestAnswersResult.error) throw latestAnswersResult.error;
-        const latestAnswers = latestAnswersResult.data || [];
+        const latestAnswers = priorAnswers.filter((answer) => String(answer.attempt_id) === latestAttemptId);
         if (latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true)) {
           return reply(req, { error: "今天这组问题已经全部解决，不能再写入新的学习记录。" }, 409);
+        }
+      }
+
+      if (plan.mode === "REVIEW") {
+        // Never trust a client to substitute five other eligible questions.
+        // Rebuild the exact adaptive set for the current round from the
+        // server-owned plan, skill state and answer history, then compare it
+        // as an unordered set with what the student actually received.
+        const expectedPayload = await startPlanPayload(targetId, String(plan.id));
+        const expectedQuestionIds = (expectedPayload.questions as Array<{ id: unknown }>).map((question) => String(question.id));
+        const expectedQuestionIdSet = new Set(expectedQuestionIds);
+        if (
+          Number(expectedPayload.attemptSequence) !== attemptSequence ||
+          expectedQuestionIds.length !== questionIds.length ||
+          questionIds.some((questionId) => !expectedQuestionIdSet.has(questionId))
+        ) {
+          return reply(req, { error: "本轮题目已经变化或不属于系统刚刚生成的自适应题组，请重新打开本轮练习。" }, 409);
         }
       }
 
@@ -973,6 +1058,7 @@ Deno.serve(async (req: Request) => {
         question_id: string;
         mother_id: string;
         skill_id: string;
+        concept_key: string | null;
         level: number;
         correct: boolean;
         uncertain: boolean;
@@ -992,6 +1078,7 @@ Deno.serve(async (req: Request) => {
           question_id: String(question.id),
           mother_id: String(question.mother_id),
           skill_id: String(question.skill_id),
+          concept_key: question.concept_key ? String(question.concept_key) : null,
           level: Number(question.level),
           correct: selectedOption === Number(question.correct_option),
           uncertain: submitted.uncertain === true,
@@ -1004,6 +1091,7 @@ Deno.serve(async (req: Request) => {
             questionId: String(question.id),
             motherId: String(question.mother_id),
             skillId: String(question.skill_id),
+            conceptKey: question.concept_key ? String(question.concept_key) : null,
             level: Number(question.level),
             gradeBand: String(question.grade_band),
             stem: String(question.stem),

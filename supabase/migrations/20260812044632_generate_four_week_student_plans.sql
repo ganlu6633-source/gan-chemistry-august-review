@@ -47,7 +47,7 @@ insert into four_week_plan_template values
 ('high1_current',date '2026-08-27',13,'REVIEW','第二周第一讲内容周检',array['H1_CLASSIFY','H1_ELECTROLYTE_INTRO','H1_PERIODIC']::text[],array['分类标准与分类树','电解质与非电解质','同主族递变']::text[],22),
 ('high1_current',date '2026-08-27',14,'REVIEW','微粒数—物质的量双向换算',array['H1_MOLE_INTRO']::text[],array['阿伏加德罗常数','摩尔质量及单位','物质的量与摩尔']::text[],18),
 ('high1_current',date '2026-08-27',15,'REVIEW','质量—摩尔质量—物质的量',array['H1_MOLE_INTRO']::text[],array['微粒对象与粒子数','质量—物质的量换算','阿伏加德罗常数']::text[],18),
-('high1_current',date '2026-08-27',16,'REVIEW','先判断对象再使用Nₐ',array['H1_MOLE_INTRO']::text[],array['摩尔质量及单位','物质的量与摩尔','微粒对象与粒子数']::text[],18),
+('high1_current',date '2026-08-27',16,'REVIEW','先判断对象再使用N_A',array['H1_MOLE_INTRO']::text[],array['摩尔质量及单位','物质的量与摩尔','微粒对象与粒子数']::text[],18),
 ('high1_current',date '2026-08-27',17,'REVIEW','摩尔质量易错单位',array['H1_MOLE_INTRO']::text[],array['质量—物质的量换算','阿伏加德罗常数','摩尔质量及单位']::text[],16),
 ('high1_current',date '2026-08-27',18,'REVIEW','周期律与分类交叉辨析',array['H1_PERIODIC','H1_CLASSIFY']::text[],array['原子结构与位置','纯净物与混合物','结构—位置—性质']::text[],20),
 ('high1_current',date '2026-08-27',19,'REVIEW','四条已学主线错因回收',array['H1_MOLE_INTRO','H1_PERIODIC','H1_CLASSIFY','H1_ELECTROLYTE_INTRO']::text[],array['阿伏加德罗常数','同主族递变','酸性与碱性氧化物','导电与电解质边界']::text[],22),

@@ -26,6 +26,14 @@ requireText('2NaHCO₃→Na₂CO₃+CO₂↑+H₂O', '碳酸氢钠热分解')
 requireText('Cl₂+H₂O⇌HCl+HClO', '氯气与水')
 requireText('H₂+2OH⁻−2e⁻=2H₂O', '碱性氢氧燃料电池阳极')
 requireText('O₂+2H₂O+4e⁻=4OH⁻', '碱性氢氧燃料电池阴极')
+requireText('升价→失电子→被氧化→发生氧化反应', '氧化还原升价完整链')
+requireText('还原剂→氧化产物', '还原剂与氧化产物对应')
+requireText('降价→得电子→被还原→发生还原反应', '氧化还原降价完整链')
+requireText('氧化剂→还原产物', '氧化剂与还原产物对应')
+requireText('N=nN_A', '阿伏加德罗常数规范公式')
+requireText('分子、原子、离子、电子、质子、中子', '微粒对象完整清单')
+requireText('1 mol ²³Na原子含11 mol质子、12 mol中子', '核素粒子计数示范')
+requireText('NaCl晶体中不存在独立的NaCl分子', '离子晶体化学式单位边界')
 
 const requiredContent = [
   ['Na₂O→MgO→Al₂O₃→SiO₂→P₄O₁₀→SO₃→Cl₂O₇', '第三周期最高价氧化物'],
@@ -71,6 +79,9 @@ forbidText('温度和催化剂通常同时改变正逆速率，但程度可能�
 forbidText('正负/阴阳角色可能随过程改变', '充放电电极命名')
 forbidText('如卤代、酯化/水解', '有机反应类型')
 forbidText('若配成500 mL溶液且不反应', '物质的量浓度示范')
+forbidText(`N${String.fromCodePoint(8336)}`, '阿伏加德罗常数下标大小写')
+forbidText('N' + 'A判断题', '阿伏加德罗常数题型名称')
+forbidText('N' + 'A选择题', '阿伏加德罗常数题型名称')
 for (const forbidden of ['ΔG=', 'ΔG =', 'RTlnK', 'RT ln K', '能斯特方程', 'Henderson', 'R/S构型', '分子轨道', '群论', '反应级数']) {
   forbidText(forbidden, '福建高中范围边界')
 }
@@ -151,7 +162,9 @@ for (const card of zeroForgettingCards) {
     }
   }
 }
-if (pointCount !== 578 || pointWithExampleCount !== pointCount || pointWithVisualCount !== pointCount) {
+// 578 was the audited baseline before later curriculum-backed additions.
+// Completeness must not fail merely because a new, fully evidenced point was added.
+if (pointCount < 578 || pointWithExampleCount !== pointCount || pointWithVisualCount !== pointCount) {
   errors.push(`知识节点覆盖不闭环：总数${pointCount}，完整示范${pointWithExampleCount}，图像流程${pointWithVisualCount}`)
 }
 

@@ -92,6 +92,8 @@ export interface Question {
   id: string
   motherId: string
   skillId: string
+  /** Stable fine-grained concept used to choose a different same-concept variant in later rounds. */
+  conceptKey?: string | null
   level: number
   gradeBand: GradeBand
   stem: string

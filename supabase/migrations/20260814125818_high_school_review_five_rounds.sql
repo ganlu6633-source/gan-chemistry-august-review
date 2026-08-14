@@ -64,7 +64,7 @@ insert into public.chem_knowledge_cards(
   '先确认研究对象在题给条件下是气体，再确认温度和压强。只有标准状况下，才可直接使用Vₘ≈22.4 L·mol⁻¹；其他条件优先使用题目给出的Vₘ。',
   '["圈出温度、压强和物态","确认是否为标准状况下的气体","用n=V/Vₘ或V=nVₘ","需要时再由n连接N或m","最后检查L与mol的单位"]'::jsonb,
   '["把1 mol任何物质都说成22.4 L","在25 ℃下机械套22.4 L·mol⁻¹","忘记标准状况下水是液体","把气体分子数和原子数混为一谈"]'::jsonb,
-  '标准状况下11.2 L O₂的物质的量为11.2÷22.4=0.5 mol，因此含0.5Nₐ个O₂分子、1.0Nₐ个O原子。',
+  '标准状况下11.2 L O₂的物质的量为11.2÷22.4=0.5 mol，因此含0.5N_A个O₂分子、1.0N_A个O原子。',
   '{"type":"diagram","alt":"气体体积、物质的量、微粒数和质量换算网络"}'::jsonb,
   'approved',
   $gas_card${
@@ -84,7 +84,7 @@ insert into public.chem_knowledge_cards(
       "groups":[
         {"label":"先过条件门","items":["题给物质是气体","标准状况0 ℃、101 kPa"]},
         {"label":"体积通道","items":["V÷Vₘ→n","n×Vₘ→V","标况Vₘ≈22.4 L·mol⁻¹"]},
-        {"label":"已学连接","items":["n×Nₐ→微粒数N","n×M→质量m"]}
+        {"label":"已学连接","items":["n×N_A→微粒数N","n×M→质量m"]}
       ]
     },
     "sections":[
@@ -93,7 +93,7 @@ insert into public.chem_knowledge_cards(
         "summary":"先看物态，再看数值。",
         "items":[
           {"label":"只对气体使用","rule":"气体摩尔体积描述的是气体；同一物质在不同条件下物态可能不同。","examples":["【示范：标准状况下的水】标准状况下H₂O是液体，不能用22.4 L·mol⁻¹求1 mol水的体积。"],"visualSteps":["看物质","看题给条件","判断物态","气体才进入Vₘ通道"]},
-          {"label":"1 mol任何微粒不等于22.4 L","rule":"1 mol只规定微粒数；只有气体在确定温度和压强下才谈相应体积。","examples":["【示范：1 mol NaCl与1 mol O₂】两者微粒数都与Nₐ相关，但固体NaCl不能套气体摩尔体积，标准状况下O₂可以。"],"visualSteps":["先认1 mol","区分微粒数","区分物态","决定能否用Vₘ"]},
+          {"label":"1 mol任何微粒不等于22.4 L","rule":"1 mol只规定微粒数；只有气体在确定温度和压强下才谈相应体积。","examples":["【示范：1 mol NaCl与1 mol O₂】两者微粒数都与N_A相关，但固体NaCl不能套气体摩尔体积，标准状况下O₂可以。"],"visualSteps":["先认1 mol","区分微粒数","区分物态","决定能否用Vₘ"]},
           {"label":"混合气体仍先数总n","rule":"若题目只问同温同压下的总体积，可先求各气体物质的量之和；本阶段不做复杂混合气体组成计算。","examples":["【示范：1 mol N₂与1 mol O₂】标准状况下总物质的量2 mol，总体积约44.8 L。"],"visualSteps":["分别求n","相加得总n","同一条件","乘Vₘ得总体积"]}
         ]
       },
@@ -111,14 +111,14 @@ insert into public.chem_knowledge_cards(
         "summary":"任何两步题都先在n这个中心站换乘。",
         "items":[
           {"label":"V与n互换","rule":"n=V/Vₘ，V=nVₘ；V常用L，Vₘ常用L·mol⁻¹，单位要配套。","examples":["【示范：标况11.2 L O₂】n=11.2÷22.4=0.5 mol。"],"visualSteps":["读V","除Vₘ","得到n","标mol"]},
-          {"label":"V连接微粒数","rule":"先由V求n，再用N=nNₐ；若问原子数，还要乘化学式下标。","examples":["【示范：标况11.2 L O₂含多少O原子】0.5 mol O₂含1.0 mol O原子，所以O原子数为Nₐ。"],"visualSteps":["V÷Vₘ","得O₂的n","乘下标2","乘Nₐ"]},
+          {"label":"V连接微粒数","rule":"先由V求n，再用N=nN_A；若问原子数，还要乘化学式下标。","examples":["【示范：标况11.2 L O₂含多少O原子】0.5 mol O₂含1.0 mol O原子，所以O原子数为N_A。"],"visualSteps":["V÷Vₘ","得O₂的n","乘下标2","乘N_A"]},
           {"label":"V连接质量","rule":"先由V求n，再用m=nM；不能把体积数值直接与摩尔质量相乘。","examples":["【示范：标况22.4 L CO₂的质量】n=1 mol，m=1×44=44 g。"],"visualSteps":["V÷Vₘ","得n","写摩尔质量M","m=nM"]}
         ]
       }
     ],
     "workedExamples":[
-      {"substance":"标准状况下11.2 L O₂","path":"先确认O₂在标准状况下是气体；n=11.2/22.4=0.5 mol；O₂分子数为0.5Nₐ，O原子数还要乘2，等于Nₐ。","labels":["查气体","查标况","V→n","分子→原子"]},
-      {"substance":"标准状况下22.4 L CO₂","path":"体积对应1 mol CO₂；分子数为Nₐ，质量为1 mol×44 g·mol⁻¹=44 g。整个过程都在n这个中心站换乘。","labels":["V→n","n→N","n→m","单位检查"]}
+      {"substance":"标准状况下11.2 L O₂","path":"先确认O₂在标准状况下是气体；n=11.2/22.4=0.5 mol；O₂分子数为0.5N_A，O原子数还要乘2，等于N_A。","labels":["查气体","查标况","V→n","分子→原子"]},
+      {"substance":"标准状况下22.4 L CO₂","path":"体积对应1 mol CO₂；分子数为N_A，质量为1 mol×44 g·mol⁻¹=44 g。整个过程都在n这个中心站换乘。","labels":["V→n","n→N","n→m","单位检查"]}
     ],
     "checkpoints":[
       "我会先检查气体和标准状况两个条件。",
@@ -216,16 +216,16 @@ insert into public.chem_questions(
 ('QGAS_ZERO_02','MGAS_ZERO_02','H1_GAS_MOLAR_VOLUME',1,'高一','标准状况下11.2 L O₂的物质的量约为','["0.25 mol","0.5 mol","1 mol","2 mol"]'::jsonb,1,'n=V/Vₘ=11.2÷22.4=0.5 mol。','先写n=V/Vₘ。','approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_TF_01','MGAS_TF_01','H1_GAS_MOLAR_VOLUME',1,'高一','判断：标准状况下，1 mol任何物质的体积都约为22.4 L。','["正确","错误"]'::jsonb,1,'错误。22.4 L·mol⁻¹只适用于标准状况下的气体，不能用于固体或液体。','先问：题目对象一定是气体吗？','approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_TF_02','MGAS_TF_02','H1_GAS_MOLAR_VOLUME',1,'高一','判断：标准状况下，1 mol O₂的体积约为22.4 L。','["正确","错误"]'::jsonb,0,'正确。O₂在标准状况下是气体，可以使用V=nVₘ。',null,'approved','IN','teacher_original',null,false,true,true,now()),
-('QGAS_ZERO_03','MGAS_ZERO_03','H1_GAS_MOLAR_VOLUME',2,'高一','标准状况下44.8 L N₂所含N₂分子数约为','["0.5Nₐ","Nₐ","2Nₐ","4Nₐ"]'::jsonb,2,'44.8 L对应2 mol N₂，所以含2Nₐ个N₂分子。','先由V求n，再由n求N。','approved','IN','teacher_original',null,false,true,true,now()),
+('QGAS_ZERO_03','MGAS_ZERO_03','H1_GAS_MOLAR_VOLUME',2,'高一','标准状况下44.8 L N₂所含N₂分子数约为','["0.5N_A","N_A","2N_A","4N_A"]'::jsonb,2,'44.8 L对应2 mol N₂，所以含2N_A个N₂分子。','先由V求n，再由n求N。','approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_ZERO_04','MGAS_ZERO_04','H1_GAS_MOLAR_VOLUME',2,'高一','标准状况下8 g CH₄的体积约为（M(CH₄)=16 g·mol⁻¹）','["5.6 L","11.2 L","22.4 L","44.8 L"]'::jsonb,1,'n=m/M=8÷16=0.5 mol，再用V=nVₘ=0.5×22.4=11.2 L。','按m→n→V两步走。','approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_TF_03','MGAS_TF_03','H1_GAS_MOLAR_VOLUME',2,'高一','判断：25 ℃、101 kPa时，1 mol任何气体都必须按22.4 L计算。','["正确","错误"]'::jsonb,1,'错误。25 ℃不是标准状况，不能机械套用标准状况下的22.4 L·mol⁻¹。','检查温度是否为0 ℃。','approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_TF_04','MGAS_TF_04','H1_GAS_MOLAR_VOLUME',2,'高一','判断：非标准状况下，若题目给出该条件的气体摩尔体积，应使用题给值。','["正确","错误"]'::jsonb,0,'正确。Vₘ随温度和压强改变，非标准状况优先使用题目给出的Vₘ。',null,'approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_TF_05','MGAS_TF_05','H1_GAS_MOLAR_VOLUME',2,'高一','判断：同温同压下，等物质的量的两种气体体积相等。','["正确","错误"]'::jsonb,0,'正确。同温同压下两种气体的Vₘ相同，因此物质的量相等时体积相等。',null,'approved','IN','teacher_original',null,false,true,true,now()),
-('QGAS_ZERO_05','MGAS_ZERO_05','H1_GAS_MOLAR_VOLUME',3,'高一','标准状况下2.24 L CO₂中氧原子数约为','["0.05Nₐ","0.1Nₐ","0.2Nₐ","2Nₐ"]'::jsonb,2,'2.24 L CO₂为0.1 mol CO₂；每个CO₂含2个O原子，所以氧原子为0.2 mol，即0.2Nₐ个。','V→CO₂的n→O原子的n→N。','approved','IN','teacher_original',null,false,true,true,now()),
+('QGAS_ZERO_05','MGAS_ZERO_05','H1_GAS_MOLAR_VOLUME',3,'高一','标准状况下2.24 L CO₂中氧原子数约为','["0.05N_A","0.1N_A","0.2N_A","2N_A"]'::jsonb,2,'2.24 L CO₂为0.1 mol CO₂；每个CO₂含2个O原子，所以氧原子为0.2 mol，即0.2N_A个。','V→CO₂的n→O原子的n→N。','approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_ZERO_06','MGAS_ZERO_06','H1_GAS_MOLAR_VOLUME',3,'高一','标准状况下含3.01×10²³个H₂分子的气体体积约为','["5.6 L","11.2 L","22.4 L","44.8 L"]'::jsonb,1,'3.01×10²³个H₂分子约为0.5 mol，体积约0.5×22.4=11.2 L。','N→n→V。','approved','IN','teacher_original',null,false,true,true,now()),
-('QGAS_TF_06','MGAS_TF_06','H1_GAS_MOLAR_VOLUME',3,'高一','判断：标准状况下22.4 L H₂和22.4 L O₂所含分子数相同。','["正确","错误"]'::jsonb,0,'正确。两者都为1 mol气体，所以都含Nₐ个分子；分子种类不同不影响分子个数。',null,'approved','IN','teacher_original',null,false,true,true,now()),
+('QGAS_TF_06','MGAS_TF_06','H1_GAS_MOLAR_VOLUME',3,'高一','判断：标准状况下22.4 L H₂和22.4 L O₂所含分子数相同。','["正确","错误"]'::jsonb,0,'正确。两者都为1 mol气体，所以都含N_A个分子；分子种类不同不影响分子个数。',null,'approved','IN','teacher_original',null,false,true,true,now()),
 ('QGAS_TF_07','MGAS_TF_07','H1_GAS_MOLAR_VOLUME',3,'高一','判断：标准状况下22.4 L CO₂的质量为44 g。','["正确","错误"]'::jsonb,0,'正确。22.4 L CO₂约为1 mol，CO₂的摩尔质量为44 g·mol⁻¹，所以质量为44 g。',null,'approved','IN','teacher_original',null,false,true,true,now()),
-('QGAS_TF_08','MGAS_TF_08','H1_GAS_MOLAR_VOLUME',3,'高一','判断：标准状况下11.2 L O₂含0.5Nₐ个氧原子。','["正确","错误"]'::jsonb,1,'错误。11.2 L O₂是0.5 mol O₂分子，但每个O₂含2个O原子，因此氧原子数为Nₐ。','别忘记O₂的下标2。','approved','IN','teacher_original',null,false,true,true,now())
+('QGAS_TF_08','MGAS_TF_08','H1_GAS_MOLAR_VOLUME',3,'高一','判断：标准状况下11.2 L O₂含0.5N_A个氧原子。','["正确","错误"]'::jsonb,1,'错误。11.2 L O₂是0.5 mol O₂分子，但每个O₂含2个O原子，因此氧原子数为N_A。','别忘记O₂的下标2。','approved','IN','teacher_original',null,false,true,true,now())
 on conflict (id) do update set
   mother_id=excluded.mother_id,
   skill_id=excluded.skill_id,
@@ -396,8 +396,8 @@ set title = case mod(o.day_index,7)
         then array['标价—升降—电子守恒','位置—结构—性质','最高价水化物酸碱性与气态氢化物稳定性']
         else array['位置—结构—性质','同周期与同主族递变','最高价水化物酸碱性与气态氢化物稳定性'] end
       when 2 then case when t.redox_every_day
-        then array['氧化剂与还原剂身份','微粒对象与1 mol','N=nNₐ与m=nM']
-        else array['微粒对象与1 mol','阿伏加德罗常数','N=nNₐ与m=nM'] end
+        then array['氧化剂与还原剂身份','微粒对象与1 mol','N=nN_A与m=nM']
+        else array['微粒对象与1 mol','阿伏加德罗常数','N=nN_A与m=nM'] end
       when 3 then case when t.redox_every_day
         then array['化合价升降与电子得失','气体与标准状况两道条件门','V=nVₘ']
         else array['气体与标准状况两道条件门','Vₘ≈22.4 L·mol⁻¹的适用边界','V=nVₘ'] end

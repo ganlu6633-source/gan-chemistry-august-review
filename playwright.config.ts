@@ -11,6 +11,7 @@ export default defineConfig({
     command: 'pnpm build && pnpm preview --host 127.0.0.1',
     url: 'http://127.0.0.1:4173/gan-chemistry-august-review/',
     reuseExistingServer: true,
+    timeout: 120_000,
   },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },

@@ -4,11 +4,14 @@ import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, Knowledg
 import { SKILLS } from '../data/catalog'
 import { accessApi, loadLearningRecord, submitAttempt, teacherApi } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
+import { ChemText } from './ChemText'
 import { LearningRecordPanel } from './LearningRecordPanel'
+import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
+import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 
 type StudentView = 'today' | 'map' | 'growth' | 'settings'
-type PlanPayload = {
+export type PlanPayload = {
   plan: LearningPlanDay
   cards: KnowledgeCard[]
   questions: Question[]
@@ -237,7 +240,7 @@ function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDas
   return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience={previewMode ? 'teacher' : 'student'} />
 }
 
-function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
+export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
   const roundNumber = payload.roundNumber || payload.attemptSequence + 1
   const roundLimit = payload.roundLimit || payload.plan.roundLimit || 5
   const [phase, setPhase] = useState<'cards' | 'quiz' | 'result'>(roundNumber === 1 ? 'cards' : 'quiz')
@@ -252,13 +255,29 @@ function LearningRound({ session, payload, practiceMode = false, practiceDashboa
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
+  const primaryActionRef = useRef<HTMLButtonElement>(null)
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
 
+  useEffect(() => {
+    function continueWithEnter(event: KeyboardEvent) {
+      if (event.key !== 'Enter' || event.repeat || event.isComposing || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      const target = event.target
+      if (target instanceof HTMLElement && (target.matches('input, textarea, select') || target.isContentEditable)) return
+      const action = primaryActionRef.current
+      if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return
+      if (target instanceof Node && action.contains(target)) return
+      event.preventDefault()
+      action.click()
+    }
+    window.addEventListener('keydown', continueWithEnter)
+    return () => window.removeEventListener('keydown', continueWithEnter)
+  }, [])
+
   const roundTrack = <div className="round-track" aria-label={`今天共${roundLimit}轮，当前第${roundNumber}轮`}>{Array.from({ length: roundLimit }, (_, index) => <span key={index} className={index + 1 < roundNumber ? 'done' : index + 1 === roundNumber ? 'current' : ''}><i>{index + 1}</i><b>{index + 1 === roundNumber ? '本轮' : index + 1 < roundNumber ? '完成' : '待检验'}</b></span>)}</div>
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零讲清楚 · {cardIndex + 1}/{payload.cards.length}</span><h1>{card.title}</h1>{!card.structuredContent?.visualSummary ? <div className="core-rule">{card.core}</div> : null}{card.structuredContent ? <StructuredKnowledgeMap content={card.structuredContent} /> : <details open><summary>展开理解</summary><p>{card.detail}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}>{mistake}</li>)}</ul></div><p><b>完整例子：</b>{card.microExample}</p></details>}</article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
-    <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button className="primary-button" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
+  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <article className="knowledge-card"><span className="eyebrow">从零讲清楚 · {cardIndex + 1}/{payload.cards.length}</span><h1><ChemText>{card.title}</ChemText></h1>{!card.structuredContent?.visualSummary ? <div className="core-rule"><ChemText>{card.core}</ChemText></div> : null}{card.structuredContent ? <StructuredKnowledgeMap content={card.structuredContent} skillId={card.skillId} /> : <details open><summary>展开理解</summary><p><ChemText>{card.detail}</ChemText></p><ol>{card.steps.map((step) => <li key={step}><ChemText>{step}</ChemText></li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}><ChemText>{mistake}</ChemText></li>)}</ul></div><p><b>完整例子：</b><ChemText>{card.microExample}</ChemText></p></details>}</article> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+    <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
     const isCorrect = selected === question.correctOption
@@ -286,32 +305,34 @@ function LearningRound({ session, payload, practiceMode = false, practiceDashboa
         setError(reason instanceof Error ? reason.message : '这一轮暂时没有保存成功，请稍后再试。')
       } finally { setBusy(false) }
     }
-    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮换一种问法</b><p>系统会优先用同一逻辑的不同母题检验；第5轮再做最终确认。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>第 {roundNumber} 轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span><h1>{question.stem}</h1><div className="option-list">{question.options.map((option, index) => <button disabled={feedback} className={`${selected === index ? 'selected' : ''} ${feedback && index === question.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== question.correctOption ? 'wrong' : ''}`} key={option} onClick={() => setSelected(index)}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}</div><label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? '答案正确，再确认一次就更稳' : '判断正确' : '先把关键一步稳住'}</b><p>{question.explanation}</p>{!isCorrect && question.scaffold && <p><CircleHelp size={16} />提示：{question.scaffold}</p>}</div>}</article><div className="stage-actions">{!feedback ? <button className="primary-button" disabled={selected === null} onClick={submit}>提交答案</button> : <button className="primary-button" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
+    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮换一种问法</b><p>继续检验同一知识逻辑，但题目与母题都和今天前面的轮次不同；第5轮也不会回到原题。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>第 {roundNumber} 轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span><h1><ChemText>{question.stem}</ChemText></h1><div className="option-list">{question.options.map((option, index) => <button disabled={feedback} className={`${selected === index ? 'selected' : ''} ${feedback && index === question.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== question.correctOption ? 'wrong' : ''}`} key={option} onClick={() => setSelected(index)}><span>{String.fromCharCode(65 + index)}</span><ChemText>{option}</ChemText></button>)}</div><label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? '答案正确，再确认一次就更稳' : '判断正确' : '先把关键一步稳住'}</b><p><ChemText>{question.explanation}</ChemText></p>{!isCorrect && question.scaffold && <p><CircleHelp size={16} />提示：<ChemText>{question.scaffold}</ChemText></p>}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={selected === null} onClick={submit}>提交答案</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
   }
 
   const correct = answers.filter((answer) => answer.correct).length
   const unresolved = answers.filter((answer) => !answer.correct || answer.uncertain).length
   const hasNextRound = roundNumber < roundLimit && (practiceMode || unresolved > 0)
-  return <section className="learning-stage result-stage">{roundTrack}<div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : `今天第 ${roundNumber} 轮完成`}</span><h1>{unresolved === 0 ? '这一轮的逻辑已经接稳。' : `还有 ${unresolved} 个判断需要换一种方式确认。`}</h1><p>本轮答对 {correct}/{answers.length}，其中 {answers.filter((answer) => answer.uncertain).length} 题标记为不确定。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : hasNextRound ? '下一轮会优先更换母题，继续解决今天暴露的问题。' : '五轮记录已交给系统整理，甘老师可在后台查看并安排后续讲解。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{unresolved}</b><span>仍需确认</span></div></div><div className="result-actions">{hasNextRound && <button className="primary-button" disabled={!nextDashboard || busy} onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>{busy ? '正在准备…' : `进入第 ${roundNumber + 1} 轮`}<ChevronRight size={18} /></button>}<button className={hasNextRound ? 'secondary-button' : 'primary-button'} disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button></div></section>
+  return <section className="learning-stage result-stage">{roundTrack}<div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : `今天第 ${roundNumber} 轮完成`}</span><h1>{unresolved === 0 ? '这一轮的逻辑已经接稳。' : `还有 ${unresolved} 个判断需要换一种方式确认。`}</h1><p>本轮答对 {correct}/{answers.length}，其中 {answers.filter((answer) => answer.uncertain).length} 题标记为不确定。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : hasNextRound ? '下一轮会优先更换母题，继续解决今天暴露的问题。' : '五轮记录已交给系统整理，甘老师可在后台查看并安排后续讲解。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{unresolved}</b><span>仍需确认</span></div></div><div className="result-actions">{hasNextRound && <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={!nextDashboard || busy} onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>{busy ? '正在准备…' : `进入第 ${roundNumber + 1} 轮`}<ChevronRight size={18} /></button>}<button ref={hasNextRound ? undefined : primaryActionRef} className={hasNextRound ? 'secondary-button' : 'primary-button'} aria-keyshortcuts={hasNextRound ? undefined : 'Enter'} disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button></div></section>
 }
 
 function KnowledgeBranch({ node, depth = 0 }: { node: KnowledgeTreeNode; depth?: number }) {
   return <li className={`knowledge-branch depth-${Math.min(depth, 3)}`}>
-    <div className="branch-card point-with-demo"><div className="point-copy"><b>{node.label}</b><p>{node.rule}</p>{node.caution && <div className="branch-caution">注意：{node.caution}</div>}</div><NodeLearningAid node={node} /></div>
-    {node.children?.length ? <ul>{node.children.map((child) => <KnowledgeBranch key={`${node.label}-${child.label}`} node={child} depth={depth + 1} />)}</ul> : null}
+    <details className="knowledge-branch-details" open={depth === 0}>
+      <summary className="branch-summary"><span><ChemText>{node.label}</ChemText></span><i aria-hidden="true">⌄</i></summary>
+      <div className="branch-card point-with-demo"><div className="point-copy"><p><ChemText>{node.rule}</ChemText></p>{node.caution && <div className="branch-caution">注意：<ChemText>{node.caution}</ChemText></div>}</div><NodeLearningAid node={node} /></div>
+      {node.children?.length ? <ul>{node.children.map((child) => <KnowledgeBranch key={`${node.label}-${child.label}`} node={child} depth={depth + 1} />)}</ul> : null}
+    </details>
   </li>
 }
 
 function compactVisualStep(value: string) {
-  const compact = value.replace(/^以“[^”]+”为示范：/, '').replace(/。.*$/u, '').trim()
-  return compact.length > 26 ? `${compact.slice(0, 25)}…` : compact
+  return value.replace(/^以“[^”]+”为示范：/, '').trim()
 }
 
 function NodeLearningAid({ node }: { node: KnowledgeTreeNode }) {
   const visualSteps = (node.visualSteps?.length ? node.visualSteps : [node.label, ...(node.examples?.slice(0, 2) ?? ['按定义判断'])]).map(compactVisualStep)
   return <aside className="point-learning-aid" aria-label={`${node.label}的示范与图像记忆`}>
-    <div className="point-demo"><b>马上看例子</b>{node.examples?.map((example) => <p key={example}>{example}</p>)}</div>
-    <figure className="memory-diagram"><figcaption>图像记忆</figcaption><div className="memory-flow">{visualSteps.map((step, index) => <Fragment key={`${node.label}-${step}-${index}`}><span>{step}</span>{index < visualSteps.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}</div></figure>
+    <div className="point-demo"><b>马上看例子</b>{node.examples?.map((example) => <p key={example}><ChemText>{example}</ChemText></p>)}</div>
+    <figure className="memory-diagram"><figcaption>图像记忆</figcaption><div className="memory-flow">{visualSteps.map((step, index) => <Fragment key={`${node.label}-${step}-${index}`}><span><ChemText>{step}</ChemText></span>{index < visualSteps.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}</div></figure>
   </aside>
 }
 
@@ -320,7 +341,7 @@ function visualTreeFromKnowledge(node: KnowledgeTreeNode): KnowledgeVisualTreeNo
 }
 
 function QuickTreeBranch({ node }: { node: KnowledgeVisualTreeNode }) {
-  return <li className="quick-tree-branch"><span className="quick-tree-node">{node.label}</span>{node.children?.length ? <ul className="quick-tree-children">{node.children.map((child) => <QuickTreeBranch key={`${node.label}-${child.label}`} node={child} />)}</ul> : null}</li>
+  return <li className="quick-tree-branch"><span className="quick-tree-node"><ChemText>{node.label}</ChemText></span>{node.children?.length ? <ul className="quick-tree-children">{node.children.map((child) => <QuickTreeBranch key={`${node.label}-${child.label}`} node={child} />)}</ul> : null}</li>
 }
 
 function fallbackVisual(content: StructuredKnowledgeContent): KnowledgeVisualSummary {
@@ -332,28 +353,91 @@ function fallbackVisual(content: StructuredKnowledgeContent): KnowledgeVisualSum
   }
 }
 
-function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
-  const groups = visual.groups ?? []
-  return <figure className={`quick-visual quick-visual-${visual.kind}`} aria-label={`30秒图解：${visual.title}`}>
-    <figcaption><span>30秒图解</span><b>{visual.title}</b></figcaption>
-    {visual.kind === 'tree' && visual.tree ? <div className="quick-tree-visual"><ul className="quick-tree"><QuickTreeBranch node={visual.tree} /></ul>{visual.axes?.length ? <div className="quick-tree-axes"><b>横向分类轴</b>{visual.axes.map((axis) => <div className="quick-axis" key={axis.label}><strong>{axis.label}</strong><div>{axis.items.map((item) => <span key={item}>{item}</span>)}</div></div>)}</div> : null}</div> : null}
-    {(visual.kind === 'flow' || visual.kind === 'cycle') && visual.steps?.length ? <ol className="quick-flow">{visual.steps.map((step, index) => <Fragment key={`${step.label}-${index}`}><li><small>{step.caption ?? String(index + 1).padStart(2, '0')}</small><b>{step.label}</b></li>{index < visual.steps!.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}{visual.kind === 'cycle' ? <i className="cycle-return" aria-label="回到起点">↺</i> : null}</ol> : null}
-    {visual.kind === 'compare' ? <div className="quick-compare">{groups.map((group) => <section key={group.label}><b>{group.label}</b><div>{group.items.map((item) => <span key={item}>{item}</span>)}</div></section>)}</div> : null}
-    {visual.kind === 'network' ? <div className="quick-network"><div className="network-hub">{visual.center ?? visual.title}</div><div className="network-branches">{groups.map((group) => <section key={group.label}><b>{group.label}</b>{group.items.map((item) => <span key={item}>{item}</span>)}</section>)}</div></div> : null}
-    {visual.kind === 'balance' ? <div className="quick-balance">{groups.map((group, index) => <Fragment key={group.label}><section><b>{group.label}</b>{group.items.map((item) => <span key={item}>{item}</span>)}</section>{index < groups.length - 1 ? <i aria-hidden="true">{visual.center ?? '='}</i> : null}</Fragment>)}</div> : null}
+const periodThreeTrend = [
+  { element: 'Na', valence: '+1', oxide: 'Na₂O', hydrate: 'NaOH', nature: '碱' },
+  { element: 'Mg', valence: '+2', oxide: 'MgO', hydrate: 'Mg(OH)₂', nature: '碱' },
+  { element: 'Al', valence: '+3', oxide: 'Al₂O₃', hydrate: 'Al(OH)₃', nature: '两性' },
+  { element: 'Si', valence: '+4', oxide: 'SiO₂', hydrate: 'H₂SiO₃', nature: '酸' },
+  { element: 'P', valence: '+5', oxide: 'P₄O₁₀（常简写P₂O₅）', hydrate: 'H₃PO₄', nature: '酸' },
+  { element: 'S', valence: '+6', oxide: 'SO₃', hydrate: 'H₂SO₄', nature: '酸' },
+  { element: 'Cl', valence: '+7', oxide: 'Cl₂O₇', hydrate: 'HClO₄', nature: '酸' },
+]
+
+function PeriodicTrendVisual() {
+  return <figure className="quick-visual periodic-trend-visual" aria-label="30秒图解：第三周期元素最高价氧化物、对应水化物和气态氢化物完整趋势">
+    <figcaption><span>30秒图解</span><b>元素周期律完整趋势图</b></figcaption>
+    <div className="periodic-cause-strip"><b>同周期从左到右</b><span>电子层数不变</span><i>→</i><span>核电荷递增</span><i>→</i><span>原子半径总体减小</span><i>→</i><span>金属性减弱、非金属性增强</span></div>
+    <div className="periodic-comparison" role="table" aria-label="第三周期最高价氧化物及对应水化物逐元素对照">
+      <div className="periodic-row periodic-head" role="row"><b role="columnheader">元素</b><b role="columnheader">最高正价</b><b role="columnheader">最高价氧化物</b><b role="columnheader">对应水化物</b><b role="columnheader">酸碱类别</b></div>
+      {periodThreeTrend.map((entry) => <div className="periodic-row" role="row" key={entry.element}>
+        <strong role="cell"><ChemText>{entry.element}</ChemText></strong><span role="cell"><ChemText>{entry.valence}</ChemText></span><span role="cell"><ChemText>{entry.oxide}</ChemText></span><span role="cell"><ChemText>{entry.hydrate}</ChemText></span><span role="cell" className={`nature-${entry.nature}`}><ChemText>{entry.nature}</ChemText></span>
+      </div>)}
+    </div>
+    <div className="periodic-direction" aria-label="第三周期对应水化物酸碱性趋势"><span>碱性逐渐减弱</span><i>→</i><b>Al(OH)₃ 两性分界</b><i>→</i><span>酸性逐渐增强</span></div>
+    <div className="periodic-hydrides"><section><b>同周期气态氢化物热稳定性</b><p><ChemText>SiH₄ ＜ PH₃ ＜ H₂S ＜ HCl</ChemText></p><small>从左到右总体增强</small></section><section><b>同主族氢化物热稳定性</b><p><ChemText>HF ＞ HCl ＞ HBr ＞ HI</ChemText></p><small>从上到下总体减弱</small></section></div>
+    <p className="periodic-boundary"><b>边界：</b>“对应水化物”表示组成与价态上的对应关系，不表示该氧化物一定能直接与水反应制得；例如SiO₂不能直接与水生成H₂SiO₃。热稳定性也不等于水溶液酸性或还原性。</p>
   </figure>
 }
 
-function StructuredKnowledgeMap({ content }: { content: StructuredKnowledgeContent }) {
+function EnergyProfile({ mode }: { mode: 'exo' | 'endo' }) {
+  const exo = mode === 'exo'
+  const reactantY = exo ? 88 : 152
+  const productY = exo ? 152 : 88
+  const arrowId = `${mode}-energy-arrow`
+  return <section className={`energy-profile energy-profile-${mode}`}>
+    <h3>{exo ? '放热反应：ΔH＜0' : '吸热反应：ΔH＞0'}</h3>
+    <svg viewBox="0 0 380 230" role="img" aria-label={`${exo ? '放热' : '吸热'}反应能量随反应进程变化图`}>
+      <defs><marker id={arrowId} markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" /></marker></defs>
+      <path className="energy-axis" d="M42 190V24M42 190H354" />
+      <text x="9" y="25" className="axis-label">能量</text><text x="292" y="215" className="axis-label">反应进程</text>
+      <path className="energy-curve" d={`M54 ${reactantY} C105 ${reactantY},116 38,190 38 C260 38,276 ${productY},344 ${productY}`} />
+      <path className="energy-platform" d={`M54 ${reactantY}H108M288 ${productY}H344`} />
+      <text x="54" y={reactantY - 10}>反应物</text><text x="288" y={productY - 10}>生成物</text>
+      <path className="energy-arrow" markerEnd={`url(#${arrowId})`} d={`M82 ${reactantY - 3}V47`} />
+      <text x="88" y={(reactantY + 42) / 2}>正反应活化能 Eₐ</text>
+      <path className="enthalpy-arrow" markerEnd={`url(#${arrowId})`} d={`M328 ${reactantY + (exo ? 6 : -6)}V${productY + (exo ? -6 : 6)}`} />
+      <text x="274" y={(reactantY + productY) / 2}>{exo ? 'ΔH＜0' : 'ΔH＞0'}</text>
+    </svg>
+    <p>{exo ? '生成物总焓低于反应物总焓，体系向环境释放能量。' : '生成物总焓高于反应物总焓，体系从环境吸收能量。'}</p>
+  </section>
+}
+
+function ThermochemistryVisual() {
+  return <figure className="quick-visual thermo-energy-visual" aria-label="30秒图解：放热反应与吸热反应能量曲线">
+    <figcaption><span>30秒图解</span><b>反应热必须看能量图</b></figcaption>
+    <div className="energy-profile-grid"><EnergyProfile mode="exo" /><EnergyProfile mode="endo" /></div>
+    <div className="enthalpy-definition"><b>始态—终态定义</b><span>ΔH = H（生成物）− H（反应物）</span></div>
+    <div className="bond-energy-ledger"><section><b>反应物断键</b><span>吸收能量</span></section><i>→</i><section><b>原子或基团重排</b><span>跨越活化能</span></section><i>→</i><section><b>生成物成键</b><span>释放能量</span></section></div>
+    <p className="bond-energy-equation">用平均键能估算时：<b>ΔH ≈ ΣE（反应物断键吸收）− ΣE（生成物成键释放）</b></p>
+  </figure>
+}
+
+function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
+  if (visual.title === '元素周期律完整趋势图') return <PeriodicTrendVisual />
+  if (visual.title === '反应热的能量账本') return <ThermochemistryVisual />
+  const groups = visual.groups ?? []
+  return <figure className={`quick-visual quick-visual-${visual.kind}`} aria-label={`30秒图解：${visual.title}`}>
+    <figcaption><span>30秒图解</span><b><ChemText>{visual.title}</ChemText></b></figcaption>
+    {visual.kind === 'tree' && visual.tree ? <div className="quick-tree-visual"><ul className="quick-tree"><QuickTreeBranch node={visual.tree} /></ul>{visual.axes?.length ? <div className="quick-tree-axes"><b>横向分类轴</b>{visual.axes.map((axis) => <div className="quick-axis" key={axis.label}><strong><ChemText>{axis.label}</ChemText></strong><div>{axis.items.map((item) => <span key={item}><ChemText>{item}</ChemText></span>)}</div></div>)}</div> : null}</div> : null}
+    {(visual.kind === 'flow' || visual.kind === 'cycle') && visual.steps?.length ? <ol className="quick-flow">{visual.steps.map((step, index) => <Fragment key={`${step.label}-${index}`}><li><small><ChemText>{step.caption ?? String(index + 1).padStart(2, '0')}</ChemText></small><b><ChemText>{step.label}</ChemText></b></li>{index < visual.steps!.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}{visual.kind === 'cycle' ? <i className="cycle-return" aria-label="回到起点">↺</i> : null}</ol> : null}
+    {visual.kind === 'compare' ? <div className="quick-compare">{groups.map((group) => <section key={group.label}><b><ChemText>{group.label}</ChemText></b><div>{group.items.map((item) => <span key={item}><ChemText>{item}</ChemText></span>)}</div></section>)}</div> : null}
+    {visual.kind === 'network' ? <div className="quick-network"><div className="network-hub"><ChemText>{visual.center ?? visual.title}</ChemText></div><div className="network-branches">{groups.map((group) => <section key={group.label}><b><ChemText>{group.label}</ChemText></b>{group.items.map((item) => <span key={item}><ChemText>{item}</ChemText></span>)}</section>)}</div></div> : null}
+    {visual.kind === 'balance' ? <div className="quick-balance">{groups.map((group, index) => <Fragment key={group.label}><section><b><ChemText>{group.label}</ChemText></b>{group.items.map((item) => <span key={item}><ChemText>{item}</ChemText></span>)}</section>{index < groups.length - 1 ? <i aria-hidden="true"><ChemText>{visual.center ?? '='}</ChemText></i> : null}</Fragment>)}</div> : null}
+  </figure>
+}
+
+export function StructuredKnowledgeMap({ content, skillId }: { content: StructuredKnowledgeContent; skillId?: string }) {
   const offset = content.rootTree ? 2 : 1
   return <div className="knowledge-explainer">
-    <QuickVisualSummary visual={content.visualSummary ?? fallbackVisual(content)} />
+    {skillId && supportsSourceInformedChemVisual(skillId)
+      ? <SourceInformedChemVisual skillId={skillId} />
+      : <QuickVisualSummary visual={content.visualSummary ?? fallbackVisual(content)} />}
     <details className="full-explanation"><summary><span><b>从零学会</b><small>展开完整讲解、例子、易错边界与自查</small></span><i aria-hidden="true">⌄</i></summary><div className="classification-map">
       {content.rootTree ? <section className="knowledge-tree-panel" aria-labelledby="knowledge-tree-title"><div className="map-section-title"><span>01</span><div><h2 id="knowledge-tree-title">知识总树</h2><p>先沿纵向主干走完，再补横向标签。</p></div></div><ul className="knowledge-tree"><KnowledgeBranch node={content.rootTree} /></ul></section> : null}
-      {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + offset).padStart(2, '0')}</span><div><h2>{section.title}</h2>{section.summary && <p>{section.summary}</p>}</div></div><div className="classification-items">{section.items.map((item) => <article className="classification-item point-with-demo" key={item.label}><div className="point-copy"><b>{item.label}</b><p>{item.rule}</p>{item.caution && <div className="branch-caution">注意：{item.caution}</div>}</div><NodeLearningAid node={item} /></article>)}</div></section>)}
-      {content.workedExamples?.length ? <section className="classification-section worked-examples"><div className="map-section-title"><span>{String(content.sections.length + offset).padStart(2, '0')}</span><div><h2>完整例题：把逻辑一步一步走通</h2><p>先看为什么，再看怎么算或怎样判断。</p></div></div><div className="worked-example-grid">{content.workedExamples.map((example) => <article key={example.substance}><h3>{example.substance}</h3><p>{example.path}</p><div className="example-chips">{example.labels.map((label) => <span key={label}>{label}</span>)}</div></article>)}</div></section> : null}
-      {content.checkpoints?.length ? <section className="classification-section recall-check"><div className="map-section-title"><span>✓</span><div><h2>合上页面前，我应该能做到</h2><p>说不出来就回到对应小节，不需要硬撑着进入练习。</p></div></div><ul>{content.checkpoints.map((checkpoint) => <li key={checkpoint}>{checkpoint}</li>)}</ul></section> : null}
-      {content.scopeNote ? <p className="scope-note"><b>范围说明：</b>{content.scopeNote}</p> : null}
+      {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + offset).padStart(2, '0')}</span><div><h2><ChemText>{section.title}</ChemText></h2>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</div></div><div className="classification-items">{section.items.map((item) => <details className="classification-item" key={item.label}><summary className="classification-item-summary"><span><ChemText>{item.label}</ChemText></span><i aria-hidden="true">⌄</i></summary><div className="classification-item-body point-with-demo"><div className="point-copy"><p><ChemText>{item.rule}</ChemText></p>{item.caution && <div className="branch-caution">注意：<ChemText>{item.caution}</ChemText></div>}</div><NodeLearningAid node={item} /></div></details>)}</div></section>)}
+      {content.workedExamples?.length ? <section className="classification-section worked-examples"><div className="map-section-title"><span>{String(content.sections.length + offset).padStart(2, '0')}</span><div><h2>完整例题：把逻辑一步一步走通</h2><p>先看为什么，再看怎么算或怎样判断。</p></div></div><div className="worked-example-grid">{content.workedExamples.map((example) => <article key={example.substance}><h3><ChemText>{example.substance}</ChemText></h3><p><ChemText>{example.path}</ChemText></p><div className="example-chips">{example.labels.map((label) => <span key={label}><ChemText>{label}</ChemText></span>)}</div></article>)}</div></section> : null}
+      {content.checkpoints?.length ? <section className="classification-section recall-check"><div className="map-section-title"><span>✓</span><div><h2>合上页面前，我应该能做到</h2><p>说不出来就回到对应小节，不需要硬撑着进入练习。</p></div></div><ul>{content.checkpoints.map((checkpoint) => <li key={checkpoint}><ChemText>{checkpoint}</ChemText></li>)}</ul></section> : null}
+      {content.scopeNote ? <p className="scope-note"><b>范围说明：</b><ChemText>{content.scopeNote}</ChemText></p> : null}
     </div></details>
   </div>
 }
