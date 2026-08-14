@@ -29,6 +29,20 @@ async function teacher(req: Request) {
   return { displayName: data[0].principal_name || "甘老师" };
 }
 
+async function readOnlyStudentPreview(req: Request, action: "student_preview_dashboard" | "preview_start_plan", data: unknown) {
+  const response = await fetch(`${url}/functions/v1/chemistry-access`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": req.headers.get("apikey") || "",
+      "x-app-session": req.headers.get("x-app-session") || "",
+    },
+    body: JSON.stringify({ action, data }),
+  });
+  const payload = await response.json().catch(() => ({ error: "预览服务暂时不可用。" }));
+  return { payload, status: response.status };
+}
+
 function shanghaiDayRange() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
@@ -108,6 +122,10 @@ Deno.serve(async (req: Request) => {
     if (!user) return reply(req, { error: "登录已失效，请重新输入姓名和登录码。" }, 401);
     const body = await req.json();
     if (body.action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
+    if (body.action === "student_preview_dashboard" || body.action === "preview_start_plan") {
+      const preview = await readOnlyStudentPreview(req, body.action, body.data);
+      return reply(req, preview.payload, preview.status);
+    }
     if (body.action === "save_observation") {
       const o = body.data || {};
       if (!o.studentId || !o.courseDate || !o.taughtContent || !o.observedEvidence) return reply(req, { error: "课堂记录信息不完整。" }, 400);

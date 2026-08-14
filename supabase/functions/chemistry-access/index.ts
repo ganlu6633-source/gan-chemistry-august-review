@@ -41,6 +41,7 @@ const profileShape = (row: Record<string, unknown>) => ({
   gradeBand: row.grade_band,
   enrollmentStartDate: row.enrollment_start_date,
   needsInitialDiagnostic: row.needs_initial_diagnostic,
+  isDemo: Boolean((row.metadata as Record<string, unknown> | null)?.demo),
 });
 const skillShape = (row: Record<string, unknown>) => ({
   id: row.id, title: row.title, moduleId: row.module_id, gradeBand: row.grade_band,
@@ -107,8 +108,12 @@ async function studentDashboard(studentId: string) {
   for (const result of [planResult, stateResult, skillResult, attemptResult]) if (result.error) throw result.error;
   const states = (stateResult.data || []).map((r) => stateShape(r as never));
   const completed = states.filter((s) => ["verified", "stable", "recovered"].includes(String(s.stability))).length;
+  const isDemo = Boolean((profileResult.data.metadata as Record<string, unknown> | null)?.demo);
   return {
-    profile: profileShape(profileResult.data),
+    profile: {
+      ...profileShape(profileResult.data),
+      availableDemoGrades: isDemo ? ["高一", "高二", "高三"] : undefined,
+    },
     plans: (planResult.data || []).map((plan) => planShape(plan, attemptResult.data || [])),
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
@@ -163,6 +168,83 @@ async function guardianDashboard(studentId: string) {
   };
 }
 
+async function resolveDemoTarget(currentStudentId: string, requestedStudentId: string | undefined) {
+  if (!requestedStudentId || requestedStudentId === currentStudentId) return currentStudentId;
+  const [current, requested] = await Promise.all([
+    supabase.from("chem_students_v2").select("id,metadata").eq("id", currentStudentId).single(),
+    supabase.from("chem_students_v2").select("id,metadata").eq("id", requestedStudentId).single(),
+  ]);
+  if (current.error || requested.error) return null;
+  const currentIsDemo = Boolean((current.data.metadata as Record<string, unknown> | null)?.demo);
+  const requestedIsDemo = Boolean((requested.data.metadata as Record<string, unknown> | null)?.demo);
+  return currentIsDemo && requestedIsDemo ? requested.data.id : null;
+}
+
+async function demoStudentForGrade(currentStudentId: string, gradeBand: string) {
+  if (!["高一", "高二", "高三"].includes(gradeBand)) return null;
+  const current = await supabase.from("chem_students_v2").select("metadata").eq("id", currentStudentId).single();
+  if (current.error || !(current.data.metadata as Record<string, unknown> | null)?.demo) return null;
+  const target = await supabase
+    .from("chem_students_v2")
+    .select("id")
+    .eq("grade_band", gradeBand)
+    .contains("metadata", { demo: true })
+    .order("id")
+    .limit(1)
+    .maybeSingle();
+  if (target.error || !target.data) return null;
+  return target.data.id as string;
+}
+
+async function startPlanPayload(studentId: string, planId: string) {
+  const { data: plan, error: planError } = await supabase
+    .from("chem_learning_plans")
+    .select("*")
+    .eq("id", planId)
+    .eq("student_id", studentId)
+    .single();
+  if (planError) throw planError;
+  const gradeResult = await supabase.from("chem_students_v2").select("grade_band").eq("id", studentId).single();
+  if (gradeResult.error) throw gradeResult.error;
+  const questionUsageColumn = plan.mode === "CLASS_QUIZ"
+    ? "usable_for_class_quiz"
+    : plan.mode === "EXAM_SPRINT"
+      ? "usable_for_exam_sprint"
+      : "usable_for_review";
+  const eligibleQuestions = supabase
+    .from("chem_questions")
+    .select("*")
+    .eq("grade_band", gradeResult.data.grade_band)
+    .in("skill_id", plan.skill_ids)
+    .eq("review_status", "approved")
+    .neq("scope_status", "OUT")
+    .eq(questionUsageColumn, true);
+  const [cards, questions, attemptCount, states, recentAttempts] = await Promise.all([
+    supabase.from("chem_knowledge_cards").select("*").in("skill_id", plan.skill_ids).eq("review_status", "approved"),
+    eligibleQuestions,
+    supabase.from("chem_learning_attempts").select("id", { count: "exact", head: true }).eq("plan_day_id", plan.id),
+    supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", studentId).in("skill_id", plan.skill_ids),
+    supabase.from("chem_learning_attempts").select("id").eq("student_id", studentId).order("completed_at", { ascending: false }).limit(30),
+  ]);
+  if (cards.error || questions.error || attemptCount.error || states.error || recentAttempts.error) {
+    throw cards.error || questions.error || attemptCount.error || states.error || recentAttempts.error;
+  }
+  const attemptIds = (recentAttempts.data || []).map((attempt) => attempt.id);
+  const history = attemptIds.length
+    ? await supabase.from("chem_attempt_answers").select("question_id,correct").in("attempt_id", attemptIds).in("skill_id", plan.skill_ids)
+    : { data: [], error: null };
+  if (history.error) throw history.error;
+  const adaptiveQuestions = selectAdaptiveQuestions(questions.data || [], states.data || [], history.data || [], attemptCount.count || 0, 7);
+  const cardOrder = new Map((plan.skill_ids as string[]).map((skillId, index) => [skillId, index]));
+  const orderedCards = [...(cards.data || [])].sort((a, b) => (cardOrder.get(a.skill_id) ?? 99) - (cardOrder.get(b.skill_id) ?? 99));
+  return {
+    plan: planShape(plan),
+    cards: orderedCards.map(cardShape),
+    questions: adaptiveQuestions.map(questionShape),
+    attemptSequence: attemptCount.count || 0,
+  };
+}
+
 async function authenticate(req: Request) {
   const token = req.headers.get("x-app-session");
   if (!token) return null;
@@ -199,75 +281,231 @@ Deno.serve(async (req: Request) => {
       return reply(req, { session, dashboard });
     }
 
+    if (body.action === "recover_access_code") {
+      const name = String(body.data?.name || "").trim();
+      const recoverySecret = String(body.data?.recoverySecret || "").trim();
+      const newCode = String(body.data?.newCode || "").trim();
+      const rawFingerprint = `${req.headers.get("x-forwarded-for") || "unknown"}|${req.headers.get("user-agent") || "unknown"}`;
+      const { data, error } = await supabase.rpc("chem_recover_access_code", {
+        p_name: name,
+        p_recovery_secret: recoverySecret,
+        p_new_code: newCode,
+        p_fingerprint_hash: await sha256(rawFingerprint),
+      });
+      if (error) throw error;
+      if (!data) return reply(req, { error: "姓名或找回信息不匹配，或尝试过于频繁。" }, 400);
+      return reply(req, { ok: true });
+    }
+
     const identity = await authenticate(req);
     if (!identity) return reply(req, { error: "登录已失效，请重新输入访问码。" }, 401);
     if (body.action === "student_dashboard" && identity.role === "student" && identity.studentId) return reply(req, { dashboard: await studentDashboard(identity.studentId) });
     if (body.action === "guardian_dashboard" && identity.role === "guardian" && identity.studentId) return reply(req, { dashboard: await guardianDashboard(identity.studentId) });
 
+    if (body.action === "demo_dashboard" && identity.role === "student" && identity.studentId) {
+      const targetId = await demoStudentForGrade(identity.studentId, String(body.data?.gradeBand || ""));
+      if (!targetId) return reply(req, { error: "该演示年级不可用。" }, 403);
+      return reply(req, { dashboard: await studentDashboard(targetId) });
+    }
+
+    if (body.action === "student_preview_dashboard" && identity.role === "teacher") {
+      const targetId = String(body.data?.studentId || "");
+      if (!targetId) return reply(req, { error: "请选择要预览的学生。" }, 400);
+      return reply(req, { dashboard: await studentDashboard(targetId) });
+    }
+
+    if (body.action === "preview_start_plan" && identity.role === "teacher") {
+      const targetId = String(body.data?.studentId || "");
+      const planId = String(body.data?.planId || "");
+      if (!targetId || !planId) return reply(req, { error: "预览信息不完整。" }, 400);
+      return reply(req, { payload: await startPlanPayload(targetId, planId) });
+    }
+
+    if (body.action === "change_own_code" && identity.role === "student") {
+      const token = req.headers.get("x-app-session") || "";
+      const { data, error } = await supabase.rpc("chem_change_own_access_code", {
+        p_token_hash: await sha256(token),
+        p_current_code: String(body.data?.currentCode || "").trim(),
+        p_new_code: String(body.data?.newCode || "").trim(),
+      });
+      if (error) throw error;
+      if (!data) return reply(req, { error: "当前登录码不正确，或新登录码不符合要求。" }, 400);
+      return reply(req, { ok: true });
+    }
+
+    if (body.action === "set_recovery_secret" && identity.role === "student") {
+      const token = req.headers.get("x-app-session") || "";
+      const { data, error } = await supabase.rpc("chem_set_recovery_secret", {
+        p_token_hash: await sha256(token),
+        p_current_code: String(body.data?.currentCode || "").trim(),
+        p_recovery_secret: String(body.data?.recoverySecret || "").trim(),
+      });
+      if (error) throw error;
+      if (!data) return reply(req, { error: "当前登录码不正确，或找回短语不符合要求。" }, 400);
+      return reply(req, { ok: true });
+    }
+
     if (body.action === "start_plan" && identity.role === "student" && identity.studentId) {
-      const { data: plan, error: planError } = await supabase.from("chem_learning_plans").select("*").eq("id", body.data?.planId).eq("student_id", identity.studentId).single();
+      const targetId = await resolveDemoTarget(identity.studentId, body.data?.studentId ? String(body.data.studentId) : undefined);
+      if (!targetId) return reply(req, { error: "无权打开该学习计划。" }, 403);
+      const planId = String(body.data?.planId || "");
+      if (!planId) return reply(req, { error: "学习计划信息不完整。" }, 400);
+      return reply(req, { payload: await startPlanPayload(targetId, planId) });
+    }
+
+    if (body.action === "submit_attempt" && identity.role === "student" && identity.studentId) {
+      const attempt = body.data;
+      if (
+        !attempt ||
+        !attempt.studentId ||
+        !attempt.planDayId ||
+        !Array.isArray(attempt.answers) ||
+        attempt.answers.length === 0 ||
+        attempt.answers.length > 10
+      ) return reply(req, { error: "提交内容不完整。" }, 400);
+      const targetId = await resolveDemoTarget(identity.studentId, String(attempt.studentId));
+      if (!targetId) return reply(req, { error: "无权提交该学习记录。" }, 403);
+      const targetProfile = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", targetId).single();
+      if (targetProfile.error) throw targetProfile.error;
+      if ((targetProfile.data.metadata as Record<string, unknown> | null)?.demo) {
+        return reply(req, { dashboard: await studentDashboard(targetId), achievements: [], simulated: true });
+      }
+
+      const { data: plan, error: planError } = await supabase
+        .from("chem_learning_plans")
+        .select("id,student_id,mode,skill_ids")
+        .eq("id", String(attempt.planDayId))
+        .eq("student_id", identity.studentId)
+        .maybeSingle();
       if (planError) throw planError;
-      const gradeResult = await supabase.from("chem_students_v2").select("grade_band").eq("id", identity.studentId).single();
-      if (gradeResult.error) throw gradeResult.error;
+      if (!plan) return reply(req, { error: "无权提交该学习记录。" }, 403);
+
+      const submittedAnswers = attempt.answers as Array<Record<string, unknown>>;
+      const questionIds = submittedAnswers.map((answer) => String(answer.questionId || ""));
+      if (questionIds.some((id) => !id) || new Set(questionIds).size !== questionIds.length) {
+        return reply(req, { error: "题目记录无效，请重新打开本轮练习。" }, 400);
+      }
+      const planSkillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map(String) : [];
+      if (!planSkillIds.length) return reply(req, { error: "当前学习计划没有可提交的题目。" }, 400);
       const questionUsageColumn = plan.mode === "CLASS_QUIZ"
         ? "usable_for_class_quiz"
         : plan.mode === "EXAM_SPRINT"
           ? "usable_for_exam_sprint"
           : "usable_for_review";
-      const eligibleQuestions = supabase
-        .from("chem_questions")
-        .select("*")
-        .eq("grade_band", gradeResult.data.grade_band)
-        .in("skill_id", plan.skill_ids)
-        .eq("review_status", "approved")
-        .neq("scope_status", "OUT")
-        .eq(questionUsageColumn, true);
-      const [cards, questions, attemptCount, states, recentAttempts] = await Promise.all([
-        supabase.from("chem_knowledge_cards").select("*").in("skill_id", plan.skill_ids).eq("review_status", "approved"),
-        eligibleQuestions,
-        supabase.from("chem_learning_attempts").select("id", { count: "exact", head: true }).eq("plan_day_id", plan.id),
-        supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", identity.studentId).in("skill_id", plan.skill_ids),
-        supabase.from("chem_learning_attempts").select("id").eq("student_id", identity.studentId).order("completed_at", { ascending: false }).limit(30),
+      const [questionResult, attemptCountResult] = await Promise.all([
+        supabase
+          .from("chem_questions")
+          .select("id,mother_id,skill_id,level,options,correct_option")
+          .in("id", questionIds)
+          .eq("grade_band", targetProfile.data.grade_band)
+          .in("skill_id", planSkillIds)
+          .eq("review_status", "approved")
+          .neq("scope_status", "OUT")
+          .eq(questionUsageColumn, true),
+        supabase
+          .from("chem_learning_attempts")
+          .select("id", { count: "exact", head: true })
+          .eq("student_id", identity.studentId)
+          .eq("plan_day_id", plan.id),
       ]);
-      if (cards.error || questions.error || attemptCount.error || states.error || recentAttempts.error) throw cards.error || questions.error || attemptCount.error || states.error || recentAttempts.error;
-      const attemptIds = (recentAttempts.data || []).map((attempt) => attempt.id);
-      const history = attemptIds.length
-        ? await supabase.from("chem_attempt_answers").select("question_id,correct").in("attempt_id", attemptIds).in("skill_id", plan.skill_ids)
-        : { data: [], error: null };
-      if (history.error) throw history.error;
-      const adaptiveQuestions = selectAdaptiveQuestions(questions.data || [], states.data || [], history.data || [], attemptCount.count || 0, 7);
-      const cardOrder = new Map((plan.skill_ids as string[]).map((skillId, index) => [skillId, index]));
-      const orderedCards = [...(cards.data || [])].sort((a, b) => (cardOrder.get(a.skill_id) ?? 99) - (cardOrder.get(b.skill_id) ?? 99));
-      return reply(req, { payload: { plan: planShape(plan), cards: orderedCards.map(cardShape), questions: adaptiveQuestions.map(questionShape), attemptSequence: attemptCount.count || 0 } });
-    }
+      if (questionResult.error || attemptCountResult.error) throw questionResult.error || attemptCountResult.error;
+      if ((questionResult.data || []).length !== questionIds.length) {
+        return reply(req, { error: "本轮包含未审核或不适用于当前计划的题目，请重新打开练习。" }, 400);
+      }
 
-    if (body.action === "submit_attempt" && identity.role === "student" && identity.studentId) {
-      const attempt = body.data;
-      if (!attempt || attempt.studentId !== identity.studentId || !Array.isArray(attempt.answers) || attempt.answers.length > 10) return reply(req, { error: "提交内容不完整。" }, 400);
+      const questionById = new Map((questionResult.data || []).map((question) => [String(question.id), question]));
+      const canonicalAnswers: Array<{
+        question_id: string;
+        mother_id: string;
+        skill_id: string;
+        level: number;
+        correct: boolean;
+        uncertain: boolean;
+        duration_sec: number;
+        selected_option: number;
+      }> = [];
+      for (const submitted of submittedAnswers) {
+        const question = questionById.get(String(submitted.questionId));
+        const selectedOption = typeof submitted.selectedOption === "number" ? submitted.selectedOption : Number.NaN;
+        const options = Array.isArray(question?.options) ? question.options : [];
+        if (!question || !Number.isInteger(selectedOption) || selectedOption < 0 || selectedOption >= options.length) {
+          return reply(req, { error: "答案选项无效，请重新打开本轮练习。" }, 400);
+        }
+        const rawDuration = Number(submitted.durationSec);
+        canonicalAnswers.push({
+          question_id: String(question.id),
+          mother_id: String(question.mother_id),
+          skill_id: String(question.skill_id),
+          level: Number(question.level),
+          correct: selectedOption === Number(question.correct_option),
+          uncertain: submitted.uncertain === true,
+          duration_sec: Number.isFinite(rawDuration) ? Math.min(3600, Math.max(0, Math.round(rawDuration))) : 0,
+          selected_option: selectedOption,
+        });
+      }
+
+      const canonicalSkillIds = [...new Set(canonicalAnswers.map((answer) => answer.skill_id))];
+      const currentStatesResult = await supabase
+        .from("chem_student_skill_state")
+        .select("skill_id,verified_level,candidate_level,consecutive_errors,review_interval_index")
+        .eq("student_id", identity.studentId)
+        .in("skill_id", canonicalSkillIds);
+      if (currentStatesResult.error) throw currentStatesResult.error;
+      const currentStateBySkill = new Map((currentStatesResult.data || []).map((state) => [String(state.skill_id), state]));
+      const computedStateBySkill = new Map<string, Record<string, unknown>>();
+      const completedAt = new Date();
+      const completedAtIso = completedAt.toISOString();
+      for (const answer of canonicalAnswers) {
+        const current = computedStateBySkill.get(answer.skill_id) || currentStateBySkill.get(answer.skill_id);
+        const previousErrors = Number(current?.consecutive_errors || 0);
+        computedStateBySkill.set(answer.skill_id, {
+          student_id: identity.studentId,
+          skill_id: answer.skill_id,
+          verified_level: Math.max(Number(current?.verified_level || 0), answer.correct ? answer.level : 0),
+          candidate_level: answer.correct ? answer.level : current?.candidate_level ?? null,
+          stability: answer.correct ? "verified" : "learning",
+          consecutive_errors: answer.correct ? 0 : previousErrors + 1,
+          next_review_at: new Date(completedAt.getTime() + (answer.correct ? 3 : 1) * 86400000).toISOString(),
+          review_interval_index: answer.correct ? Math.min(4, Number(current?.review_interval_index || 0) + 1) : 0,
+          last_reviewed_at: completedAtIso,
+          teacher_intervention: !answer.correct && previousErrors >= 2,
+          updated_at: completedAtIso,
+        });
+      }
+
+      const submittedStartedAt = new Date(String(attempt.startedAt || ""));
+      const startedAt = Number.isFinite(submittedStartedAt.getTime()) && submittedStartedAt <= completedAt
+        ? submittedStartedAt.toISOString()
+        : completedAtIso;
+      const attemptSequence = attemptCountResult.count || 0;
+      const attemptId = String(attempt.id || "");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)) {
+        return reply(req, { error: "提交标识无效，请重新打开本轮练习。" }, 400);
+      }
       const { error: attemptError } = await supabase.from("chem_learning_attempts").insert({
-        id: attempt.id, student_id: identity.studentId, plan_day_id: attempt.planDayId,
-        attempt_kind: attempt.attemptKind, sequence: attempt.sequence, mode: attempt.mode,
-        started_at: attempt.startedAt, completed_at: attempt.completedAt, first_score: attempt.firstScore,
+        id: attemptId,
+        student_id: identity.studentId,
+        plan_day_id: plan.id,
+        attempt_kind: attemptSequence === 0 ? "scheduled" : "review",
+        sequence: attemptSequence,
+        mode: plan.mode,
+        started_at: startedAt,
+        completed_at: completedAtIso,
+        first_score: canonicalAnswers.filter((answer) => answer.correct).length,
       });
       if (attemptError) throw attemptError;
-      const answers = attempt.answers.map((a: Record<string, unknown>) => ({
-        attempt_id: attempt.id, question_id: a.questionId, mother_id: a.motherId, skill_id: a.skillId,
-        level: a.level, correct: a.correct, uncertain: a.uncertain, duration_sec: a.durationSec, selected_option: a.selectedOption,
-      }));
+      const answers = canonicalAnswers.map((answer) => ({ attempt_id: attemptId, ...answer }));
       const { error: answersError } = await supabase.from("chem_attempt_answers").insert(answers);
-      if (answersError) throw answersError;
-      for (const answer of attempt.answers) {
-        const { data: current } = await supabase.from("chem_student_skill_state").select("*").eq("student_id", identity.studentId).eq("skill_id", answer.skillId).maybeSingle();
-        const verified = Math.max(Number(current?.verified_level || 0), answer.correct ? Number(answer.level || 0) : 0);
-        await supabase.from("chem_student_skill_state").upsert({
-          student_id: identity.studentId, skill_id: answer.skillId, verified_level: verified,
-          candidate_level: answer.correct ? answer.level : current?.candidate_level,
-          stability: answer.correct ? "verified" : "learning",
-          consecutive_errors: answer.correct ? 0 : Number(current?.consecutive_errors || 0) + 1,
-          next_review_at: new Date(Date.now() + (answer.correct ? 3 : 1) * 86400000).toISOString(),
-          review_interval_index: answer.correct ? Math.min(4, Number(current?.review_interval_index || 0) + 1) : 0,
-          last_reviewed_at: new Date().toISOString(), teacher_intervention: !answer.correct && Number(current?.consecutive_errors || 0) >= 2,
-        });
+      if (answersError) {
+        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", identity.studentId);
+        throw answersError;
+      }
+      const skillStateResult = await supabase
+        .from("chem_student_skill_state")
+        .upsert([...computedStateBySkill.values()], { onConflict: "student_id,skill_id" });
+      if (skillStateResult.error) {
+        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", identity.studentId);
+        throw skillStateResult.error;
       }
       return reply(req, { dashboard: await studentDashboard(identity.studentId), achievements: [] });
     }

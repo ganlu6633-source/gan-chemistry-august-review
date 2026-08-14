@@ -1,18 +1,47 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { GuardianDashboardData, SessionIdentity, StudentDashboardData } from './domain/types'
 import { AppShell } from './components/AppShell'
 import { AccessGate } from './components/AccessGate'
 import { StudentApp } from './components/StudentApp'
 import { GuardianApp } from './components/GuardianApp'
 import { TeacherGate } from './components/TeacherApp'
-import { loadGuardianDashboard, loadStudentDashboard } from './lib/api'
+import { loadGuardianDashboard, loadStudentDashboard, teacherApi } from './lib/api'
 import { clearAccessSession, readAccessSession, writeAccessSession } from './lib/session'
 
 type Dashboard = StudentDashboardData | GuardianDashboardData
 
 export default function App() {
-  return <Routes><Route path="/" element={<AccessExperience />} /><Route path="/teacher" element={<TeacherGate />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes>
+  return <Routes><Route path="/" element={<AccessExperience />} /><Route path="/teacher" element={<TeacherExperience />} /><Route path="/teacher/preview/:studentId" element={<TeacherStudentPreview />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes>
+}
+
+function TeacherExperience() {
+  const navigate = useNavigate()
+  return <TeacherGate onPreviewStudent={(studentId) => navigate(`/teacher/preview/${studentId}`)} />
+}
+
+function TeacherStudentPreview() {
+  const navigate = useNavigate()
+  const { studentId = '' } = useParams()
+  const session = readAccessSession()
+  const [dashboard, setDashboard] = useState<StudentDashboardData | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (session?.role !== 'teacher' || !studentId) return
+    let active = true
+    setDashboard(null)
+    setError('')
+    void teacherApi<{ dashboard: StudentDashboardData }>('student_preview_dashboard', { studentId })
+      .then((result) => { if (active) setDashboard(result.dashboard) })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '只读预览暂时无法打开。') })
+    return () => { active = false }
+  }, [session?.role, studentId])
+
+  if (session?.role !== 'teacher') return <Navigate to="/" replace />
+  if (error) return <AppShell identity={session.displayName}><div className="inline-alert" role="alert">{error}</div><button className="secondary-button" onClick={() => navigate('/teacher')}>返回教师后台</button></AppShell>
+  if (!dashboard) return <AppShell identity={session.displayName}><div className="center-loading">正在准备只读模拟界面…</div></AppShell>
+  return <AppShell identity={`${session.displayName} · 只读模拟`}><StudentApp key={dashboard.profile.id} session={session} initialDashboard={dashboard} onDashboard={setDashboard} previewMode onExitPreview={() => navigate('/teacher')} /></AppShell>
 }
 
 function AccessExperience() {

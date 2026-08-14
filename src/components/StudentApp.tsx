@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, Map as MapIcon, RotateCcw, Sparkles, Trophy } from 'lucide-react'
+import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
 import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
-import { accessApi, submitAttempt } from '../lib/api'
+import { accessApi, submitAttempt, teacherApi } from '../lib/api'
 
-type StudentView = 'today' | 'map' | 'growth'
+type StudentView = 'today' | 'map' | 'growth' | 'settings'
 type PlanPayload = { plan: LearningPlanDay; cards: KnowledgeCard[]; questions: Question[]; attemptSequence: number }
 
 const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
@@ -20,7 +20,7 @@ const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
   return '今天'
 }
 
-export function StudentApp({ session, initialDashboard, onDashboard }: { session: SessionIdentity; initialDashboard: StudentDashboardData; onDashboard: (data: StudentDashboardData) => void }) {
+export function StudentApp({ session, initialDashboard, onDashboard, previewMode = false, onExitPreview }: { session: SessionIdentity; initialDashboard: StudentDashboardData; onDashboard: (data: StudentDashboardData) => void; previewMode?: boolean; onExitPreview?: () => void }) {
   const [view, setView] = useState<StudentView>('today')
   const [dashboard, setDashboard] = useState(initialDashboard)
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
@@ -35,7 +35,9 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
     setBusy(true)
     setError('')
     try {
-      const result = await accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id })
+      const result = previewMode
+        ? await teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id })
+        : await accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {}) })
       setActivePlan(result.payload)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '学习内容暂时无法打开。')
@@ -44,16 +46,33 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
     }
   }
 
+  async function switchDemoGrade(gradeBand: string) {
+    if (gradeBand === dashboard.profile.gradeBand || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await accessApi<{ dashboard: StudentDashboardData }>(session, 'demo_dashboard', { gradeBand })
+      setDashboard(result.dashboard)
+      onDashboard(result.dashboard)
+      setView('today')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '演示年级暂时无法切换。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (activePlan) {
-    return <LearningRound session={session} payload={activePlan} onExit={() => setActivePlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView('growth') }} />
+    return <LearningRound session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} onExit={() => setActivePlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
   }
 
   return (
-    <div className="role-layout student-theme">
-      <aside className="side-nav" aria-label="学生导航">
+    <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}<div className="role-layout student-theme">
+      <aside className={`side-nav ${previewMode || dashboard.profile.isDemo ? 'three-items' : ''}`} aria-label="学生导航">
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />今天</button>
         <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力星图</button>
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
+        {!previewMode && !dashboard.profile.isDemo && <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings />账户设置</button>}
       </aside>
       <div className="role-content">
         {error && <div className="inline-alert" role="alert">{error}</div>}
@@ -62,6 +81,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
             <div><span className="eyebrow">今天也只走一小步</span><h1>{dashboard.profile.displayName}，今天先把最值得的几件事稳住。</h1><p>{dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了第一轮。'}</p></div>
             <div className="daily-orb"><b>{Math.min(dashboard.todayQuestionCount || 6, 8)}</b><span>第一轮题目</span></div>
           </section>
+          {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>切换年级，检查不同学习路线</h2><p>演示练习不会写入任何真实学生档案。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
             <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>每轮聚焦当前最值得掌握的内容</span></div></div>
@@ -74,9 +94,59 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
         </>}
         {view === 'map' && <SkillGalaxy dashboard={dashboard} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} />}
+        {view === 'settings' && <AccountSettings session={session} />}
       </div>
-    </div>
+    </div></>
   )
+}
+
+function AccountSettings({ session }: { session: SessionIdentity }) {
+  const [currentCode, setCurrentCode] = useState('')
+  const [newCode, setNewCode] = useState('')
+  const [confirmCode, setConfirmCode] = useState('')
+  const [recoveryCurrentCode, setRecoveryCurrentCode] = useState('')
+  const [recoverySecret, setRecoverySecret] = useState('')
+  const [confirmSecret, setConfirmSecret] = useState('')
+  const [busy, setBusy] = useState<'code' | 'recovery' | ''>('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  async function changeCode(event: React.FormEvent) {
+    event.preventDefault()
+    setError(''); setMessage('')
+    if (!/^\d{6,12}$/.test(currentCode) || !/^\d{6,12}$/.test(newCode)) return setError('当前登录码和新登录码都应为6—12位数字。')
+    if (newCode !== confirmCode) return setError('两次输入的新登录码不一致。')
+    if (newCode === currentCode) return setError('新登录码需要与当前登录码不同。')
+    setBusy('code')
+    try {
+      const result = await accessApi<{ message?: string }>(session, 'change_own_code', { currentCode, newCode })
+      setMessage(result.message || '登录码已修改。下次请使用新登录码进入。')
+      setCurrentCode(''); setNewCode(''); setConfirmCode('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '登录码修改失败。')
+    } finally { setBusy('') }
+  }
+
+  async function saveRecoverySecret(event: React.FormEvent) {
+    event.preventDefault()
+    setError(''); setMessage('')
+    const cleanSecret = recoverySecret.trim()
+    if (!/^\d{6,12}$/.test(recoveryCurrentCode)) return setError('请输入当前6—12位数字登录码。')
+    if (cleanSecret.length < 6 || cleanSecret.length > 40) return setError('私密找回短语需为6—40个字符。')
+    if (/^\d+$/.test(cleanSecret)) return setError('私密找回短语请至少包含一个汉字或字母，不能只用数字。')
+    if (cleanSecret !== confirmSecret.trim()) return setError('两次输入的私密找回短语不一致。')
+    if (cleanSecret === recoveryCurrentCode) return setError('私密找回短语不能与登录码相同。')
+    setBusy('recovery')
+    try {
+      const result = await accessApi<{ message?: string }>(session, 'set_recovery_secret', { currentCode: recoveryCurrentCode, recoverySecret: cleanSecret })
+      setMessage(result.message || '私密找回短语已安全保存。')
+      setRecoveryCurrentCode(''); setRecoverySecret(''); setConfirmSecret('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '私密找回短语保存失败。')
+    } finally { setBusy('') }
+  }
+
+  return <section className="account-settings"><div className="page-title"><span className="eyebrow">只有你自己知道</span><h1>账户与找回</h1><p>你可以把初始登录码改成更好记的6—12位数字，也可以设置一个私密找回短语。</p></div>{error && <div className="inline-alert" role="alert">{error}</div>}{message && <div className="success-message" role="status">{message}</div>}<div className="account-settings-grid"><form className="account-card" onSubmit={changeCode}><div className="account-card-title"><KeyRound /><div><h2>修改登录码</h2><p>修改后，旧登录码立即失效。</p></div></div><label>当前登录码<input type="password" inputMode="numeric" autoComplete="current-password" value={currentCode} onChange={(event) => setCurrentCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="6—12位数字" /></label><label>新登录码<input type="password" inputMode="numeric" autoComplete="new-password" value={newCode} onChange={(event) => setNewCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="6—12位数字" /></label><label>再次输入新登录码<input type="password" inputMode="numeric" autoComplete="new-password" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="请再次输入" /></label><button className="primary-button" disabled={Boolean(busy)}>{busy === 'code' ? '正在修改…' : '保存新登录码'}</button></form><form className="account-card" onSubmit={saveRecoverySecret}><div className="account-card-title"><ShieldCheck /><div><h2>设置私密找回短语</h2><p>忘记登录码时，用姓名和这句话重新设置。</p></div></div><label>当前登录码<input type="password" inputMode="numeric" autoComplete="current-password" value={recoveryCurrentCode} onChange={(event) => setRecoveryCurrentCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="用于确认是本人" /></label><label>私密找回短语<input type="password" autoComplete="off" value={recoverySecret} onChange={(event) => setRecoverySecret(event.target.value.slice(0, 40))} placeholder="6—40个字符" /></label><label>再次输入找回短语<input type="password" autoComplete="off" value={confirmSecret} onChange={(event) => setConfirmSecret(event.target.value.slice(0, 40))} placeholder="请再次输入" /></label><div className="privacy-tip"><ShieldCheck />不要使用身份证号、生日、手机号或常用密码。系统只保存加密摘要，无法查看你的原文。</div><button className="primary-button" disabled={Boolean(busy)}>{busy === 'recovery' ? '正在安全保存…' : '保存找回短语'}</button></form></div></section>
 }
 
 function splitCalendarWeeks(plans: LearningPlanDay[]) {
@@ -138,7 +208,7 @@ function GrowthPage({ dashboard }: { dashboard: StudentDashboardData }) {
   </section>
 }
 
-function LearningRound({ session, payload, onExit, onComplete }: { session: SessionIdentity; payload: PlanPayload; onExit: () => void; onComplete: (data: StudentDashboardData) => void }) {
+function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onComplete: (data: StudentDashboardData) => void }) {
   const [phase, setPhase] = useState<'cards' | 'quiz' | 'result'>('cards')
   const [cardIndex, setCardIndex] = useState(0)
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -167,14 +237,23 @@ function LearningRound({ session, payload, onExit, onComplete }: { session: Sess
       if (questionIndex < payload.questions.length - 1) { setQuestionIndex(questionIndex + 1); setSelected(null); setUncertain(false); setFeedback(false); setQuestionStartedAt(Date.now()); return }
       setBusy(true)
       const finalAnswers = [...answers, ...(feedback ? [] : [])]
-      const attempt: LearningAttempt = { id: crypto.randomUUID(), studentId: '', planDayId: payload.plan.id, attemptKind: payload.attemptSequence === 0 ? 'scheduled' : 'review', sequence: payload.attemptSequence, mode: payload.plan.mode, startedAt, completedAt: new Date().toISOString(), answers: finalAnswers, firstScore: finalAnswers.filter((answer) => answer.correct).length }
-      try { const result = await submitAttempt(session, attempt); setNextDashboard(result.dashboard); setPhase('result') } finally { setBusy(false) }
+      const attempt: LearningAttempt = { id: crypto.randomUUID(), studentId: practiceDashboard?.profile.id ?? '', planDayId: payload.plan.id, attemptKind: payload.attemptSequence === 0 ? 'scheduled' : 'review', sequence: payload.attemptSequence, mode: payload.plan.mode, startedAt, completedAt: new Date().toISOString(), answers: finalAnswers, firstScore: finalAnswers.filter((answer) => answer.correct).length }
+      try {
+        if (practiceMode && practiceDashboard) {
+          setNextDashboard(practiceDashboard)
+          setPhase('result')
+        } else {
+          const result = await submitAttempt(session, attempt)
+          setNextDashboard(result.dashboard)
+          setPhase('result')
+        }
+      } finally { setBusy(false) }
     }
     return <section className="learning-stage"><div className="quiz-head"><span>第一轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span><h1>{question.stem}</h1><div className="option-list">{question.options.map((option, index) => <button disabled={feedback} className={`${selected === index ? 'selected' : ''} ${feedback && index === question.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== question.correctOption ? 'wrong' : ''}`} key={option} onClick={() => setSelected(index)}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}</div><label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? '判断正确' : '先把关键一步稳住'}</b><p>{question.explanation}</p>{!isCorrect && question.scaffold && <p><CircleHelp size={16} />提示：{question.scaffold}</p>}</div>}</article><div className="stage-actions">{!feedback ? <button className="primary-button" disabled={selected === null} onClick={submit}>提交答案</button> : <button className="primary-button" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : '完成第一轮'}<ChevronRight size={18} /></button>}</div></section>
   }
 
   const correct = answers.filter((answer) => answer.correct).length
-  return <section className="learning-stage result-stage"><div className="result-badge"><Check /></div><span className="eyebrow">今天的第一轮完成啦</span><h1>你已经完成了一次真实检验。</h1><p>本轮 {correct}/{answers.length}。系统会用新的母题继续确认，不会让你机械重复原题。</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{answers.filter((answer) => answer.uncertain).length}</b><span>不确定标记</span></div></div><button className="primary-button" disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>查看我获得了什么<Trophy size={18} /></button></section>
+  return <section className="learning-stage result-stage"><div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? '演示练习完成' : '今天的第一轮完成啦'}</span><h1>{practiceMode ? '界面、知识点、题目和解析都可以继续检查。' : '你已经完成了一次真实检验。'}</h1><p>本轮 {correct}/{answers.length}。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : '系统会用新的母题继续确认，不会让你机械重复原题。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成题目</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>检验技能</span></div><div><b>{answers.filter((answer) => answer.uncertain).length}</b><span>不确定标记</span></div></div><button className="primary-button" disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : '查看我获得了什么'}<Trophy size={18} /></button></section>
 }
 
 function KnowledgeBranch({ node, depth = 0 }: { node: KnowledgeTreeNode; depth?: number }) {

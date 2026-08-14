@@ -267,7 +267,10 @@ export interface TimelineEvent {
 }
 
 export interface StudentDashboardData {
-  profile: Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'enrollmentStartDate' | 'needsInitialDiagnostic'>
+  profile: Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'enrollmentStartDate' | 'needsInitialDiagnostic'> & {
+    isDemo?: boolean
+    availableDemoGrades?: GradeBand[]
+  }
   plans: LearningPlanDay[]
   skillStates: StudentSkillState[]
   skillDefinitions: SkillDefinition[]
