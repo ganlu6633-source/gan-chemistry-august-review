@@ -1,10 +1,10 @@
-import { Fragment, useState } from 'react'
-import { BookOpen, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, Map as MapIcon, RotateCcw, Sparkles, Trophy } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, Map as MapIcon, RotateCcw, Sparkles, Trophy } from 'lucide-react'
 import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
 import { accessApi, submitAttempt } from '../lib/api'
 
-type StudentView = 'today' | 'plan' | 'map' | 'growth'
+type StudentView = 'today' | 'map' | 'growth'
 type PlanPayload = { plan: LearningPlanDay; cards: KnowledgeCard[]; questions: Question[]; attemptSequence: number }
 
 const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
@@ -29,9 +29,7 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
-  const cyclePlans = dashboard.plans
-    .filter((plan) => plan.mode === 'REVIEW')
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
 
   async function openPlan(plan: LearningPlanDay) {
     setBusy(true)
@@ -54,7 +52,6 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
     <div className="role-layout student-theme">
       <aside className="side-nav" aria-label="学生导航">
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />今天</button>
-        <button className={view === 'plan' ? 'active' : ''} onClick={() => setView('plan')}><CalendarDays />学习计划</button>
         <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力星图</button>
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
       </aside>
@@ -67,14 +64,14 @@ export function StudentApp({ session, initialDashboard, onDashboard }: { session
           </section>
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>不会提前显示后续总题量</span></div></div>
+            <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2>{todayPlan.title}</h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}>{topic}</span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>每轮聚焦当前最值得掌握的内容</span></div></div>
             <button className="primary-button compact" onClick={() => openPlan(todayPlan)} disabled={busy}>{busy ? '正在准备…' : '开始第一轮'}<ChevronRight size={18} /></button>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
+          <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b>{item.title}</b><p>{item.description}</p></div></article>)}</div>
           </section>
         </>}
-        {view === 'plan' && <PlanCalendar plans={cyclePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} />}
         {view === 'map' && <SkillGalaxy dashboard={dashboard} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} />}
       </div>
@@ -97,13 +94,25 @@ function splitCalendarWeeks(plans: LearningPlanDay[]) {
 
 const weekdayLabel = (date: string) => `周${'日一二三四五六'[new Date(`${date}T12:00:00+08:00`).getUTCDay()]}`
 
-function PlanCalendar({ plans, enrollment, onOpen, busy }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean }) {
+function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean; embedded?: boolean }) {
   const weeks = splitCalendarWeeks(plans)
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+  const hasToday = plans.some((plan) => plan.date === today)
+  const nextDate = hasToday ? undefined : plans.find((plan) => plan.date > today)?.date
+  const focusButton = useRef<HTMLButtonElement | null>(null)
   const first = plans[0]?.date
   const last = plans.at(-1)?.date
   const displayDate = (date?: string) => date ? `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日` : ''
-  return <section><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span><h1>我的长期复习计划</h1><p>{displayDate(first)}是复习第1天；此后按自然周排列，过去可以重做，未来可以提前预习。</p></div>
-    <div className="week-stack">{weeks.map((week, index) => <div className="week-card" key={week[0]?.date ?? index}><div className="week-label">{index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => <button key={plan.id} className="plan-day" onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span><b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button>)}</div></div>)}</div>
+  useEffect(() => {
+    const button = focusButton.current
+    const grid = button?.parentElement
+    if (!button || !grid) return
+    const buttonRect = button.getBoundingClientRect()
+    const gridRect = grid.getBoundingClientRect()
+    grid.scrollLeft += buttonRect.left - gridRect.left - (grid.clientWidth - button.offsetWidth) / 2
+  }, [today, first, last])
+  return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title"><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习计划</h2> : <h1 id="learning-plan-title">我的学习计划</h1>}<p>计划就在首页；今天的任务会自动点亮。{displayDate(first)}是复习第1天，过去可以重做，未来可以提前预习。</p></div>
+    <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{currentWeek ? '本周 · 今天已点亮' : nextWeek ? '下一次安排' : index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''}`} aria-current={isToday ? 'date' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
   </section>
 }
 

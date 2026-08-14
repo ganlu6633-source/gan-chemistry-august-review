@@ -38,7 +38,6 @@ async function captureClassificationTree() {
   await page.getByLabel('输入姓名').fill('演示学生')
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
-  await page.getByRole('button', { name: '学习计划' }).click()
   await page.locator('.plan-day').first().click()
   await page.locator('.quick-visual-tree').waitFor({ state: 'visible' })
   await page.screenshot({ path: 'test-results/visual/mobile-classification-tree.png', fullPage: true })

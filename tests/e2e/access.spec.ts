@@ -84,6 +84,26 @@ const redoxCard = {
   },
 }
 
+const periodicCard = {
+  ...redoxCard,
+  id: 'KC_H1_PERIODIC', skillId: 'H1_PERIODIC', title: '元素周期律：把结构、位置与性质完整接起来',
+  core: '同周期和同主族必须分别限定比较对象。', detail: '从结构原因推出性质，再用化合物事实验证。',
+  structuredContent: {
+    ...redoxCard.structuredContent,
+    intro: '从原子结构、周期表位置一直连到最高价含氧体系与气态氢化物。',
+    visualSummary: { kind: 'compare', title: '元素周期律完整趋势图', groups: [
+      { label: '同周期 →', items: ['层数不变·核电荷↑', '半径总体↓', '金属性↓｜非金属性↑'] },
+      { label: '最高价氧化物', items: ['Na₂O→MgO→Al₂O₃→SiO₂→P₄O₁₀→SO₃→Cl₂O₇'] },
+      { label: '对应水化物', items: ['NaOH→Mg(OH)₂→Al(OH)₃→H₂SiO₃→H₃PO₄→H₂SO₄→HClO₄', '碱性减弱→两性→酸性增强'] },
+      { label: '气态氢化物', items: ['SiH₄＜PH₃＜H₂S＜HCl', 'HF＞HCl＞HBr＞HI', '热稳定性≠水溶液酸性≠还原性'] },
+      { label: '价态与通式', items: ['最低负价−4/−3/−2/−1', 'RH₄/RH₃/H₂R/HR'] },
+    ] },
+    sections: [{ title: '最高价含氧体系的边界', summary: '对应关系不等于直接水合。', items: [{ label: '对应水化物', rule: '比较最高价氧化物对应水化物的酸碱性。', examples: ['【示范：第3周期】SiO₂对应H₂SiO₃，但SiO₂不能直接与水生成H₂SiO₃。'], visualSteps: ['最高价氧化物', '对应水化物', '碱性→两性→酸性'] }] }],
+    workedExamples: [{ substance: '第3周期', path: '先定位，再比较最高价含氧体系和气态氢化物。', labels: ['结构', '位置', '性质', '证据'] }],
+    checkpoints: ['我会写最高价含氧体系。', '我会比较气态氢化物热稳定性。', '我不混淆酸性与稳定性。', '我会检查O、F等边界。'],
+  },
+}
+
 const visualKindCards = [
   { kind: 'tree', title: '层级树', tree: { label: '根', children: [{ label: '分支甲' }, { label: '分支乙' }] } },
   { kind: 'flow', title: '步骤流', steps: [{ label: '第一步' }, { label: '第二步' }, { label: '第三步' }, { label: '第四步' }] },
@@ -113,7 +133,8 @@ test.beforeEach(async ({ page }) => {
     if (body.action === 'start_plan') {
       const useRedox = body.data?.planId === 'p2'
       const useVisualKinds = body.data?.planId === 'p3'
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: useVisualKinds ? reviewPlans[2] : useRedox ? reviewPlans[1] : reviewPlans[0], cards: useVisualKinds ? visualKindCards : [useRedox ? redoxCard : classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
+      const usePeriodic = body.data?.planId === 'p4'
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ payload: { plan: usePeriodic ? reviewPlans[3] : useVisualKinds ? reviewPlans[2] : useRedox ? reviewPlans[1] : reviewPlans[0], cards: usePeriodic ? [periodicCard] : useVisualKinds ? visualKindCards : [useRedox ? redoxCard : classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }) })
       return
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: body.action === 'guardian_dashboard' ? guardianDashboard : studentDashboard }) })
@@ -148,6 +169,7 @@ test('access page contains name and code inputs with no role selector', async ({
 })
 
 test('student code routes to student experience without guardian entry', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-15T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
   await page.getByLabel('登录码').fill('11111111')
@@ -155,9 +177,13 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.getByRole('heading', { name: /测试学生，今天先把/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /能力星图/ })).toBeVisible()
   await expect(page.getByText('家长端')).toHaveCount(0)
-  await page.getByRole('button', { name: /学习计划/ }).click()
+  await expect(page.getByRole('button', { name: '学习计划' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '我的学习计划' })).toBeVisible()
   await expect(page.locator('.plan-day')).toHaveCount(40)
   await expect(page.locator('.week-card')).toHaveCount(7)
+  await expect(page.locator('.plan-day[aria-current="date"]')).toHaveCount(1)
+  await expect(page.locator('.plan-day[aria-current="date"]')).toContainText('今天')
+  await expect(page.locator('.week-card.is-current-week')).toHaveCount(1)
   await expect(page.locator('.page-title')).toContainText('8月15日—9月23日')
   await expect(page.locator('.page-title')).toContainText('8月15日是复习第1天')
   await expect(page.locator('.plan-day').first()).toContainText('08-15 · 周六')
@@ -215,7 +241,6 @@ test('a full zero-forgetting card pairs every redox point with a demo and visual
   await page.getByLabel('输入姓名').fill('测试学生')
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
-  await page.getByRole('button', { name: /学习计划/ }).click()
   await page.locator('.plan-day').nth(1).click()
   await expect(page.getByRole('heading', { name: '氧化还原：把电子转移的逻辑完整接起来' })).toBeVisible()
   await expect(page.locator('.quick-visual-balance')).toContainText('氧化还原电子天平')
@@ -237,7 +262,6 @@ test('all six quick visual types render without adding student-side text work', 
   await page.getByLabel('输入姓名').fill('测试学生')
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
-  await page.getByRole('button', { name: /学习计划/ }).click()
   await page.locator('.plan-day').nth(2).click()
   for (const kind of ['tree', 'flow', 'cycle', 'compare', 'network', 'balance']) {
     await expect(page.locator(`.quick-visual-${kind}`)).toBeVisible()
@@ -246,6 +270,23 @@ test('all six quick visual types render without adding student-side text work', 
     await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
     if (kind !== 'balance') await page.getByRole('button', { name: '下一张' }).click()
   }
+})
+
+test('periodic law first screen includes compound and hydride trend evidence', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.locator('.plan-day').nth(3).click()
+  const map = page.locator('.quick-visual-compare')
+  await expect(map).toContainText('Na₂O→MgO→Al₂O₃→SiO₂→P₄O₁₀→SO₃→Cl₂O₇')
+  await expect(map).toContainText('NaOH→Mg(OH)₂→Al(OH)₃→H₂SiO₃→H₃PO₄→H₂SO₄→HClO₄')
+  await expect(map).toContainText('SiH₄＜PH₃＜H₂S＜HCl')
+  await expect(map).toContainText('HF＞HCl＞HBr＞HI')
+  await expect(map).toContainText('RH₄/RH₃/H₂R/HR')
+  await page.locator('.full-explanation > summary').click()
+  await expect(page.locator('.classification-map')).toContainText('SiO₂不能直接与水生成H₂SiO₃')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 
 test('teacher name and code use the same entry and open the private workspace', async ({ page }) => {

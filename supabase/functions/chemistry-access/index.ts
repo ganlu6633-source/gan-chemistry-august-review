@@ -209,9 +209,22 @@ Deno.serve(async (req: Request) => {
       if (planError) throw planError;
       const gradeResult = await supabase.from("chem_students_v2").select("grade_band").eq("id", identity.studentId).single();
       if (gradeResult.error) throw gradeResult.error;
+      const questionUsageColumn = plan.mode === "CLASS_QUIZ"
+        ? "usable_for_class_quiz"
+        : plan.mode === "EXAM_SPRINT"
+          ? "usable_for_exam_sprint"
+          : "usable_for_review";
+      const eligibleQuestions = supabase
+        .from("chem_questions")
+        .select("*")
+        .eq("grade_band", gradeResult.data.grade_band)
+        .in("skill_id", plan.skill_ids)
+        .eq("review_status", "approved")
+        .neq("scope_status", "OUT")
+        .eq(questionUsageColumn, true);
       const [cards, questions, attemptCount, states, recentAttempts] = await Promise.all([
         supabase.from("chem_knowledge_cards").select("*").in("skill_id", plan.skill_ids).eq("review_status", "approved"),
-        supabase.from("chem_questions").select("*").eq("grade_band", gradeResult.data.grade_band).in("skill_id", plan.skill_ids).eq("review_status", "approved").neq("scope_status", "OUT"),
+        eligibleQuestions,
         supabase.from("chem_learning_attempts").select("id", { count: "exact", head: true }).eq("plan_day_id", plan.id),
         supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", identity.studentId).in("skill_id", plan.skill_ids),
         supabase.from("chem_learning_attempts").select("id").eq("student_id", identity.studentId).order("completed_at", { ascending: false }).limit(30),
