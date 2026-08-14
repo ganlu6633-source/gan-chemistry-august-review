@@ -32,4 +32,28 @@ describe('scientific knowledge diagrams', () => {
     expect(screen.getByText(/ΔH ≈ ΣE（反应物断键吸收）− ΣE（生成物成键释放）/)).toBeInTheDocument()
     expect(screen.getAllByText('正反应活化能 Eₐ')).toHaveLength(2)
   })
+
+  it('places one concrete H₂ combustion picture beside its worked example and distinguishes both height differences', () => {
+    const thermo = content('反应热的能量账本')
+    thermo.workedExamples = [{
+      substance: 'H₂燃烧的能量账',
+      path: '曲线峰顶表示反应过程中能量最高的位置；反应物能量线到峰顶的高度差表示正反应活化能，生成物与反应物的高度差表示ΔH。',
+      labels: ['区分两种高度差'],
+    }]
+
+    render(<StructuredKnowledgeMap content={thermo} skillId="H2_THERMO" />)
+
+    const figures = screen.getAllByRole('figure', { name: 'H₂燃烧生成液态水的放热反应能量图' })
+    expect(figures).toHaveLength(1)
+    const figure = figures[0]
+    expect(figure).toHaveTextContent('2H₂(g) + O₂(g) → 2H₂O(l)')
+    expect(figure).toHaveTextContent('正反应活化能 Eₐ')
+    expect(figure).toHaveTextContent('H（生成物）− H（反应物）＜0')
+    expect(figure).toHaveTextContent('体系 → 环境：放出热量')
+    expect(figure).toHaveTextContent('峰顶本身不是活化能')
+    expect(figure).toHaveTextContent('不表示氢气燃烧只有一个反应步骤')
+    expect(figure.querySelector('.hydrogen-example-platform')).toHaveAttribute('d', 'M88 150H177M458 252H550')
+    expect(figure.querySelector('.hydrogen-ea-arrow')).toHaveAttribute('d', 'M174 145V78')
+    expect(figure.querySelector('.hydrogen-dh-arrow')).toHaveAttribute('d', 'M431 158V244')
+  })
 })

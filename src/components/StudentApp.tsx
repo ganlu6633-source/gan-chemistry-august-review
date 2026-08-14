@@ -412,6 +412,43 @@ function ThermochemistryVisual() {
   </figure>
 }
 
+function HydrogenCombustionEnergyVisual() {
+  return <figure className="hydrogen-energy-visual" aria-label="H₂燃烧生成液态水的放热反应能量图">
+    <figcaption><span>例子配图</span><b>H₂燃烧：两种高度差不能混</b></figcaption>
+    <div className="hydrogen-energy-equation"><ChemText>2H₂(g) + O₂(g) → 2H₂O(l)</ChemText><strong>放热｜ΔH＜0</strong></div>
+    <svg viewBox="0 0 640 370" role="img" aria-labelledby="hydrogen-energy-title hydrogen-energy-desc">
+      <title id="hydrogen-energy-title">氢气燃烧生成液态水的放热反应能量图</title>
+      <desc id="hydrogen-energy-desc">反应物能量高于生成物；反应物能量线到曲线峰顶的高度差表示正反应活化能，反应物与生成物的高度差表示焓变，体系向环境放出能量。</desc>
+      <defs>
+        <marker id="hydrogen-energy-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" /></marker>
+      </defs>
+      <path className="hydrogen-example-axis" d="M68 310V42M68 310H608" />
+      <text className="hydrogen-axis-label" x="20" y="30">体系的焓 H</text>
+      <text className="hydrogen-axis-label" x="20" y="47">（相对值）</text>
+      <text className="hydrogen-axis-label" x="536" y="343">反应过程</text>
+      <path className="hydrogen-example-guide" d="M88 150H550M88 252H550" />
+      <path className="hydrogen-example-curve" d="M88 150 C172 150 197 70 310 70 C419 70 438 252 550 252" />
+      <path className="hydrogen-example-platform" d="M88 150H177M458 252H550" />
+      <text className="hydrogen-example-label" x="88" y="134">反应物</text>
+      <text className="hydrogen-example-formula" x="88" y="176">2H₂(g) + O₂(g)</text>
+      <text className="hydrogen-example-label" x="458" y="278">生成物</text>
+      <text className="hydrogen-example-formula" x="458" y="300">2H₂O(l)</text>
+      <circle className="hydrogen-example-peak" cx="310" cy="70" r="5" />
+      <text className="hydrogen-peak-label" x="252" y="52">能量最高位置</text>
+      <path className="hydrogen-ea-arrow" markerEnd="url(#hydrogen-energy-arrow)" d="M174 145V78" />
+      <text className="hydrogen-ea-label" x="184" y="105">正反应活化能 Eₐ</text>
+      <path className="hydrogen-dh-arrow" markerEnd="url(#hydrogen-energy-arrow)" d="M431 158V244" />
+      <text className="hydrogen-dh-label" x="346" y="204">ΔH＜0</text>
+    </svg>
+    <div className="hydrogen-energy-key">
+      <section><b>① 看活化能</b><span>反应物能量线 → 峰顶的高度差</span></section>
+      <section><b>② 看 ΔH</b><span>H（生成物）− H（反应物）＜0</span></section>
+      <section><b>③ 看热量方向</b><span>体系 → 环境：放出热量</span></section>
+    </div>
+    <p className="hydrogen-energy-boundary"><b>别混：</b>曲线峰顶只表示反应过程中能量最高的位置；峰顶本身不是活化能，峰顶高度也不是 ΔH。这是能量变化示意图，不表示氢气燃烧只有一个反应步骤。</p>
+  </figure>
+}
+
 function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
   if (visual.title === '元素周期律完整趋势图') return <PeriodicTrendVisual />
   if (visual.title === '反应热的能量账本') return <ThermochemistryVisual />
@@ -435,7 +472,10 @@ export function StructuredKnowledgeMap({ content, skillId }: { content: Structur
     <details className="full-explanation"><summary><span><b>从零学会</b><small>展开完整讲解、例子、易错边界与自查</small></span><i aria-hidden="true">⌄</i></summary><div className="classification-map">
       {content.rootTree ? <section className="knowledge-tree-panel" aria-labelledby="knowledge-tree-title"><div className="map-section-title"><span>01</span><div><h2 id="knowledge-tree-title">知识总树</h2><p>先沿纵向主干走完，再补横向标签。</p></div></div><ul className="knowledge-tree"><KnowledgeBranch node={content.rootTree} /></ul></section> : null}
       {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + offset).padStart(2, '0')}</span><div><h2><ChemText>{section.title}</ChemText></h2>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</div></div><div className="classification-items">{section.items.map((item) => <details className="classification-item" key={item.label}><summary className="classification-item-summary"><span><ChemText>{item.label}</ChemText></span><i aria-hidden="true">⌄</i></summary><div className="classification-item-body point-with-demo"><div className="point-copy"><p><ChemText>{item.rule}</ChemText></p>{item.caution && <div className="branch-caution">注意：<ChemText>{item.caution}</ChemText></div>}</div><NodeLearningAid node={item} /></div></details>)}</div></section>)}
-      {content.workedExamples?.length ? <section className="classification-section worked-examples"><div className="map-section-title"><span>{String(content.sections.length + offset).padStart(2, '0')}</span><div><h2>完整例题：把逻辑一步一步走通</h2><p>先看为什么，再看怎么算或怎样判断。</p></div></div><div className="worked-example-grid">{content.workedExamples.map((example) => <article key={example.substance}><h3><ChemText>{example.substance}</ChemText></h3><p><ChemText>{example.path}</ChemText></p><div className="example-chips">{example.labels.map((label) => <span key={label}><ChemText>{label}</ChemText></span>)}</div></article>)}</div></section> : null}
+      {content.workedExamples?.length ? <section className="classification-section worked-examples"><div className="map-section-title"><span>{String(content.sections.length + offset).padStart(2, '0')}</span><div><h2>完整例题：把逻辑一步一步走通</h2><p>先看为什么，再看怎么算或怎样判断。</p></div></div><div className="worked-example-grid">{content.workedExamples.map((example) => {
+        const showHydrogenEnergyVisual = skillId === 'H2_THERMO' && example.substance === 'H₂燃烧的能量账'
+        return <article className={showHydrogenEnergyVisual ? 'worked-example-with-visual' : undefined} key={example.substance}><h3><ChemText>{example.substance}</ChemText></h3><p><ChemText>{example.path}</ChemText></p>{showHydrogenEnergyVisual ? <HydrogenCombustionEnergyVisual /> : null}<div className="example-chips">{example.labels.map((label) => <span key={label}><ChemText>{label}</ChemText></span>)}</div></article>
+      })}</div></section> : null}
       {content.checkpoints?.length ? <section className="classification-section recall-check"><div className="map-section-title"><span>✓</span><div><h2>合上页面前，我应该能做到</h2><p>说不出来就回到对应小节，不需要硬撑着进入练习。</p></div></div><ul>{content.checkpoints.map((checkpoint) => <li key={checkpoint}><ChemText>{checkpoint}</ChemText></li>)}</ul></section> : null}
       {content.scopeNote ? <p className="scope-note"><b>范围说明：</b><ChemText>{content.scopeNote}</ChemText></p> : null}
     </div></details>

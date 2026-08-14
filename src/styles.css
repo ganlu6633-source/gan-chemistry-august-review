@@ -83,3 +83,33 @@
    every viewport; no chemistry label may be clipped to preserve a grid. */
 :where(.knowledge-card,.question-card,.classification-map,.quick-visual,.answer-feedback){min-width:0;max-width:100%}
 :where(.knowledge-card,.question-card,.classification-map,.quick-visual,.answer-feedback) :where(h1,h2,h3,p,li,figcaption,small,strong,b,span){min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+
+/* The H2 worked example gets its own source-informed energy picture. */
+.worked-example-grid article.worked-example-with-visual{grid-column:1/-1;min-width:0}
+.hydrogen-energy-visual{min-width:0;max-width:100%;margin:15px 0 13px;padding:15px;border:1px solid #c9e0df;border-radius:15px;background:linear-gradient(145deg,#f2fbf9,#f7fafc);overflow:hidden}
+.hydrogen-energy-visual>figcaption{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:11px;color:#163f55}
+.hydrogen-energy-visual>figcaption span{padding:5px 8px;border-radius:8px;background:#0d867e;color:#fff;font-size:11px;font-weight:850}
+.hydrogen-energy-visual>figcaption b{font-size:16px}
+.hydrogen-energy-equation{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;padding:10px 12px;border-radius:11px;background:#fff;border:1px solid #d7e6e8;color:#173f55;font-weight:850}
+.hydrogen-energy-equation strong{padding:5px 9px;border-radius:999px;background:#fff1df;color:#8a5710;font-size:12px}
+.hydrogen-energy-visual svg{display:block;width:100%;height:auto;max-width:100%;overflow:visible}
+.hydrogen-energy-visual svg text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.hydrogen-example-axis{fill:none;stroke:#708994;stroke-width:2}
+.hydrogen-axis-label{fill:#627985;font-size:14px;font-weight:750}
+.hydrogen-example-guide{fill:none;stroke:#c5d8dc;stroke-width:1.5;stroke-dasharray:6 6}
+.hydrogen-example-curve{fill:none;stroke:#0d8b82;stroke-width:5;stroke-linecap:round}
+.hydrogen-example-platform{fill:none;stroke:#0a6888;stroke-width:4;stroke-linecap:round}
+.hydrogen-example-label{fill:#0b6f69;font-size:16px;font-weight:850}
+.hydrogen-example-formula{fill:#294f62;font-size:16px;font-weight:750}
+.hydrogen-example-peak{fill:#0d8b82}
+.hydrogen-peak-label{fill:#0b6f69;font-size:14px;font-weight:800}
+.hydrogen-ea-arrow,.hydrogen-dh-arrow{fill:none;stroke:#d08a16;stroke-width:3}
+.hydrogen-energy-visual marker path{fill:#d08a16}
+.hydrogen-ea-label,.hydrogen-dh-label{fill:#935f0c;font-size:15px;font-weight:850}
+.hydrogen-energy-key{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px;margin-top:4px}
+.hydrogen-energy-key section{display:grid;gap:4px;min-width:0;padding:10px 11px;border-radius:11px;background:#fff;border:1px solid #d4e4e6}
+.hydrogen-energy-key b{color:#08766f;font-size:13px}
+.hydrogen-energy-key span{color:#405f70;font-size:12px;line-height:1.5}
+.hydrogen-energy-boundary{margin:9px 0 0!important;padding:10px 12px;border-radius:10px;background:#fff5df;color:#765820!important;font-size:12px;line-height:1.65!important}
+
+@media(max-width:700px){.hydrogen-energy-visual{padding:11px}.hydrogen-energy-visual>figcaption{align-items:flex-start;flex-direction:column}.hydrogen-energy-equation{align-items:flex-start;flex-direction:column}.hydrogen-energy-key{grid-template-columns:1fr}.hydrogen-energy-visual svg text{font-size:14px}.hydrogen-axis-label{font-size:13px!important}.hydrogen-peak-label{font-size:13px!important}}
