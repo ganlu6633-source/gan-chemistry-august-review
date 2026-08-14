@@ -351,6 +351,39 @@ test('student code routes to student experience without guardian entry', async (
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 
+test('Enter advances the complete review flow including feedback and the next round', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+
+  await page.locator('.focus-card').getByRole('button', { name: '开始第一轮' }).click()
+  await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
+
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.quiz-head')).toContainText('第 1 轮 · 1/5')
+
+  for (let questionIndex = 1; questionIndex <= 5; questionIndex += 1) {
+    // Intentionally choose the fixture's wrong option so the first round
+    // leaves a real unresolved point and the next-round action is present.
+    await page.locator('.option-list button').first().click()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.answer-feedback')).toBeVisible()
+
+    await page.keyboard.press('Enter')
+    if (questionIndex < 5) {
+      await expect(page.locator('.quiz-head')).toContainText(`第 1 轮 · ${questionIndex + 1}/5`)
+      await expect(page.locator('.answer-feedback')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '提交答案' })).toBeDisabled()
+    }
+  }
+
+  await expect(page.getByText('今天第 1 轮完成')).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.quiz-head')).toContainText('第 2 轮 · 1/5')
+})
+
 test('student can change the code and set a private recovery phrase after login', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
