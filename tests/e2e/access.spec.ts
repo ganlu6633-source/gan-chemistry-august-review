@@ -155,7 +155,10 @@ const redoxCard = {
       { title: '最小公倍数', summary: '总失电子必须等于总得电子。', items: [{ label: '先定氧化还原骨架', rule: '求升降电子数的最小公倍数，先确定氧化剂、还原剂及对应产物的系数。', examples: ['【示范：FeS₂被O₂氧化】O₂中两个O由0到-2共得4e⁻；15和4的最小公倍数是60，先定4FeS₂和15O₂。'], visualSteps: ['失15e⁻', '得4e⁻', '最小公倍数60', '4:15'] }] },
       { title: '守恒校验', summary: '先补介质，再查三类守恒。', items: [{ label: '补齐并复核', rule: '按酸碱介质补H₂O、H⁺或OH⁻，最后核对原子、电荷与得失电子总数。', examples: ['【示范：FeS₂被O₂氧化】4FeS₂+15O₂+2H₂O=4Fe³⁺+8SO₄²⁻+4H⁺；Fe、S、O、H原子守恒，左右总电荷均为0。'], visualSteps: ['补H₂O/H⁺', '查原子', '查电荷', '查电子'] }] },
     ],
-    workedExamples: [{ substance: 'FeS₂被O₂氧化', path: '标价→升降电子数→最小公倍数→补介质→三重守恒。', labels: ['标价', '电子数', '60', '守恒'] }],
+    workedExamples: [
+      { substance: 'FeS₂被O₂氧化', path: '标价→升降电子数→最小公倍数→补介质→三重守恒。', labels: ['标价', '电子数', '60', '守恒'] },
+      { substance: '酸性MnO₄⁻氧化Fe²⁺', path: '这段长文字必须由图解替代。', labels: ['先定1∶5', '再补H和O', '查三守恒'] },
+    ],
     checkpoints: ['我能正确标价。', '我能计算一个粒子的电子数。', '我会用最小公倍数定系数。', '我会做三类守恒检查。'],
   },
 }
@@ -606,6 +609,20 @@ test('a full zero-forgetting card pairs every redox point with a demo and visual
   await expect(page.locator('.classification-map')).toContainText('Fe由+2到+3失1e⁻')
   await expect(page.locator('.classification-map')).toContainText('标价')
   await expect(page.locator('.classification-map')).toContainText('最小公倍数')
+  const balanceFigure = page.getByRole('figure', { name: '酸性高锰酸根与亚铁离子配平五步图' })
+  await expect(balanceFigure).toBeVisible()
+  await expect(balanceFigure).toContainText('MnO₄⁻ ∶ Fe²⁺ ＝ 1 ∶ 5')
+  await expect(balanceFigure).toContainText('发生氧化反应')
+  await expect(balanceFigure).toContainText('MnO₄⁻ + 5Fe²⁺ + 8H⁺ → Mn²⁺ + 5Fe³⁺ + 4H₂O')
+  await expect(balanceFigure).not.toContainText('这段长文字必须由图解替代')
+  await balanceFigure.scrollIntoViewIfNeeded()
+  await expect(balanceFigure).toBeInViewport()
+  const figureFits = await balanceFigure.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.left >= 0 && rect.right <= document.documentElement.clientWidth
+      && element.scrollWidth <= element.clientWidth
+  })
+  expect(figureFits).toBe(true)
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
 })
 

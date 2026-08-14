@@ -114,3 +114,43 @@
 .hydrogen-energy-boundary{margin:9px 0 0!important;padding:10px 12px;border-radius:10px;background:#fff5df;color:#765820!important;font-size:12px;line-height:1.65!important}
 
 @media(max-width:700px){.hydrogen-energy-visual{padding:8px}.hydrogen-energy-visual>figcaption{align-items:flex-start;flex-direction:column}.hydrogen-energy-equation{align-items:flex-start;flex-direction:column}.hydrogen-energy-key{grid-template-columns:1fr}.hydrogen-energy-svg-desktop{display:none!important}.hydrogen-energy-svg-mobile{display:block!important}.hydrogen-energy-svg-mobile text{font-size:16px}.hydrogen-energy-svg-mobile .hydrogen-axis-label{font-size:15px!important}.hydrogen-energy-svg-mobile .hydrogen-peak-label{font-size:15px!important}.hydrogen-energy-svg-mobile .hydrogen-ea-label,.hydrogen-energy-svg-mobile .hydrogen-dh-label{font-size:16px}}
+
+/* Acidic permanganate/Fe2+ is shown as a five-step balancing diagram, not a paragraph. */
+.redox-balance-visual{min-width:0;max-width:100%;margin:15px 0 13px;padding:15px;border:1px solid #d5d9ef;border-radius:16px;background:linear-gradient(145deg,#fbfbff,#f4faf9);overflow:hidden}
+.redox-balance-visual>figcaption{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px;color:#253d5d}
+.redox-balance-visual>figcaption span{padding:5px 8px;border-radius:8px;background:#4b5bb8;color:#fff;font-size:11px;font-weight:850}
+.redox-balance-visual>figcaption b{font-size:17px}
+.redox-balance-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;list-style:none;margin:0;padding:0;counter-reset:none}
+.redox-step{min-width:0;position:relative;padding:13px;border:1px solid #dbe3e8;border-radius:13px;background:#fff}
+.redox-step-half,.redox-step-result,.redox-step-check{grid-column:1/-1}
+.redox-step>header{display:flex;align-items:center;gap:8px;margin-bottom:10px;color:#26485a}
+.redox-step>header span{display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:#e8f4f3;color:#08766f;font-size:12px;font-weight:900}
+.redox-step>header b{font-size:15px}
+.redox-change-lanes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.redox-change-lanes section{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;min-width:0;padding:10px 8px;border-radius:11px;text-align:center}
+.redox-change-lanes small{width:100%;font-size:12px;font-weight:900}
+.redox-change-lanes b{font-size:20px}
+.redox-change-lanes i{font-size:23px;font-style:normal;font-weight:900}
+.redox-change-lanes strong{width:100%;padding:5px 7px;border-radius:999px;font-size:12px}
+.redox-change-lanes em{width:100%;font-size:11px;line-height:1.55;font-style:normal;font-weight:750}
+.redox-mn-lane{background:#e8f4f9;color:#176b87}.redox-mn-lane strong{background:#d1eaf4}
+.redox-fe-lane{background:#fff0ed;color:#9f332e}.redox-fe-lane strong{background:#ffddd7}
+.redox-electron-balance{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;text-align:center}
+.redox-electron-balance section{display:grid;gap:3px;min-width:0;padding:10px 8px;border-radius:11px;background:#f1f5fb;color:#304d67}
+.redox-electron-balance section b{font-size:16px}.redox-electron-balance>i{font-size:24px;font-style:normal;color:#08766f;font-weight:900}
+.redox-ratio{margin-top:8px;padding:9px 10px;border-radius:10px;background:#e8f6f3;color:#08766f;text-align:center;font-size:18px;font-weight:900;word-break:normal;overflow-wrap:normal}
+.redox-acid-additions{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin-bottom:9px}
+.redox-acid-additions span{display:grid;gap:3px;min-width:0;padding:9px 10px;border-radius:10px;background:#e4f6f3;color:#17665f;text-align:center}
+.redox-acid-additions span b{font-size:12px}.redox-acid-additions i{font-style:normal;color:#08766f;font-size:22px;font-weight:900}
+.redox-half-reactions{display:grid;gap:8px}
+.redox-half-reactions section{display:grid;gap:5px;min-width:0;padding:10px 12px;border:1px solid #e0e6eb;border-radius:11px;background:#f9fbfc}
+.redox-half-reactions small{color:#647b86;font-weight:800}.redox-half-reactions strong{color:#183f56;font-size:clamp(13px,2.2vw,18px);line-height:1.6;word-break:normal;overflow-wrap:normal}
+.redox-electron-cancel{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-top:8px;color:#6c499b;text-align:center}
+.redox-electron-cancel span{padding:6px;border-radius:999px;background:#f0e8fa;font-weight:900;text-decoration:line-through}.redox-electron-cancel b{font-size:12px}
+.redox-final-equation{display:block;padding:13px 12px;border-radius:12px;background:#243e5a;color:#fff;text-align:center;font-size:clamp(14px,2.4vw,21px);line-height:1.75;word-break:normal;overflow-wrap:normal}
+.redox-check-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.redox-check-grid section{display:grid;gap:4px;min-width:0;padding:10px;border-radius:11px;background:#eaf8f1;color:#146c55}
+.redox-check-grid b{font-size:13px}.redox-check-grid span{font-size:12px;line-height:1.5;word-break:normal;overflow-wrap:normal}
+.redox-medium-boundary{margin:8px 0 0!important;padding:8px 10px;border-radius:9px;background:#fff5df;color:#765820!important;font-size:12px;line-height:1.55!important}
+
+@media(max-width:700px){.redox-balance-visual{padding:8px}.redox-balance-visual>figcaption{align-items:flex-start;flex-direction:column}.redox-balance-steps,.redox-change-lanes{grid-template-columns:1fr}.redox-step-half,.redox-step-result,.redox-step-check{grid-column:auto}.redox-acid-additions{grid-template-columns:1fr}.redox-acid-additions i{transform:rotate(90deg);justify-self:center;line-height:1}.redox-check-grid{grid-template-columns:1fr}.redox-final-equation{font-size:14px;padding:12px 8px}.redox-half-reactions strong{font-size:13px}}

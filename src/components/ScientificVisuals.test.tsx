@@ -59,4 +59,35 @@ describe('scientific knowledge diagrams', () => {
     expect(figure.querySelector('.hydrogen-energy-svg-mobile')).toHaveAttribute('viewBox', '0 0 280 390')
     expect(figure).toHaveTextContent('手机竖版氢气燃烧放热反应能量图')
   })
+
+  it('replaces the acidic permanganate balancing paragraph with one five-step visual', () => {
+    const redox = content('离子反应与氧化还原综合')
+    redox.workedExamples = [{
+      substance: '酸性MnO₄⁻配Fe²⁺',
+      path: '这段长文字不应该出现在图解例题中。',
+      labels: ['标价', '电子守恒定骨架', '按介质补H/O', '三守恒复核'],
+    }]
+
+    render(<StructuredKnowledgeMap content={redox} skillId="H3_ION_REDOX" />)
+
+    const figures = screen.getAllByRole('figure', { name: '酸性高锰酸根与亚铁离子配平五步图' })
+    expect(figures).toHaveLength(1)
+    const figure = figures[0]
+    const article = screen.getByRole('heading', { name: '酸性MnO₄⁻配Fe²⁺' }).closest('article')
+    expect(article).not.toHaveTextContent('这段长文字不应该出现在图解例题中')
+    expect(figure).toHaveTextContent('Mn+7↓+2得 5e⁻')
+    expect(figure).toHaveTextContent('Fe+2↑+3失 1e⁻')
+    expect(figure).toHaveTextContent('MnO₄⁻ 被还原｜发生还原反应｜氧化剂 → Mn²⁺ 还原产物')
+    expect(figure).toHaveTextContent('Fe²⁺ 被氧化｜发生氧化反应｜还原剂 → Fe³⁺ 氧化产物')
+    expect(figure).toHaveTextContent('MnO₄⁻ ∶ Fe²⁺ ＝ 1 ∶ 5')
+    expect(figure).toHaveTextContent('右侧 + 4H₂O')
+    expect(figure).toHaveTextContent('左侧 + 8H⁺')
+    expect(figure).toHaveTextContent('MnO₄⁻ + 8H⁺ + 5e⁻ → Mn²⁺ + 4H₂O')
+    expect(figure).toHaveTextContent('5Fe²⁺ → 5Fe³⁺ + 5e⁻')
+    expect(figure).toHaveTextContent('MnO₄⁻ + 5Fe²⁺ + 8H⁺ → Mn²⁺ + 5Fe³⁺ + 4H₂O')
+    expect(figure).toHaveTextContent('左：−1+10+8＝+17')
+    expect(figure).toHaveTextContent('右：2+15＝+17')
+    expect(figure).toHaveTextContent('Mn 得 5e⁻＝5Fe 共失 5e⁻')
+    expect(figure).toHaveTextContent('题目明确为酸性，且 Mn 的还原产物是 Mn²⁺')
+  })
 })

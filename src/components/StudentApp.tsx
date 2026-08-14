@@ -472,6 +472,50 @@ function HydrogenCombustionEnergyVisual() {
   </figure>
 }
 
+function PermanganateIronBalanceVisual() {
+  return <figure className="redox-balance-visual" aria-label="酸性高锰酸根与亚铁离子配平五步图">
+    <figcaption><span>配平图</span><b>酸性 MnO₄⁻ + Fe²⁺：沿箭头走五步</b></figcaption>
+    <ol className="redox-balance-steps">
+      <li className="redox-step redox-step-change">
+        <header><span>01</span><b>标变价</b></header>
+        <div className="redox-change-lanes">
+          <section className="redox-mn-lane"><small>Mn</small><b>+7</b><i aria-hidden="true">↓</i><b>+2</b><strong>得 5e⁻</strong><em><ChemText>MnO₄⁻ 被还原｜发生还原反应｜氧化剂 → Mn²⁺ 还原产物</ChemText></em></section>
+          <section className="redox-fe-lane"><small>Fe</small><b>+2</b><i aria-hidden="true">↑</i><b>+3</b><strong>失 1e⁻</strong><em><ChemText>Fe²⁺ 被氧化｜发生氧化反应｜还原剂 → Fe³⁺ 氧化产物</ChemText></em></section>
+        </div>
+      </li>
+      <li className="redox-step redox-step-electron">
+        <header><span>02</span><b>电子数相等</b></header>
+        <div className="redox-electron-balance">
+          <section><small>1 个 Mn</small><b>得 5e⁻</b></section><i aria-hidden="true">＝</i><section><small>5 个 Fe</small><b>共失 5e⁻</b></section>
+        </div>
+        <div className="redox-ratio"><ChemText>MnO₄⁻ ∶ Fe²⁺ ＝ 1 ∶ 5</ChemText></div>
+      </li>
+      <li className="redox-step redox-step-half">
+        <header><span>03</span><b>酸性介质补 H、O</b></header>
+        <div className="redox-acid-additions"><span><b>先补 O</b>右侧 + 4H₂O</span><i aria-hidden="true">→</i><span><b>再补 H</b>左侧 + 8H⁺</span></div>
+        <div className="redox-half-reactions">
+          <section><small>Mn 得电子</small><strong><ChemText>MnO₄⁻ + 8H⁺ + 5e⁻ → Mn²⁺ + 4H₂O</ChemText></strong></section>
+          <section><small>Fe 失电子｜整体 ×5</small><strong><ChemText>5Fe²⁺ → 5Fe³⁺ + 5e⁻</ChemText></strong></section>
+        </div>
+        <div className="redox-electron-cancel"><span>5e⁻</span><b>相加后对消</b><span>5e⁻</span></div>
+      </li>
+      <li className="redox-step redox-step-result">
+        <header><span>04</span><b>写出总方程式</b></header>
+        <strong className="redox-final-equation"><ChemText>MnO₄⁻ + 5Fe²⁺ + 8H⁺ → Mn²⁺ + 5Fe³⁺ + 4H₂O</ChemText></strong>
+      </li>
+      <li className="redox-step redox-step-check">
+        <header><span>05</span><b>三项校验</b></header>
+        <div className="redox-check-grid">
+          <section><b>✓ 原子</b><span>Mn 1＝1｜Fe 5＝5</span><span>H 8＝8｜O 4＝4</span></section>
+          <section><b>✓ 电荷</b><span>左：−1+10+8＝+17</span><span>右：2+15＝+17</span></section>
+          <section><b>✓ 电子</b><span>Mn 得 5e⁻＝5Fe 共失 5e⁻</span></section>
+        </div>
+        <p className="redox-medium-boundary"><b>条件：</b>题目明确为酸性，且 Mn 的还原产物是 Mn²⁺。</p>
+      </li>
+    </ol>
+  </figure>
+}
+
 function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
   if (visual.title === '元素周期律完整趋势图') return <PeriodicTrendVisual />
   if (visual.title === '反应热的能量账本') return <ThermochemistryVisual />
@@ -497,7 +541,9 @@ export function StructuredKnowledgeMap({ content, skillId }: { content: Structur
       {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + offset).padStart(2, '0')}</span><div><h2><ChemText>{section.title}</ChemText></h2>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</div></div><div className="classification-items">{section.items.map((item) => <details className="classification-item" key={item.label}><summary className="classification-item-summary"><span><ChemText>{item.label}</ChemText></span><i aria-hidden="true">⌄</i></summary><div className="classification-item-body point-with-demo"><div className="point-copy"><p><ChemText>{item.rule}</ChemText></p>{item.caution && <div className="branch-caution">注意：<ChemText>{item.caution}</ChemText></div>}</div><NodeLearningAid node={item} /></div></details>)}</div></section>)}
       {content.workedExamples?.length ? <section className="classification-section worked-examples"><div className="map-section-title"><span>{String(content.sections.length + offset).padStart(2, '0')}</span><div><h2>完整例题：把逻辑一步一步走通</h2><p>先看为什么，再看怎么算或怎样判断。</p></div></div><div className="worked-example-grid">{content.workedExamples.map((example) => {
         const showHydrogenEnergyVisual = skillId === 'H2_THERMO' && example.substance === 'H₂燃烧的能量账'
-        return <article className={showHydrogenEnergyVisual ? 'worked-example-with-visual' : undefined} key={example.substance}><h3><ChemText>{example.substance}</ChemText></h3><p><ChemText>{example.path}</ChemText></p>{showHydrogenEnergyVisual ? <HydrogenCombustionEnergyVisual /> : null}<div className="example-chips">{example.labels.map((label) => <span key={label}><ChemText>{label}</ChemText></span>)}</div></article>
+        const showRedoxBalanceVisual = (skillId === 'H1_REDOX' && example.substance === '酸性MnO₄⁻氧化Fe²⁺') || (skillId === 'H3_ION_REDOX' && example.substance === '酸性MnO₄⁻配Fe²⁺')
+        const showWorkedVisual = showHydrogenEnergyVisual || showRedoxBalanceVisual
+        return <article className={showWorkedVisual ? 'worked-example-with-visual' : undefined} key={example.substance}><h3><ChemText>{example.substance}</ChemText></h3>{showRedoxBalanceVisual ? null : <p><ChemText>{example.path}</ChemText></p>}{showHydrogenEnergyVisual ? <HydrogenCombustionEnergyVisual /> : null}{showRedoxBalanceVisual ? <PermanganateIronBalanceVisual /> : null}<div className="example-chips">{example.labels.map((label) => <span key={label}><ChemText>{label}</ChemText></span>)}</div></article>
       })}</div></section> : null}
       {content.checkpoints?.length ? <section className="classification-section recall-check"><div className="map-section-title"><span>✓</span><div><h2>合上页面前，我应该能做到</h2><p>说不出来就回到对应小节，不需要硬撑着进入练习。</p></div></div><ul>{content.checkpoints.map((checkpoint) => <li key={checkpoint}><ChemText>{checkpoint}</ChemText></li>)}</ul></section> : null}
       {content.scopeNote ? <p className="scope-note"><b>范围说明：</b><ChemText>{content.scopeNote}</ChemText></p> : null}
