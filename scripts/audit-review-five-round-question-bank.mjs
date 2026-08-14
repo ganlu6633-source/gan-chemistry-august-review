@@ -71,6 +71,9 @@ for (const record of records) {
   if (`${record.stem} ${record.explanation} ${record.scaffold}`.includes(unicodeSubscriptA)) {
     throw new Error(`Forbidden Unicode subscript a in ${record.id}`);
   }
+  if (`${record.stem} ${record.explanation} ${record.scaffold}`.includes('温升')) {
+    throw new Error(`Unexplained shorthand 温升 in ${record.id}`);
+  }
   if (![2, 4].includes(record.options?.length)) throw new Error(`Invalid options for ${record.id}`);
   if (!Number.isInteger(record.correct_option)
     || record.correct_option < 0

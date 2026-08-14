@@ -77,6 +77,12 @@ function parseCsvLine(line) {
 const scopePath = resolve(repoRoot, '..', 'g_fujian_filter', 'out_of_scope_patterns.csv')
 const patternLines = readFileSync(scopePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).slice(1)
 const publicContent = JSON.stringify(zeroForgettingCards)
+for (const unexplainedTerm of ['温升', '若保温差']) {
+  if (publicContent.includes(unexplainedTerm)) errors.push(`学生知识卡仍含未解释或不自然的表述“${unexplainedTerm}”`)
+}
+if (!publicContent.includes('取二者的平均值作为反应前的初始温度T₁；测量混合后的最高温度T₂；反应前后的温度差ΔT=T₂−T₁')) {
+  errors.push('H2_THERMO: 未先用完整中文定义反应热测量中的ΔT')
+}
 for (const line of patternLines) {
   const [patternId, category, trigger] = parseCsvLine(line)
   if (!trigger) continue
