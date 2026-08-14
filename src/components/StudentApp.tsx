@@ -3,6 +3,7 @@ import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as Map
 import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
 import { accessApi, submitAttempt, teacherApi } from '../lib/api'
+import { AbilityMap } from './AbilityMap'
 
 type StudentView = 'today' | 'map' | 'growth' | 'settings'
 type PlanPayload = { plan: LearningPlanDay; cards: KnowledgeCard[]; questions: Question[]; attemptSequence: number }
@@ -70,7 +71,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}<div className="role-layout student-theme">
       <aside className={`side-nav ${previewMode || dashboard.profile.isDemo ? 'three-items' : ''}`} aria-label="学生导航">
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />今天</button>
-        <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力星图</button>
+        <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力地图</button>
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
         {!previewMode && !dashboard.profile.isDemo && <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings />账户设置</button>}
       </aside>
@@ -92,7 +93,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b>{item.title}</b><p>{item.description}</p></div></article>)}</div>
           </section>
         </>}
-        {view === 'map' && <SkillGalaxy dashboard={dashboard} />}
+        {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} />}
         {view === 'settings' && <AccountSettings session={session} />}
       </div>
@@ -183,18 +184,6 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
   }, [today, first, last])
   return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title"><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习计划</h2> : <h1 id="learning-plan-title">我的学习计划</h1>}<p>计划就在首页；今天的任务会自动点亮。{displayDate(first)}是复习第1天，过去可以重做，未来可以提前预习。</p></div>
     <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{currentWeek ? '本周 · 今天已点亮' : nextWeek ? '下一次安排' : index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''}`} aria-current={isToday ? 'date' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b>{plan.title}</b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}>{topic}</li>)}</ul><small>{plan.knowledgeSummaries.length}个知识点 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
-  </section>
-}
-
-function SkillGalaxy({ dashboard }: { dashboard: StudentDashboardData }) {
-  const states = new Map(dashboard.skillStates.map((state) => [state.skillId, state]))
-  const visible = dashboard.skillDefinitions.filter((skill) => dashboard.profile.gradeBand === skill.gradeBand || dashboard.skillStates.some((state) => state.skillId === skill.id))
-  const modules = visible.reduce<Record<string, typeof visible>>((grouped, skill) => {
-    ;(grouped[skill.moduleId] ??= []).push(skill)
-    return grouped
-  }, {})
-  return <section><div className="page-title"><span className="eyebrow">只和昨天的自己比较</span><h1>我的化学能力星图</h1><p>每一道光都来自真实检验。暗色不是失败，只表示还没有学到或还没有形成证据。</p></div>
-    <div className="galaxy">{Object.entries(modules).map(([moduleId, skills]) => <div className="galaxy-zone" key={moduleId}><h2>{moduleName(moduleId)}</h2><div className="skill-grid">{(skills ?? []).map((skill) => { const state = states.get(skill.id); const level = state?.verifiedLevel ?? 0; return <article className={`skill-star ${level ? 'lit' : ''}`} key={skill.id}><div className="rings" style={{ '--progress': `${Math.max(8, level / skill.maxLevel * 100)}%` } as React.CSSProperties}><Sparkles /></div><b>{skill.title}</b><span>L{level} / L{skill.maxLevel}</span><div className="level-dots">{Array.from({ length: skill.maxLevel }, (_, i) => <i className={i < level ? 'on' : ''} key={i} />)}</div>{state?.stability === 'forgotten' && <em>正在重新找回</em>}{state?.stability === 'recovered' && <em>已重燃</em>}</article> })}</div></div>)}</div>
   </section>
 }
 
@@ -320,8 +309,3 @@ function StructuredKnowledgeMap({ content }: { content: StructuredKnowledgeConte
 }
 
 function EmptyState({ text }: { text: string }) { return <div className="empty-state"><RotateCcw /><p>{text}</p></div> }
-
-function moduleName(id: string) {
-  const names: Record<string, string> = { F01: '物质世界', F02: '元素规律', F03: '微粒世界', F04: '离子反应', F05: '反应世界', F06: '计量世界', 'H1-F01': '物质分类', 'H1-F01A': '电解质基础', 'H1-F02': '元素周期律', 'H1-F03': '氧化还原', 'H1-F04': '离子反应', 'H1-F05': '物质的量', 'H1-F05A': '物质的量基础', 'H1-F06': '钠和氯', E01: '钠的世界', E02: '氯的世界', H201: '速率与平衡', H202: '平衡计算', H203: '水溶液', H204: '电化学', H301: '离子基础', H302: '工艺流程', H303: '有机世界', H304: '结构世界', J01: '微粒启蒙', J02: '物质基础' }
-  return names[id] ?? id
-}

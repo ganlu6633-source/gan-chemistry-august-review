@@ -4,22 +4,42 @@ const TEST_TEACHER_CODE = process.env.E2E_TEACHER_CODE ?? '904422'
 
 const reviewPlans = Array.from({ length: 40 }, (_, index) => {
   const date = new Date(Date.UTC(2026, 7, 15 + index)).toISOString().slice(0, 10)
-  return { id: `p${index + 1}`, studentId: 'demo', date, mode: 'REVIEW', title: `第${index + 1}天复习`, skillIds: ['H1-CLASSIFY'], knowledgeSummaries: ['分类依据', '氧化物判别', '常见误区'], estimatedMinutes: 16, source: 'mixed', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null }
+  return { id: `p${index + 1}`, studentId: 'demo', date, mode: 'REVIEW', title: `第${index + 1}天复习`, skillIds: ['H1_CLASSIFY'], knowledgeSummaries: ['分类依据', '氧化物判别', '常见误区'], estimatedMinutes: 16, source: 'mixed', isScheduled: true, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null }
 })
+
+const demoSkillCatalog = {
+  高一: [
+    ['H1_CLASSIFY', '物质的分类'], ['H1_PERIODIC', '元素周期律'], ['H1_ELECTROLYTE_INTRO', '电解质基础'], ['H1_REDOX', '氧化还原'],
+    ['H1_MOLE_INTRO', '物质的量基础'], ['H1_ELECTROLYTE', '离子反应'], ['H1_MOLE', '物质的量计算'], ['H1_NACL', '钠和氯'],
+  ],
+  高二: [
+    ['H2_THERMO', '反应热与方向'], ['H2_RATE', '化学反应速率'], ['H2_EQUIL', '化学平衡'], ['H2_K', '平衡常数'],
+    ['H2_WEAK', '弱电解质电离'], ['H2_PH_HYDRO', '水解与pH'], ['H2_KSP', '沉淀溶解平衡'], ['H2_ELECTRO', '电化学'],
+  ],
+  高三: [
+    ['H3_STOICH', '化学计量'], ['H3_ION_REDOX', '离子与氧化还原'], ['H3_THERMO_RATE', '热化学与速率'], ['H3_EQUILIBRIUM', '平衡综合'],
+    ['H3_AQ', '水溶液综合'], ['H3_ELECTRO', '电化学综合'], ['H3_INORGANIC', '无机元素网络'], ['H3_EXPERIMENT', '化学实验'],
+    ['H3_PROCESS', '工艺流程'], ['H3_STRUCTURE', '物质结构与性质'], ['H3_ORGANIC', '有机化学基础'],
+  ],
+} as const
+
+const definitionsFor = (gradeBand: keyof typeof demoSkillCatalog) => demoSkillCatalog[gradeBand].map(([id, title], index) => ({
+  id, title, moduleId: `${gradeBand}-M${index + 1}`, gradeBand, maxLevel: 4, examImportance: 5 as const, examDepth: 4 as const, prerequisites: [], levelCriteria: [],
+}))
 
 const studentDashboard = {
   profile: { id: 'demo', displayName: '测试学生', gradeBand: '高一', enrollmentStartDate: '2026-08-01', needsInitialDiagnostic: false },
   plans: reviewPlans,
-  skillStates: [{ studentId:'demo', skillId:'H1-CLASSIFY', verifiedLevel:2, candidateLevel:3, maxLevel:4, stability:'verified', evidence:[], consecutiveErrors:0, nextReviewAt:null, reviewIntervalIndex:1, lastReviewedAt:null, teacherIntervention:false }],
-  skillDefinitions: [{ id:'H1-CLASSIFY', title:'物质分类', moduleId:'F01', gradeBand:'高一', maxLevel:4, examImportance:5, examDepth:3, prerequisites:[], levelCriteria:[] }],
+  skillStates: [{ studentId:'demo', skillId:'H1_CLASSIFY', verifiedLevel:2, candidateLevel:3, maxLevel:4, stability:'verified', evidence:[], consecutiveErrors:0, nextReviewAt:null, reviewIntervalIndex:1, lastReviewedAt:null, teacherIntervention:false }],
+  skillDefinitions: definitionsFor('高一'),
   todayQuestionCount: 6,
   achievements: [{ id:'a1', title:'物质分类 L2 已点亮', description:'真棒，通过了L2的检验。', earnedAt:'2026-08-12T08:00:00Z' }],
 }
 
 const demoGradeContent = {
-  高一: { skillId: 'H1-CLASSIFY', skillTitle: '物质分类与元素周期律', moduleId: 'F01', planTitle: '物质分类与元素周期律', topics: ['物质分类树', '周期律趋势', '阿伏加德罗常数'] },
-  高二: { skillId: 'H2-EQUIL', skillTitle: '化学平衡与电化学', moduleId: 'H202', planTitle: '选择性必修一综合复习', topics: ['化学平衡', '水溶液中的离子平衡', '电化学'] },
-  高三: { skillId: 'H3-EXAM', skillTitle: '福州质检综合冲刺', moduleId: 'H302', planTitle: '8月27日质检冲刺', topics: ['反应原理综合', '无机流程', '实验与有机综合'] },
+  高一: { skillId: 'H1_CLASSIFY', planTitle: '物质分类与元素周期律', topics: ['物质分类树', '周期律趋势', '阿伏加德罗常数'] },
+  高二: { skillId: 'H2_EQUIL', planTitle: '选择性必修一综合复习', topics: ['化学平衡', '水溶液中的离子平衡', '电化学'] },
+  高三: { skillId: 'H3_PROCESS', planTitle: '8月27日质检冲刺', topics: ['反应原理综合', '无机流程', '实验与有机综合'] },
 } as const
 
 const demoDashboardFor = (gradeBand: '高一' | '高二' | '高三') => ({
@@ -27,7 +47,7 @@ const demoDashboardFor = (gradeBand: '高一' | '高二' | '高三') => ({
   profile: { ...studentDashboard.profile, id: `demo-${gradeBand}`, displayName: '演示学生', gradeBand, isDemo: true, availableDemoGrades: ['高一', '高二', '高三'] },
   plans: reviewPlans.map((plan) => ({ ...plan, id: `${gradeBand}-${plan.id}`, studentId: `demo-${gradeBand}`, title: `${gradeBand} · ${demoGradeContent[gradeBand].planTitle} · 第${plan.id.slice(1)}天`, skillIds: [demoGradeContent[gradeBand].skillId], knowledgeSummaries: demoGradeContent[gradeBand].topics })),
   skillStates: studentDashboard.skillStates.map((state) => ({ ...state, studentId: `demo-${gradeBand}`, skillId: demoGradeContent[gradeBand].skillId })),
-  skillDefinitions: [{ id: demoGradeContent[gradeBand].skillId, title: demoGradeContent[gradeBand].skillTitle, moduleId: demoGradeContent[gradeBand].moduleId, gradeBand, maxLevel: 4, examImportance: 5, examDepth: 3, prerequisites: [], levelCriteria: [] }],
+  skillDefinitions: definitionsFor(gradeBand),
 })
 
 const guardianDashboard = {
@@ -227,7 +247,7 @@ test('student code routes to student experience without guardian entry', async (
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: /测试学生，今天先把/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /能力星图/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /能力地图/ })).toBeVisible()
   await expect(page.getByText('家长端')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '学习计划' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '我的学习计划' })).toBeVisible()
@@ -299,6 +319,7 @@ test('student can change the code and set a private recovery phrase after login'
 })
 
 test('demo student can switch among all three high-school grades without writing a real record', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-14T08:00:00+08:00'))
   const startedFor: string[] = []
   page.on('request', (request) => {
     if (!request.url().includes('/functions/v1/chemistry-access') || request.method() !== 'POST') return
@@ -311,17 +332,46 @@ test('demo student can switch among all three high-school grades without writing
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   const switcher = page.getByLabel('切换演示年级')
   await expect(switcher).toContainText('演示练习不会写入任何真实学生档案')
-  for (const grade of ['高二', '高三', '高一']) {
+  const mapExpectations = { 高一: { nodes: 8, edges: 7, title: '高一化学基础主干' }, 高二: { nodes: 8, edges: 7, title: '选择性必修一·反应原理地图' }, 高三: { nodes: 11, edges: 11, title: '高考化学综合能力地图' } } as const
+  for (const grade of ['高二', '高三', '高一'] as const) {
     await switcher.getByRole('button', { name: grade }).click()
     await expect(switcher.getByRole('button', { name: grade })).toHaveClass(/active/)
     await expect(page.locator('.focus-card')).toContainText(`${grade} ·`)
-    await expect(page.locator('.focus-card')).toContainText(demoGradeContent[grade as keyof typeof demoGradeContent].topics[0])
+    await expect(page.locator('.focus-card')).toContainText(demoGradeContent[grade].topics[0])
+    await page.getByRole('button', { name: '能力地图' }).click()
+    await expect(page.locator('.ability-atlas')).toHaveCount(1)
+    await expect(page.locator('.ability-atlas')).toContainText(mapExpectations[grade].title)
+    await expect(page.locator('.ability-node')).toHaveCount(mapExpectations[grade].nodes)
+    await expect(page.locator('.ability-map-links > path')).toHaveCount(mapExpectations[grade].edges)
+    await expect(page.locator('.ability-map-links > path').first()).toHaveAttribute('d', /^M /)
+    await expect(page.locator('.ability-map-links > path').first()).toHaveAttribute('marker-end', /url\(#.+-(main|support)\)/)
+    await expect(page.locator('.galaxy-zone')).toHaveCount(0)
+    await expect(page.locator('.ability-atlas')).not.toContainText(/H[123][-_]/)
+    await page.getByRole('button', { name: '今天', exact: true }).click()
     await page.locator('.focus-card').getByRole('button', { name: /开始第一轮/ }).click()
     await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
     await page.getByRole('button', { name: '稍后再学' }).click()
   }
   expect(startedFor).toEqual(['demo-高二', 'demo-高三', 'demo-高一'])
   await expect(page.getByRole('button', { name: '账户设置' })).toHaveCount(0)
+})
+
+test('ability map remains one readable vertical route on a compact phone', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-15T08:00:00+08:00'))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: '能力地图' }).click()
+
+  await expect(page.locator('.ability-atlas')).toHaveCount(1)
+  await expect(page.locator('.ability-map-stage')).toHaveCount(4)
+  await expect(page.locator('.ability-node')).toHaveCount(8)
+  await expect(page.locator('.ability-map-links > path')).toHaveCount(7)
+  await expect(page.locator('.ability-node[aria-current="step"]')).toHaveCount(1)
+  await expect(page.locator('.ability-node[aria-current="step"]')).toContainText('你在这里')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((element) => element.clientWidth))
 })
 
 test('guardian code routes directly to the concise guardian explanation', async ({ page }) => {

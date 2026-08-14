@@ -75,7 +75,7 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
         <div className="hero-proof">
           <div><b>≤ 8题</b><span>默认每日必做预算</span></div>
           <div><b>新母题</b><span>举一反三，不背原答案</span></div>
-          <div><b>能力星图</b><span>只和昨天的自己比较</span></div>
+          <div><b>能力地图</b><span>看见知识之间怎样连接</span></div>
         </div>
       </div>
       <div className="login-card">
