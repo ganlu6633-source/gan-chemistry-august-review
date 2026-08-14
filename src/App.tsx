@@ -101,6 +101,6 @@ function AccessExperience() {
   if (session?.role === 'teacher') return <Navigate to="/teacher" replace />
   if (!session || !dashboard) return <AppShell>{error && <div className="inline-alert">{error}</div>}<AccessGate onSuccess={success} /></AppShell>
   if (session.role === 'student') return <AppShell identity={session.displayName} onLogout={logout}><StudentApp session={session} initialDashboard={dashboard as StudentDashboardData} onDashboard={setDashboard} /></AppShell>
-  if (session.role === 'guardian') return <AppShell identity={session.displayName} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} /></AppShell>
+  if (session.role === 'guardian') return <AppShell identity={session.displayName} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} session={session} /></AppShell>
   return <AppShell><AccessGate onSuccess={success} /></AppShell>
 }

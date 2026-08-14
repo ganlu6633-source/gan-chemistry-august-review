@@ -1,4 +1,4 @@
-import type { GuardianDashboardData, LearningAttempt, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
+import type { GuardianDashboardData, LearningAttempt, LearningRecordData, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
 import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
@@ -45,6 +45,10 @@ export async function loadStudentDashboard(session: SessionIdentity) {
 
 export async function loadGuardianDashboard(session: SessionIdentity) {
   return accessApi<{ dashboard: GuardianDashboardData }>(session, 'guardian_dashboard')
+}
+
+export async function loadLearningRecord(session: SessionIdentity, studentId?: string) {
+  return accessApi<{ record: LearningRecordData }>(session, 'learning_record', studentId ? { studentId } : undefined)
 }
 
 export async function submitAttempt(session: SessionIdentity, attempt: LearningAttempt) {

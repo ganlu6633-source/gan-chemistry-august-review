@@ -29,7 +29,7 @@ async function teacher(req: Request) {
   return { displayName: data[0].principal_name || "甘老师" };
 }
 
-async function readOnlyStudentPreview(req: Request, action: "student_preview_dashboard" | "preview_start_plan", data: unknown) {
+async function readOnlyStudentPreview(req: Request, action: "student_preview_dashboard" | "preview_start_plan" | "student_learning_record", data: unknown) {
   const response = await fetch(`${url}/functions/v1/chemistry-access`, {
     method: "POST",
     headers: {
@@ -131,7 +131,7 @@ Deno.serve(async (req: Request) => {
     if (!user) return reply(req, { error: "登录已失效，请重新输入姓名和登录码。" }, 401);
     const body = await req.json();
     if (body.action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
-    if (body.action === "student_preview_dashboard" || body.action === "preview_start_plan") {
+    if (body.action === "student_preview_dashboard" || body.action === "preview_start_plan" || body.action === "student_learning_record") {
       const preview = await readOnlyStudentPreview(req, body.action, body.data);
       return reply(req, preview.payload, preview.status);
     }

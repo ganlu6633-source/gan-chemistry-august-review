@@ -96,6 +96,277 @@ function parentQuizDescription(row: Record<string, unknown>) {
   return wrongTags.length ? `${result}；需要继续巩固：${wrongTags.join("、")}` : `${result}；本轮没有发现错题。`;
 }
 
+function shanghaiDate(value = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(value);
+}
+
+function shanghaiWeekRange() {
+  const today = shanghaiDate();
+  const noon = new Date(`${today}T12:00:00+08:00`);
+  const weekday = noon.getUTCDay();
+  const mondayOffset = weekday === 0 ? 6 : weekday - 1;
+  const start = new Date(noon.getTime() - mondayOffset * 86400000);
+  const end = new Date(start.getTime() + 7 * 86400000);
+  const startDate = shanghaiDate(start);
+  const endDate = shanghaiDate(end);
+  return {
+    startDate,
+    endDate,
+    startIso: new Date(`${startDate}T00:00:00+08:00`).toISOString(),
+    endIso: new Date(`${endDate}T00:00:00+08:00`).toISOString(),
+  };
+}
+
+function curriculumSkillScope(gradeBand: string, cohort: string, allSkillIds: string[]) {
+  if (gradeBand === "高一") {
+    const foundation = ["H1_CLASSIFY", "H1_PERIODIC", "H1_ELECTROLYTE_INTRO", "H1_MOLE_INTRO"];
+    if (cohort === "high1_completed") return [...foundation, "H1_REDOX"];
+    if (cohort === "high1_current") return foundation;
+  }
+  if (gradeBand === "初三" || gradeBand === "高二" || gradeBand === "高三") return allSkillIds;
+  return [];
+}
+
+function learnedSkillIds(
+  skills: Array<Record<string, unknown>>,
+  states: Array<Record<string, unknown>>,
+  plans: Array<Record<string, unknown>>,
+  answers: Array<Record<string, unknown>>,
+  gradeBand: string,
+  cohort: string,
+  today = shanghaiDate(),
+) {
+  const allSkillIds = skills.map((skill) => String(skill.id));
+  const allowed = new Set(allSkillIds);
+  const learned = new Set(curriculumSkillScope(gradeBand, cohort, allSkillIds).filter((skillId) => allowed.has(skillId)));
+  for (const plan of plans) {
+    if (String(plan.plan_date || "") > today) continue;
+    for (const skillId of Array.isArray(plan.skill_ids) ? plan.skill_ids : []) {
+      if (allowed.has(String(skillId))) learned.add(String(skillId));
+    }
+  }
+  for (const state of states) if (allowed.has(String(state.skill_id))) learned.add(String(state.skill_id));
+  for (const answer of answers) if (allowed.has(String(answer.skill_id))) learned.add(String(answer.skill_id));
+  return learned;
+}
+
+function learningSummary(
+  skills: Array<Record<string, unknown>>,
+  states: Array<Record<string, unknown>>,
+  plans: Array<Record<string, unknown>>,
+  answers: Array<Record<string, unknown>>,
+  gradeBand: string,
+  cohort: string,
+  answeredQuestions = 0,
+) {
+  const learned = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort);
+  const stateBySkill = new Map(states.map((state) => [String(state.skill_id), state]));
+  let full = 0;
+  let partial = 0;
+  let unlit = 0;
+  let due = 0;
+  let recovered = 0;
+  const now = Date.now();
+  for (const skill of skills) {
+    if (!learned.has(String(skill.id))) continue;
+    const state = stateBySkill.get(String(skill.id));
+    const verified = Number(state?.verified_level) || 0;
+    const maxLevel = Number(skill.max_level) || 1;
+    if (verified >= maxLevel) full += 1;
+    else if (verified > 0) partial += 1;
+    else unlit += 1;
+    const nextReview = state?.next_review_at ? new Date(String(state.next_review_at)).getTime() : Number.POSITIVE_INFINITY;
+    if (state?.stability === "forgotten" || (verified > 0 && nextReview <= now)) due += 1;
+    if (state?.stability === "recovered") recovered += 1;
+  }
+  return { total: skills.length, learned: learned.size, full, partial, unlit, due, recovered, answeredQuestions };
+}
+
+function validQuestionSnapshot(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && String((value as Record<string, unknown>).stem || ""));
+}
+
+function historicalQuestion(
+  answer: Record<string, unknown>,
+  currentQuestion: Record<string, unknown> | undefined,
+) {
+  const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
+  const currentStatus = !currentQuestion
+    ? "unavailable"
+    : currentQuestion.scope_status === "OUT"
+      ? "out_of_scope"
+      : currentQuestion.review_status === "approved"
+        ? "available"
+        : "retired";
+  const currentCanFill = currentStatus === "available";
+  const source = snapshot || (currentCanFill ? currentQuestion : null);
+  if (!source) {
+    return {
+      stem: "该历史题正文暂不可显示，作答结果仍按原记录保留。",
+      options: [] as string[],
+      correctOption: -1,
+      explanation: "题目已退出当前题库，系统不会用现在的题目内容改写这次历史作答。",
+      imageUrl: null as string | null,
+      snapshotAvailable: false,
+      currentQuestionStatus: currentStatus,
+    };
+  }
+  return {
+    stem: String(source.stem),
+    options: Array.isArray(source.options) ? source.options.map(String) : [],
+    correctOption: Number(source.correctOption ?? source.correct_option),
+    explanation: String(source.explanation || "本次作答的解析暂不可显示。"),
+    imageUrl: source.imageUrl || source.image_url ? String(source.imageUrl || source.image_url) : null,
+    snapshotAvailable: Boolean(snapshot),
+    currentQuestionStatus: currentStatus,
+  };
+}
+
+function cardKnowledgeSections(cards: Array<Record<string, unknown>>) {
+  const sections: Array<{ id: string; title: string; summary?: string; points: Array<{ id: string; title: string; rule: string }> }> = [];
+  for (const card of cards) {
+    const structured = card.structured_content as Record<string, unknown> | null;
+    const rawSections = Array.isArray(structured?.sections) ? structured.sections as Array<Record<string, unknown>> : [];
+    if (!rawSections.length) {
+      const steps = Array.isArray(card.steps) ? card.steps.map(String) : [];
+      sections.push({
+        id: `${card.id}-main`, title: String(card.title || "本模块主线"),
+        points: (steps.length ? steps : [String(card.core || "本模块核心知识")]).map((step, index) => ({
+          id: `${card.id}-main-${index + 1}`, title: step, rule: index === 0 ? String(card.core || "") : "",
+        })),
+      });
+      continue;
+    }
+    rawSections.forEach((section, sectionIndex) => {
+      const items = Array.isArray(section.items) ? section.items as Array<Record<string, unknown>> : [];
+      sections.push({
+        id: `${card.id}-section-${sectionIndex + 1}`,
+        title: String(section.title || `知识组 ${sectionIndex + 1}`),
+        summary: section.summary ? String(section.summary) : undefined,
+        points: items.map((item, itemIndex) => ({
+          id: `${card.id}-section-${sectionIndex + 1}-point-${itemIndex + 1}`,
+          title: String(item.label || `知识点 ${itemIndex + 1}`),
+          rule: String(item.rule || ""),
+        })),
+      });
+    });
+  }
+  return sections;
+}
+
+async function studentLearningRecord(studentId: string) {
+  const profile = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single();
+  if (profile.error) throw profile.error;
+  const gradeBand = String(profile.data.grade_band);
+  const attemptHistoryLimit = 500;
+  const answerHistoryLimit = 500;
+  const recentQuestionsPerSkillLimit = 20;
+  const [skillsResult, statesResult, plansResult, attemptsResult, cardsResult] = await Promise.all([
+    supabase.from("chem_skills").select("id,title,module_id,max_level").eq("active", true).eq("grade_band", gradeBand).order("module_id"),
+    supabase.from("chem_student_skill_state").select("skill_id,verified_level,candidate_level,stability,next_review_at,last_reviewed_at,teacher_intervention").eq("student_id", studentId),
+    supabase.from("chem_learning_plans").select("id,plan_date,title,skill_ids,knowledge_summaries").eq("student_id", studentId).order("plan_date"),
+    supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at", { count: "exact" }).eq("student_id", studentId).order("completed_at", { ascending: false }).limit(attemptHistoryLimit),
+    supabase.from("chem_knowledge_cards").select("id,skill_id,title,core,steps,structured_content").eq("review_status", "approved"),
+  ]);
+  for (const result of [skillsResult, statesResult, plansResult, attemptsResult, cardsResult]) if (result.error) throw result.error;
+
+  const attempts = attemptsResult.data || [];
+  const attemptIds = attempts.map((attempt) => attempt.id);
+  const answersResult = attemptIds.length
+    ? await supabase.from("chem_attempt_answers")
+      .select("attempt_id,question_id,mother_id,skill_id,level,correct,uncertain,duration_sec,selected_option,created_at,question_snapshot", { count: "exact" })
+      .in("attempt_id", attemptIds).order("created_at", { ascending: false }).limit(answerHistoryLimit)
+    : { data: [], error: null, count: 0 };
+  if (answersResult.error) throw answersResult.error;
+  const answers = answersResult.data || [];
+  const questionIds = [...new Set(answers.map((answer) => String(answer.question_id)))];
+  const questionsResult = questionIds.length
+    ? await supabase.from("chem_questions")
+      .select("id,mother_id,skill_id,level,stem,options,correct_option,explanation,image_url,review_status,scope_status")
+      .in("id", questionIds)
+    : { data: [], error: null };
+  if (questionsResult.error) throw questionsResult.error;
+
+  const skills = skillsResult.data || [];
+  const states = statesResult.data || [];
+  const plans = plansResult.data || [];
+  const stateBySkill = new Map(states.map((state) => [String(state.skill_id), state]));
+  const questionById = new Map((questionsResult.data || []).map((question) => [String(question.id), question]));
+  const cohort = String(profile.data.metadata?.curriculumCohort || "");
+  const learnedIds = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort);
+  const now = Date.now();
+  const today = shanghaiDate();
+
+  const recordSkills = skills.map((skill) => {
+    const skillId = String(skill.id);
+    const state = stateBySkill.get(skillId);
+    const verifiedLevel = Number(state?.verified_level) || 0;
+    const maxLevel = Number(skill.max_level) || 1;
+    const skillAnswers = answers.filter((answer) => String(answer.skill_id) === skillId);
+    const allQuestionEvidence = skillAnswers.map((answer) => {
+      const question = questionById.get(String(answer.question_id));
+      const historical = historicalQuestion(answer, question);
+      return [{
+        questionId: String(answer.question_id), motherId: String(answer.mother_id || question?.mother_id || ""), level: Number(answer.level),
+        stem: historical.stem, options: historical.options,
+        selectedOption: Number(answer.selected_option), correctOption: historical.correctOption, explanation: historical.explanation,
+        imageUrl: historical.imageUrl, correct: Boolean(answer.correct), uncertain: Boolean(answer.uncertain),
+        durationSec: Number(answer.duration_sec) || 0, answeredAt: String(answer.created_at),
+        snapshotAvailable: historical.snapshotAvailable, currentQuestionStatus: historical.currentQuestionStatus,
+      }];
+    }).flat();
+    const questionEvidence = allQuestionEvidence.slice(0, recentQuestionsPerSkillLimit);
+    const cards = (cardsResult.data || []).filter((card) => String(card.skill_id) === skillId);
+    const singleSkillPlans = plans.filter((plan) => String(plan.plan_date) <= today && Array.isArray(plan.skill_ids) && plan.skill_ids.length === 1 && String(plan.skill_ids[0]) === skillId);
+    const learnedTopics = [...new Set(singleSkillPlans.flatMap((plan) => (plan.knowledge_summaries || []).map(String)))];
+    const nextPlanRow = plans.find((plan) => plan.plan_date >= today && (plan.skill_ids || []).includes(skillId));
+    const nextReview = state?.next_review_at ? new Date(String(state.next_review_at)).getTime() : Number.POSITIVE_INFINITY;
+    const retentionStatus = state?.stability === "recovered" ? "recovered"
+      : state?.stability === "forgotten" || (verifiedLevel > 0 && nextReview <= now) ? "due"
+      : state?.stability === "stable" ? "stable"
+      : verifiedLevel > 0 || skillAnswers.length ? "forming" : "unknown";
+    const attemptCount = new Set(skillAnswers.map((answer) => String(answer.attempt_id))).size;
+    return {
+      skillId, title: String(skill.title), moduleId: String(skill.module_id), maxLevel, verifiedLevel,
+      candidateLevel: state?.candidate_level === null || state?.candidate_level === undefined ? null : Number(state.candidate_level),
+      evidenceStatus: verifiedLevel >= maxLevel ? "full" : verifiedLevel > 0 ? "partial" : "unlit",
+      exposure: learnedIds.has(skillId) ? "learned" : "future", retentionStatus,
+      lastReviewedAt: state?.last_reviewed_at ? String(state.last_reviewed_at) : null,
+      nextReviewAt: state?.next_review_at ? String(state.next_review_at) : null,
+      teacherIntervention: Boolean(state?.teacher_intervention), attemptCount,
+      answeredQuestionCount: skillAnswers.length,
+      correctQuestionCount: skillAnswers.filter((answer) => answer.correct).length,
+      uniqueMotherCount: new Set(skillAnswers.map((answer) => String(answer.mother_id))).size,
+      learnedTopics, knowledgeSections: cardKnowledgeSections(cards), recentQuestions: questionEvidence,
+      knowledgeEvidenceScope: "module_directory_only",
+      recentQuestionsTruncated: allQuestionEvidence.length > recentQuestionsPerSkillLimit,
+      nextPlan: nextPlanRow ? { id: String(nextPlanRow.id), date: String(nextPlanRow.plan_date), title: String(nextPlanRow.title) } : null,
+    };
+  });
+  const attemptsTotal = attemptsResult.count ?? attempts.length;
+  const answersTotalInLoadedAttempts = answersResult.count ?? answers.length;
+  return {
+    generatedAt: new Date().toISOString(),
+    evidenceScope: "技能级证据；知识点列表仅说明模块包含什么，不代表每个知识点都已逐项验证。",
+    summary: learningSummary(skills, states, plans, answers, gradeBand, cohort, answersTotalInLoadedAttempts),
+    historyWindow: {
+      attemptLimit: attemptHistoryLimit,
+      answerLimit: answerHistoryLimit,
+      recentQuestionsPerSkillLimit,
+      loadedAttempts: attempts.length,
+      totalAttempts: attemptsTotal,
+      loadedAnswers: answers.length,
+      totalAnswersInLoadedAttempts: answersTotalInLoadedAttempts,
+      attemptsTruncated: attemptsTotal > attempts.length,
+      answersTruncated: answersTotalInLoadedAttempts > answers.length,
+      hasMore: attemptsTotal > attempts.length || answersTotalInLoadedAttempts > answers.length || recordSkills.some((skill) => skill.recentQuestionsTruncated),
+    },
+    skills: recordSkills,
+  };
+}
+
 async function studentDashboard(studentId: string) {
   const profileResult = await supabase.from("chem_students_v2").select("*").eq("id", studentId).single();
   if (profileResult.error) throw profileResult.error;
@@ -106,8 +377,19 @@ async function studentDashboard(studentId: string) {
     supabase.from("chem_learning_attempts").select("plan_day_id,attempt_kind,sequence,first_score,completed_at").eq("student_id", studentId).order("completed_at"),
   ]);
   for (const result of [planResult, stateResult, skillResult, attemptResult]) if (result.error) throw result.error;
-  const states = (stateResult.data || []).map((r) => stateShape(r as never));
-  const completed = states.filter((s) => ["verified", "stable", "recovered"].includes(String(s.stability))).length;
+  const rawStates = stateResult.data || [];
+  const states = rawStates.map((r) => stateShape(r as never));
+  const skillTitleById = new Map((skillResult.data || []).map((skill) => [String(skill.id), String(skill.title)]));
+  const achievements = rawStates
+    .filter((state) => Number(state.verified_level) > 0 && (state.last_reviewed_at || state.updated_at))
+    .sort((a, b) => String(b.last_reviewed_at || b.updated_at).localeCompare(String(a.last_reviewed_at || a.updated_at)))
+    .slice(0, 3)
+    .map((state) => ({
+      id: `evidence-${state.skill_id}`,
+      title: `${skillTitleById.get(String(state.skill_id)) || "能力模块"}已形成证据`,
+      description: `当前真实作答证据达到 L${Number(state.verified_level) || 0}/${Number(state.chem_skills?.max_level) || 1}。`,
+      earnedAt: String(state.last_reviewed_at || state.updated_at),
+    }));
   const isDemo = Boolean((profileResult.data.metadata as Record<string, unknown> | null)?.demo);
   return {
     profile: {
@@ -118,54 +400,76 @@ async function studentDashboard(studentId: string) {
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
     todayQuestionCount: 6,
-    achievements: completed ? [{ id: "first-evidence", title: "证据点亮", description: `已经用真实作答点亮 ${completed} 项能力。`, earnedAt: new Date().toISOString() }] : [],
+    achievements,
   };
 }
 
 async function guardianDashboard(studentId: string) {
-  const weekStart = new Date(Date.now() - 7 * 86400000).toISOString();
+  const week = shanghaiWeekRange();
   const linkResult = await supabase.from("chem_quiz_student_links").select("quiz_student_id").eq("chem_student_id", studentId).maybeSingle();
   if (linkResult.error) throw linkResult.error;
   const quizResult = linkResult.data?.quiz_student_id
     ? await supabase.from("quiz_sessions")
-      .select("id,round,training_theme,correct_count,total_count,total_sec,wrong_tags,completed_at")
+      .select("id,round,training_theme,correct_count,total_count,total_sec,wrong_tags,completed_at", { count: "exact" })
       .eq("student_id", linkResult.data.quiz_student_id)
-      .gte("completed_at", weekStart)
+      .gte("completed_at", week.startIso)
+      .lt("completed_at", week.endIso)
       .order("completed_at", { ascending: false })
       .limit(50)
-    : { data: [], error: null };
+    : { data: [], error: null, count: 0 };
   if (quizResult.error) throw quizResult.error;
-  const [profileResult, plansResult, attemptsResult, statesResult, signalsResult, observationsResult] = await Promise.all([
+  const [profileResult, plansResult, attemptsResult, signalsResult, observationsResult, learningRecord] = await Promise.all([
     supabase.from("chem_students_v2").select("display_name,grade_band").eq("id", studentId).single(),
-    supabase.from("chem_learning_plans").select("id").eq("student_id", studentId).gte("plan_date", weekStart.slice(0, 10)),
-    supabase.from("chem_learning_attempts").select("id,completed_at,mode,first_score").eq("student_id", studentId).gte("completed_at", weekStart).order("completed_at", { ascending: false }),
-    supabase.from("chem_student_skill_state").select("stability,teacher_intervention").eq("student_id", studentId),
+    supabase.from("chem_learning_plans").select("id").eq("student_id", studentId).gte("plan_date", week.startDate).lt("plan_date", week.endDate),
+    supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at,mode,first_score").eq("student_id", studentId).gte("completed_at", week.startIso).lt("completed_at", week.endIso).order("completed_at", { ascending: false }),
     supabase.from("chem_behavior_signals").select("*").eq("student_id", studentId).eq("active", true),
     supabase.from("chem_teacher_observations").select("id,course_date,taught_content,guardian_message,created_at").eq("student_id", studentId).order("course_date", { ascending: false }).limit(10),
+    studentLearningRecord(studentId),
   ]);
-  if (profileResult.error) throw profileResult.error;
-  const states = statesResult.data || [];
+  for (const result of [profileResult, plansResult, attemptsResult, signalsResult, observationsResult]) if (result.error) throw result.error;
+  if (!profileResult.data) throw new Error("Student profile not found");
   const attempts = attemptsResult.data || [];
   const observations = observationsResult.data || [];
   const quizSessions = quizResult.data || [];
+  const currentWeekPlanIds = new Set((plansResult.data || []).map((plan) => String(plan.id)));
+  const completedCurrentWeekPlanIds = new Set(
+    attempts.map((attempt) => String(attempt.plan_day_id)).filter((planId) => currentWeekPlanIds.has(planId)),
+  );
+  const teacherAttentionCount = learningRecord.skills.filter((skill) => skill.exposure === "learned" && skill.teacherIntervention).length;
   const timeline = [
-    ...attempts.map((a) => ({ id: a.id, at: a.completed_at, type: "attempt", title: a.mode === "CLASS_QUIZ" ? "完成课堂小测" : "完成一次复习", description: `本次首轮答对 ${a.first_score} 题。` })),
+    ...attempts.map((a) => ({ id: a.id, at: a.completed_at, type: "attempt", title: a.mode === "CLASS_QUIZ" ? "完成课堂小测" : "完成一次复习", description: "系统已保存本轮真实作答证据，可在学习复盘中展开查看。" })),
     ...quizSessions.map((q) => ({ id: `quiz-${q.id}`, at: q.completed_at, type: "attempt", title: `完成即时小测 · 第${q.round}轮`, description: parentQuizDescription(q) })),
     ...observations.map((o) => ({ id: o.id, at: o.created_at, type: "teacher_action", title: o.taught_content, description: o.guardian_message })),
   ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 20);
   return {
     student: { displayName: profileResult.data.display_name, gradeBand: profileResult.data.grade_band },
-    weeklyCompleted: attempts.length, weeklyPlanned: (plansResult.data || []).length,
-    weeklyQuizCompleted: quizSessions.length,
-    stableSkillCount: states.filter((s) => ["verified", "stable", "recovered"].includes(s.stability)).length,
-    growingSkillCount: states.filter((s) => s.stability === "learning").length,
-    forgottenSkillCount: states.filter((s) => s.stability === "forgotten").length,
-    teacherAttentionCount: states.filter((s) => s.teacher_intervention).length,
-    progress: states.some((s) => ["verified", "stable", "recovered"].includes(s.stability)) ? ["已有能力通过不同题目形成证据。"] : ["系统正在收集第一批可靠证据。"],
-    concerns: states.some((s) => s.teacher_intervention) ? ["有能力点已进入教师关注清单。"] : ["当前没有需要立即处理的异常。"],
+    weekRange: { startDate: week.startDate, endDateExclusive: week.endDate },
+    weeklyCompleted: completedCurrentWeekPlanIds.size,
+    weeklyPlanned: currentWeekPlanIds.size,
+    weeklyQuizCompleted: quizResult.count ?? quizSessions.length,
+    weeklyQuizTimelineTruncated: (quizResult.count ?? quizSessions.length) > quizSessions.length,
+    stableSkillCount: learningRecord.summary.full,
+    growingSkillCount: learningRecord.summary.partial,
+    forgottenSkillCount: learningRecord.summary.unlit,
+    teacherAttentionCount,
+    progress: learningRecord.summary.full || learningRecord.summary.partial
+      ? [`已有 ${learningRecord.summary.full} 个模块完全点亮，${learningRecord.summary.partial} 个模块正在形成证据。`]
+      : ["系统正在收集第一批可靠作答证据。"],
+    concerns: teacherAttentionCount
+      ? [`有 ${teacherAttentionCount} 个模块已进入教师关注清单，后续会优先回看。`]
+      : learningRecord.summary.due
+        ? [`有 ${learningRecord.summary.due} 个已学模块到了回看时间。`]
+        : ["当前没有需要立即处理的学习提醒。"],
     behaviorSignals: (signalsResult.data || []).map((s) => ({ kind: s.kind, evidenceCount: s.evidence_count, sessionCount: s.session_count, firstSeenAt: s.first_seen_at, lastSeenAt: s.last_seen_at, guardianCopy: s.guardian_copy })),
     timeline,
+    skillSummary: learningRecord.summary,
   };
+}
+
+async function isDemoStudent(studentId: string) {
+  const result = await supabase.from("chem_students_v2").select("metadata").eq("id", studentId).maybeSingle();
+  if (result.error) throw result.error;
+  return Boolean((result.data?.metadata as Record<string, unknown> | null)?.demo);
 }
 
 async function resolveDemoTarget(currentStudentId: string, requestedStudentId: string | undefined) {
@@ -302,6 +606,19 @@ Deno.serve(async (req: Request) => {
     if (body.action === "student_dashboard" && identity.role === "student" && identity.studentId) return reply(req, { dashboard: await studentDashboard(identity.studentId) });
     if (body.action === "guardian_dashboard" && identity.role === "guardian" && identity.studentId) return reply(req, { dashboard: await guardianDashboard(identity.studentId) });
 
+    if (body.action === "learning_record" && identity.role === "student" && identity.studentId) {
+      const requestedStudentId = body.data?.studentId ? String(body.data.studentId) : undefined;
+      const targetId = await resolveDemoTarget(identity.studentId, requestedStudentId);
+      if (!targetId) return reply(req, { error: "无权查看该学习档案。" }, 403);
+      return reply(req, { record: await studentLearningRecord(targetId) });
+    }
+
+    if (body.action === "learning_record" && identity.role === "guardian" && identity.studentId) {
+      const requestedStudentId = body.data?.studentId ? String(body.data.studentId) : identity.studentId;
+      if (requestedStudentId !== identity.studentId) return reply(req, { error: "无权查看该学习档案。" }, 403);
+      return reply(req, { record: await studentLearningRecord(identity.studentId) });
+    }
+
     if (body.action === "demo_dashboard" && identity.role === "student" && identity.studentId) {
       const targetId = await demoStudentForGrade(identity.studentId, String(body.data?.gradeBand || ""));
       if (!targetId) return reply(req, { error: "该演示年级不可用。" }, 403);
@@ -314,6 +631,12 @@ Deno.serve(async (req: Request) => {
       return reply(req, { dashboard: await studentDashboard(targetId) });
     }
 
+    if (body.action === "student_learning_record" && identity.role === "teacher") {
+      const targetId = String(body.data?.studentId || "");
+      if (!targetId) return reply(req, { error: "请选择要预览的学生。" }, 400);
+      return reply(req, { record: await studentLearningRecord(targetId) });
+    }
+
     if (body.action === "preview_start_plan" && identity.role === "teacher") {
       const targetId = String(body.data?.studentId || "");
       const planId = String(body.data?.planId || "");
@@ -322,6 +645,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (body.action === "change_own_code" && identity.role === "student") {
+      if (!identity.studentId || await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号为只读账号。" }, 403);
       const token = req.headers.get("x-app-session") || "";
       const { data, error } = await supabase.rpc("chem_change_own_access_code", {
         p_token_hash: await sha256(token),
@@ -334,6 +658,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (body.action === "set_recovery_secret" && identity.role === "student") {
+      if (!identity.studentId || await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号为只读账号。" }, 403);
       const token = req.headers.get("x-app-session") || "";
       const { data, error } = await supabase.rpc("chem_set_recovery_secret", {
         p_token_hash: await sha256(token),
@@ -395,7 +720,7 @@ Deno.serve(async (req: Request) => {
       const [questionResult, attemptCountResult] = await Promise.all([
         supabase
           .from("chem_questions")
-          .select("id,mother_id,skill_id,level,options,correct_option")
+          .select("id,mother_id,skill_id,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status")
           .in("id", questionIds)
           .eq("grade_band", targetProfile.data.grade_band)
           .in("skill_id", planSkillIds)
@@ -423,6 +748,7 @@ Deno.serve(async (req: Request) => {
         uncertain: boolean;
         duration_sec: number;
         selected_option: number;
+        question_snapshot: Record<string, unknown>;
       }> = [];
       for (const submitted of submittedAnswers) {
         const question = questionById.get(String(submitted.questionId));
@@ -441,6 +767,23 @@ Deno.serve(async (req: Request) => {
           uncertain: submitted.uncertain === true,
           duration_sec: Number.isFinite(rawDuration) ? Math.min(3600, Math.max(0, Math.round(rawDuration))) : 0,
           selected_option: selectedOption,
+          question_snapshot: {
+            version: 1,
+            source: "submission",
+            capturedAt: new Date().toISOString(),
+            questionId: String(question.id),
+            motherId: String(question.mother_id),
+            skillId: String(question.skill_id),
+            level: Number(question.level),
+            gradeBand: String(question.grade_band),
+            stem: String(question.stem),
+            options: options.map(String),
+            correctOption: Number(question.correct_option),
+            explanation: String(question.explanation),
+            imageUrl: question.image_url ? String(question.image_url) : null,
+            reviewStatus: String(question.review_status),
+            scopeStatus: String(question.scope_status),
+          },
         });
       }
 

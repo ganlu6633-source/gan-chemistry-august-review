@@ -278,6 +278,94 @@ export interface StudentDashboardData {
   achievements: Array<{ id: string; title: string; description: string; earnedAt: string }>
 }
 
+export type LearningRecordEvidenceStatus = 'full' | 'partial' | 'unlit'
+export type LearningRecordExposure = 'learned' | 'future'
+export type LearningRecordRetention = 'forming' | 'stable' | 'due' | 'recovered' | 'unknown'
+
+export interface LearningRecordKnowledgePoint {
+  id: string
+  title: string
+  rule: string
+}
+
+export interface LearningRecordKnowledgeSection {
+  id: string
+  title: string
+  summary?: string
+  points: LearningRecordKnowledgePoint[]
+}
+
+export interface LearningRecordQuestionEvidence {
+  questionId: string
+  motherId: string
+  level: number
+  stem: string
+  options: string[]
+  selectedOption: number
+  correctOption: number
+  explanation: string
+  imageUrl?: string | null
+  correct: boolean
+  uncertain: boolean
+  durationSec: number
+  answeredAt: string
+  snapshotAvailable: boolean
+  currentQuestionStatus: 'available' | 'retired' | 'out_of_scope' | 'unavailable'
+}
+
+export interface LearningRecordSkill {
+  skillId: string
+  title: string
+  moduleId: string
+  maxLevel: number
+  verifiedLevel: number
+  candidateLevel: number | null
+  evidenceStatus: LearningRecordEvidenceStatus
+  exposure: LearningRecordExposure
+  retentionStatus: LearningRecordRetention
+  lastReviewedAt: string | null
+  nextReviewAt: string | null
+  teacherIntervention: boolean
+  attemptCount: number
+  answeredQuestionCount: number
+  correctQuestionCount: number
+  uniqueMotherCount: number
+  learnedTopics: string[]
+  knowledgeSections: LearningRecordKnowledgeSection[]
+  knowledgeEvidenceScope: 'module_directory_only'
+  recentQuestions: LearningRecordQuestionEvidence[]
+  recentQuestionsTruncated: boolean
+  nextPlan: { id: string; date: string; title: string } | null
+}
+
+export interface LearningRecordData {
+  generatedAt: string
+  evidenceScope: string
+  summary: {
+    total: number
+    learned: number
+    full: number
+    partial: number
+    unlit: number
+    due: number
+    recovered: number
+    answeredQuestions: number
+  }
+  historyWindow: {
+    attemptLimit: number
+    answerLimit: number
+    recentQuestionsPerSkillLimit: number
+    loadedAttempts: number
+    totalAttempts: number
+    loadedAnswers: number
+    totalAnswersInLoadedAttempts: number
+    attemptsTruncated: boolean
+    answersTruncated: boolean
+    hasMore: boolean
+  }
+  skills: LearningRecordSkill[]
+}
+
 export interface GuardianDashboardData {
   student: Pick<StudentProfile, 'displayName' | 'gradeBand'>
   weeklyCompleted: number
@@ -291,6 +379,7 @@ export interface GuardianDashboardData {
   concerns: string[]
   behaviorSignals: BehaviorSignal[]
   timeline: TimelineEvent[]
+  skillSummary: LearningRecordData['summary']
 }
 
 export interface TeacherDashboardData {

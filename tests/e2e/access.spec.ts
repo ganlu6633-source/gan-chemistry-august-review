@@ -52,8 +52,43 @@ const demoDashboardFor = (gradeBand: '高一' | '高二' | '高三') => ({
 
 const guardianDashboard = {
   student: { displayName: '测试学生', gradeBand: '高一' }, weeklyCompleted: 5, weeklyPlanned: 6, weeklyQuizCompleted: 2, stableSkillCount: 2, growingSkillCount: 1, forgottenSkillCount: 1, teacherAttentionCount: 1,
+  skillSummary: { total: 8, learned: 4, full: 1, partial: 2, unlit: 1, due: 1, recovered: 0, answeredQuestions: 3 },
   progress: ['氧化物定义经过两次新母题检验后已经稳定。'], concerns: ['交叉分类仍需继续巩固，系统已经安排同技能新题。'],
   behaviorSignals: [], timeline: [{ id:'q1', at:'2026-08-13T02:10:00Z', type:'attempt', title:'完成即时小测 · 第2轮', description:'物质的量：答对 13/15，用时5分10秒；需要继续巩固：物质的量计算' }, { id:'t1', at:'2026-08-12T08:00:00Z', type:'progress', title:'通过氧化物定义检验', description:'系统记录了两个独立证据。' }],
+}
+
+const recordSkill = (overrides: Record<string, unknown>) => ({
+  skillId: 'H1_CLASSIFY', title: '物质的分类', moduleId: '高一-M1', maxLevel: 4, verifiedLevel: 2, candidateLevel: 3,
+  evidenceStatus: 'partial', exposure: 'learned', retentionStatus: 'forming', lastReviewedAt: '2026-08-13T08:00:00Z', nextReviewAt: '2026-08-17T08:00:00Z', teacherIntervention: false,
+  attemptCount: 1, answeredQuestionCount: 2, correctQuestionCount: 1, uniqueMotherCount: 2,
+  learnedTopics: ['混合物与纯净物', '单质与化合物'], knowledgeEvidenceScope: 'module_directory_only', recentQuestionsTruncated: false,
+  knowledgeSections: [{ id: 'classification-tree', title: '分类总树', summary: '从物质一路向下判断', points: [
+    { id: 'pure-substance', title: '纯净物与混合物', rule: '先按样品中含有几种物质判断。' },
+    { id: 'acid-axis', title: '酸的三条分类轴', rule: '元数、强弱、是否含氧要分别判断，结果可以交叉。' },
+  ] }],
+  recentQuestions: [
+    { questionId: 'q-record-1', motherId: 'm-record-1', level: 2, stem: '下列物质属于纯净物的是', options: ['空气', '液氯', '盐酸', '漂白粉'], selectedOption: 0, correctOption: 1, explanation: '液氯只含 Cl₂ 一种物质，属于纯净物；空气、盐酸和漂白粉都含多种物质。', imageUrl: null, correct: false, uncertain: true, durationSec: 38, answeredAt: '2026-08-13T08:00:00Z', snapshotAvailable: true, currentQuestionStatus: 'available' },
+    { questionId: 'q-record-2', motherId: 'm-record-2', level: 1, stem: '物质分类的第一层依据是什么', options: ['元素种类', '所含物质种类', '能否导电', '是否溶于水'], selectedOption: 1, correctOption: 1, explanation: '第一层先看样品中含有几种物质。', imageUrl: null, correct: true, uncertain: false, durationSec: 21, answeredAt: '2026-08-12T08:00:00Z', snapshotAvailable: true, currentQuestionStatus: 'available' },
+  ],
+  nextPlan: { id: 'p3', date: '2026-08-17', title: '分类树与电解质' },
+  ...overrides,
+})
+
+const learningRecord = {
+  generatedAt: '2026-08-14T08:00:00Z',
+  evidenceScope: '技能级证据；知识点列表仅说明模块包含什么，不代表每个知识点都已逐项验证。',
+  historyWindow: { attemptLimit: 500, answerLimit: 500, recentQuestionsPerSkillLimit: 20, loadedAttempts: 2, totalAttempts: 2, loadedAnswers: 3, totalAnswersInLoadedAttempts: 3, attemptsTruncated: false, answersTruncated: false, hasMore: false },
+  summary: { total: 8, learned: 4, full: 1, partial: 2, unlit: 1, due: 1, recovered: 0, answeredQuestions: 3 },
+  skills: [
+    recordSkill({}),
+    recordSkill({ skillId: 'H1_PERIODIC', title: '元素周期律', evidenceStatus: 'full', verifiedLevel: 4, retentionStatus: 'stable', answeredQuestionCount: 1, correctQuestionCount: 1, uniqueMotherCount: 1, recentQuestions: [] }),
+    recordSkill({ skillId: 'H1_REDOX', title: '氧化还原', evidenceStatus: 'unlit', verifiedLevel: 0, retentionStatus: 'unknown', answeredQuestionCount: 0, correctQuestionCount: 0, uniqueMotherCount: 0, recentQuestions: [], nextPlan: { id: 'p4', date: '2026-08-18', title: '氧化还原电子守恒' } }),
+    recordSkill({ skillId: 'H1_MOLE_INTRO', title: '物质的量基础', evidenceStatus: 'partial', verifiedLevel: 1, retentionStatus: 'due', answeredQuestionCount: 0, correctQuestionCount: 0, uniqueMotherCount: 0, recentQuestions: [] }),
+    recordSkill({ skillId: 'H1_ELECTROLYTE_INTRO', title: '电解质基础', evidenceStatus: 'unlit', verifiedLevel: 0, exposure: 'future', retentionStatus: 'unknown', answeredQuestionCount: 0, correctQuestionCount: 0, uniqueMotherCount: 0, recentQuestions: [] }),
+    recordSkill({ skillId: 'H1_ELECTROLYTE', title: '离子反应', evidenceStatus: 'unlit', verifiedLevel: 0, exposure: 'future', retentionStatus: 'unknown', answeredQuestionCount: 0, correctQuestionCount: 0, uniqueMotherCount: 0, recentQuestions: [] }),
+    recordSkill({ skillId: 'H1_MOLE', title: '物质的量计算', evidenceStatus: 'unlit', verifiedLevel: 0, exposure: 'future', retentionStatus: 'unknown', answeredQuestionCount: 0, correctQuestionCount: 0, uniqueMotherCount: 0, recentQuestions: [] }),
+    recordSkill({ skillId: 'H1_NACL', title: '钠和氯', evidenceStatus: 'unlit', verifiedLevel: 0, exposure: 'future', retentionStatus: 'unknown', answeredQuestionCount: 0, correctQuestionCount: 0, uniqueMotherCount: 0, recentQuestions: [] }),
+  ],
 }
 
 const teacherDashboard = {
@@ -183,6 +218,10 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ ok: true, message: body.action === 'change_own_code' ? '登录码已修改。下次请使用新登录码进入。' : '私密找回短语已安全保存。' }) })
       return
     }
+    if (body.action === 'learning_record') {
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ record: learningRecord }) })
+      return
+    }
     if (body.action === 'start_plan') {
       const useRedox = body.data?.planId === 'p2'
       const useVisualKinds = body.data?.planId === 'p3'
@@ -204,6 +243,7 @@ test.beforeEach(async ({ page }) => {
     const response = body.action === 'list_course_nodes' ? { nodes: [] }
       : body.action === 'list_questions' ? { questions: [] }
       : body.action === 'student_preview_dashboard' ? { dashboard: body.data?.studentId === 'high2-demo' ? demoDashboardFor('高二') : body.data?.studentId === 'high3-demo' ? demoDashboardFor('高三') : studentDashboard }
+      : body.action === 'student_learning_record' ? { record: learningRecord }
       : body.action === 'preview_start_plan' ? { payload: { plan: reviewPlans.find((plan) => plan.id === body.data?.planId) ?? reviewPlans[0], cards: [classificationCard], questions: [classificationQuestion], attemptSequence: 0 } }
       : { dashboard: teacherDashboard }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify(response) })
@@ -382,8 +422,77 @@ test('guardian code routes directly to the concise guardian explanation', async 
   await expect(page.getByRole('heading', { name: '测试学生的化学成长说明' })).toBeVisible()
   await expect(page.getByText(/本周已有 2 轮即时小测同步到这里/)).toBeVisible()
   await expect(page.getByText('完成即时小测 · 第2轮')).toBeVisible()
-  await expect(page.getByText('真实问题不回避')).toBeVisible()
+  await expect(page.getByText('下一步重点')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '一起把基础接得更稳' })).toBeVisible()
   await expect(page.locator('body')).not.toContainText('下节课单独追问')
+})
+
+test('student can replay learned, partly lit and unlit skills with exact answered-question evidence', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: '我的战绩' }).click()
+
+  const summary = page.locator('[data-testid="learning-record-summary"]')
+  await expect(summary).toContainText('完全点亮')
+  await expect(summary).toContainText('点亮一部分')
+  await expect(summary).toContainText('待建立证据')
+  await expect(summary).toContainText('需要回看')
+  await expect(summary).toContainText('后续学习')
+  await expect(page.getByText('4/8')).toBeVisible()
+
+  const classification = page.locator('[data-testid="learning-skill-card"]', { hasText: '物质的分类' })
+  await classification.locator('summary').first().click()
+  await expect(classification).toContainText('酸的三条分类轴')
+  await expect(classification).toContainText('元数、强弱、是否含氧要分别判断')
+  const question = classification.locator('[data-testid="learning-question-evidence"]').first()
+  await question.locator('summary').click()
+  await expect(question).toContainText('下列物质属于纯净物的是')
+  await expect(question).toContainText('A. 空气')
+  await expect(question).toContainText('B. 液氯')
+  await expect(question).toContainText('学生选择')
+  await expect(question).toContainText('正确答案')
+  await expect(question).toContainText('液氯只含 Cl₂ 一种物质')
+  await expect(question).toContainText('不确定')
+
+  const redox = page.locator('[data-testid="learning-skill-card"]', { hasText: '氧化还原' })
+  await redox.locator('summary').first().click()
+  await expect(redox).toContainText('待建立证据')
+  await expect(redox).toContainText('真实作答证据即将在这里累积')
+  await expect(redox).toContainText('氧化还原电子守恒')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((element) => element.clientWidth))
+})
+
+test('guardian sees the same skill facts and exact question evidence without internal notes', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试家长')
+  await page.getByLabel('登录码').fill('22222222')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await expect(page.getByRole('heading', { name: '学过什么、点亮多少、下一步在哪里' })).toBeVisible()
+  await expect(page.locator('[data-testid="learning-record-summary"]')).toContainText('点亮一部分')
+  const classification = page.locator('[data-testid="learning-skill-card"]', { hasText: '物质的分类' })
+  await classification.locator('summary').first().click()
+  await classification.locator('[data-testid="learning-question-evidence"]').first().locator('summary').click()
+  await expect(classification).toContainText('学生选择')
+  await expect(classification).toContainText('正确答案')
+  await expect(classification).toContainText('解析与订正')
+  await expect(page.locator('body')).not.toContainText('下节课单独追问')
+  await expect(page.locator('body')).not.toContainText('11111111')
+})
+
+test('expanded learning record stays readable on a compact phone', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: '我的战绩' }).click()
+  const classification = page.locator('[data-testid="learning-skill-card"]', { hasText: '物质的分类' })
+  await classification.locator('summary').first().click()
+  await classification.locator('[data-testid="learning-question-evidence"]').first().locator('summary').click()
+  await expect(classification).toContainText('解析与订正')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((element) => element.clientWidth))
 })
 
 test('a full zero-forgetting card pairs every redox point with a demo and visual flow', async ({ page }) => {
@@ -477,6 +586,13 @@ test('teacher name and code use the same entry and open the private workspace', 
   await expect(page).toHaveURL(/\/teacher\/preview\/demo$/)
   await expect(page.getByText(/甘老师只读模拟/)).toBeVisible()
   await expect(page.getByRole('button', { name: '账户设置' })).toHaveCount(0)
+  await page.getByRole('button', { name: '我的战绩' }).click()
+  await expect(page.getByText('只读学习证据')).toBeVisible()
+  const previewSkill = page.locator('[data-testid="learning-skill-card"]', { hasText: '物质的分类' })
+  await previewSkill.locator('summary').first().click()
+  await expect(previewSkill).toContainText('下列物质属于纯净物的是')
+  expect(forbiddenWrites).toEqual([])
+  await page.getByRole('button', { name: '今天', exact: true }).click()
   await page.locator('.focus-card').getByRole('button', { name: /开始第一轮/ }).click()
   await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
   await page.getByRole('button', { name: /我理解了，开始练习/ }).click()

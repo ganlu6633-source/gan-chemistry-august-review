@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
-import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
+import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
-import { accessApi, submitAttempt, teacherApi } from '../lib/api'
+import { accessApi, loadLearningRecord, submitAttempt, teacherApi } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
+import { LearningRecordPanel } from './LearningRecordPanel'
 
 type StudentView = 'today' | 'map' | 'growth' | 'settings'
 type PlanPayload = { plan: LearningPlanDay; cards: KnowledgeCard[]; questions: Question[]; attemptSequence: number }
@@ -94,7 +95,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           </section>
         </>}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
-        {view === 'growth' && <GrowthPage dashboard={dashboard} />}
+        {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}
         {view === 'settings' && <AccountSettings session={session} />}
       </div>
     </div></>
@@ -187,14 +188,24 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
   </section>
 }
 
-function GrowthPage({ dashboard }: { dashboard: StudentDashboardData }) {
-  const lit = dashboard.skillStates.filter((state) => state.verifiedLevel > 0).length
-  const stable = dashboard.skillStates.filter((state) => state.stability === 'stable').length
-  const recovered = dashboard.skillStates.filter((state) => state.stability === 'recovered').length
-  return <section><div className="page-title"><span className="eyebrow">我的化学档案</span><h1>每一次理解，都留下来了。</h1><p>这里记录你已经获得的能力，不做同学之间的排行榜。</p></div>
-    <div className="stat-grid"><div><b>{dashboard.skillStates.length}</b><span>已经走过的技能</span></div><div><b>{lit}</b><span>已经点亮</span></div><div><b>{stable}</b><span>完整通过</span></div><div><b>{recovered}</b><span>重新找回</span></div></div>
-    <div className="section-block"><h2>最近新获得</h2><div className="achievement-list">{dashboard.achievements.map((item) => <article key={item.id}><Trophy /><div><b>{item.title}</b><p>{item.description}</p><small>{item.earnedAt.slice(0,10)}</small></div></article>)}</div></div>
-  </section>
+function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDashboardData; session: SessionIdentity; previewMode: boolean }) {
+  const [record, setRecord] = useState<LearningRecordData | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    setRecord(null)
+    setError('')
+    const request = previewMode
+      ? teacherApi<{ record: LearningRecordData }>('student_learning_record', { studentId: dashboard.profile.id })
+      : loadLearningRecord(session, dashboard.profile.isDemo ? dashboard.profile.id : undefined)
+    void request.then((result) => { if (active) setRecord(result.record) })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '学习档案暂时无法打开。') })
+    return () => { active = false }
+  }, [dashboard.profile.id, dashboard.profile.isDemo, previewMode, session])
+
+  if (error) return <section><div className="page-title"><span className="eyebrow">我的化学档案</span><h1>学习证据正在整理</h1></div><div className="inline-alert" role="alert">{error}</div></section>
+  if (!record) return <section><div className="page-title"><span className="eyebrow">我的化学档案</span><h1>正在接起每一步学习证据…</h1></div><div className="record-loading"><span /><span /><span /></div></section>
+  return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience={previewMode ? 'teacher' : 'student'} />
 }
 
 function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onComplete: (data: StudentDashboardData) => void }) {

@@ -15,4 +15,7 @@ for (const name of ['index.html', 'manifest.webmanifest', 'chemistry-icon.svg', 
 const teacherDir = join(root, 'teacher')
 mkdirSync(teacherDir, { recursive: true })
 cpSync(join(dist, 'index.html'), join(teacherDir, 'index.html'))
+// GitHub Pages serves this fallback for direct visits to nested SPA routes such as
+// /teacher/preview/:studentId, allowing React Router to restore the intended view.
+cpSync(join(dist, 'index.html'), join(root, '404.html'))
 console.log('Published the verified dist bundle to the GitHub Pages root.')
