@@ -55,5 +55,8 @@ describe('scientific knowledge diagrams', () => {
     expect(figure.querySelector('.hydrogen-example-platform')).toHaveAttribute('d', 'M88 150H177M458 252H550')
     expect(figure.querySelector('.hydrogen-ea-arrow')).toHaveAttribute('d', 'M174 145V78')
     expect(figure.querySelector('.hydrogen-dh-arrow')).toHaveAttribute('d', 'M431 158V244')
+    expect(figure.querySelector('.hydrogen-energy-svg-desktop')).toHaveAttribute('viewBox', '0 0 640 370')
+    expect(figure.querySelector('.hydrogen-energy-svg-mobile')).toHaveAttribute('viewBox', '0 0 280 390')
+    expect(figure).toHaveTextContent('手机竖版氢气燃烧放热反应能量图')
   })
 })

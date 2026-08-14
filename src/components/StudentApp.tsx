@@ -416,7 +416,7 @@ function HydrogenCombustionEnergyVisual() {
   return <figure className="hydrogen-energy-visual" aria-label="H₂燃烧生成液态水的放热反应能量图">
     <figcaption><span>例子配图</span><b>H₂燃烧：两种高度差不能混</b></figcaption>
     <div className="hydrogen-energy-equation"><ChemText>2H₂(g) + O₂(g) → 2H₂O(l)</ChemText><strong>放热｜ΔH＜0</strong></div>
-    <svg viewBox="0 0 640 370" role="img" aria-labelledby="hydrogen-energy-title hydrogen-energy-desc">
+    <svg className="hydrogen-energy-svg-desktop" viewBox="0 0 640 370" role="img" aria-labelledby="hydrogen-energy-title hydrogen-energy-desc">
       <title id="hydrogen-energy-title">氢气燃烧生成液态水的放热反应能量图</title>
       <desc id="hydrogen-energy-desc">反应物能量高于生成物；反应物能量线到曲线峰顶的高度差表示正反应活化能，反应物与生成物的高度差表示焓变，体系向环境放出能量。</desc>
       <defs>
@@ -439,6 +439,29 @@ function HydrogenCombustionEnergyVisual() {
       <text className="hydrogen-ea-label" x="184" y="105">正反应活化能 Eₐ</text>
       <path className="hydrogen-dh-arrow" markerEnd="url(#hydrogen-energy-arrow)" d="M431 158V244" />
       <text className="hydrogen-dh-label" x="346" y="204">ΔH＜0</text>
+    </svg>
+    <svg className="hydrogen-energy-svg-mobile" viewBox="0 0 280 390" role="img" aria-labelledby="hydrogen-energy-mobile-title hydrogen-energy-mobile-desc">
+      <title id="hydrogen-energy-mobile-title">手机竖版氢气燃烧放热反应能量图</title>
+      <desc id="hydrogen-energy-mobile-desc">反应物平台较高，生成物平台较低；反应物平台到峰顶是正反应活化能，始末平台高度差是负焓变。</desc>
+      <defs>
+        <marker id="hydrogen-energy-mobile-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" /></marker>
+      </defs>
+      <path className="hydrogen-example-axis" d="M38 342V38M38 342H263" />
+      <text className="hydrogen-axis-label" x="8" y="20">体系的焓 H（相对值）</text>
+      <text className="hydrogen-axis-label" x="194" y="370">反应过程</text>
+      <path className="hydrogen-example-guide" d="M50 126H252M50 258H252" />
+      <path className="hydrogen-example-curve" d="M50 126 C96 126 105 58 145 58 C194 58 201 258 252 258" />
+      <path className="hydrogen-example-platform" d="M50 126H96M210 258H252" />
+      <text className="hydrogen-example-label" x="50" y="108">反应物</text>
+      <text className="hydrogen-example-formula" x="50" y="151">2H₂(g)+O₂(g)</text>
+      <text className="hydrogen-example-label" x="184" y="284">生成物</text>
+      <text className="hydrogen-example-formula" x="174" y="309">2H₂O(l)</text>
+      <circle className="hydrogen-example-peak" cx="145" cy="58" r="5" />
+      <text className="hydrogen-peak-label" x="113" y="43">最高位置</text>
+      <path className="hydrogen-ea-arrow" markerEnd="url(#hydrogen-energy-mobile-arrow)" d="M97 120V67" />
+      <text className="hydrogen-ea-label" x="105" y="92">正反应 Eₐ</text>
+      <path className="hydrogen-dh-arrow" markerEnd="url(#hydrogen-energy-mobile-arrow)" d="M198 134V250" />
+      <text className="hydrogen-dh-label" x="150" y="197">ΔH＜0</text>
     </svg>
     <div className="hydrogen-energy-key">
       <section><b>① 看活化能</b><span>反应物能量线 → 峰顶的高度差</span></section>

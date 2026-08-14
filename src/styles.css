@@ -93,6 +93,7 @@
 .hydrogen-energy-equation{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;padding:10px 12px;border-radius:11px;background:#fff;border:1px solid #d7e6e8;color:#173f55;font-weight:850}
 .hydrogen-energy-equation strong{padding:5px 9px;border-radius:999px;background:#fff1df;color:#8a5710;font-size:12px}
 .hydrogen-energy-visual svg{display:block;width:100%;height:auto;max-width:100%;overflow:visible}
+.hydrogen-energy-svg-mobile{display:none!important}
 .hydrogen-energy-visual svg text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 .hydrogen-example-axis{fill:none;stroke:#708994;stroke-width:2}
 .hydrogen-axis-label{fill:#627985;font-size:14px;font-weight:750}
@@ -112,4 +113,4 @@
 .hydrogen-energy-key span{color:#405f70;font-size:12px;line-height:1.5}
 .hydrogen-energy-boundary{margin:9px 0 0!important;padding:10px 12px;border-radius:10px;background:#fff5df;color:#765820!important;font-size:12px;line-height:1.65!important}
 
-@media(max-width:700px){.hydrogen-energy-visual{padding:11px}.hydrogen-energy-visual>figcaption{align-items:flex-start;flex-direction:column}.hydrogen-energy-equation{align-items:flex-start;flex-direction:column}.hydrogen-energy-key{grid-template-columns:1fr}.hydrogen-energy-visual svg text{font-size:14px}.hydrogen-axis-label{font-size:13px!important}.hydrogen-peak-label{font-size:13px!important}}
+@media(max-width:700px){.hydrogen-energy-visual{padding:8px}.hydrogen-energy-visual>figcaption{align-items:flex-start;flex-direction:column}.hydrogen-energy-equation{align-items:flex-start;flex-direction:column}.hydrogen-energy-key{grid-template-columns:1fr}.hydrogen-energy-svg-desktop{display:none!important}.hydrogen-energy-svg-mobile{display:block!important}.hydrogen-energy-svg-mobile text{font-size:16px}.hydrogen-energy-svg-mobile .hydrogen-axis-label{font-size:15px!important}.hydrogen-energy-svg-mobile .hydrogen-peak-label{font-size:15px!important}.hydrogen-energy-svg-mobile .hydrogen-ea-label,.hydrogen-energy-svg-mobile .hydrogen-dh-label{font-size:16px}}
