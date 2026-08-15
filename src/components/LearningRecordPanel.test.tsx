@@ -87,4 +87,32 @@ describe('LearningRecordPanel', () => {
     expect(within(skillCard).getByText(/本题作答时标记了“不确定”/)).toBeInTheDocument()
     expect(within(skillCard).getByText(/这道历史题已退出当前使用版本/)).toBeInTheDocument()
   })
+
+  it('shows a licensed High-3 REVIEW source once and defers its original and analysis images', () => {
+    const originalEvidence = {
+      ...makeSkill({}).recentQuestions[0],
+      questionId: 'h3-source-q1',
+      sourceKind: 'licensed_local' as const,
+      mode: 'REVIEW' as const,
+      sourceInfo: { title: '高考真题分类汇编', exam: '2025年福建省质检', year: 2025, questionNo: '第8题', locator: '第3页' },
+      renderMode: 'image_primary' as const,
+      assetRefs: [
+        { assetId: 'source/questions/h3-q1', kind: 'question_image' as const, alt: '第8题原题图', sha256: 'a'.repeat(64), width: 900, height: 500 },
+        { assetId: 'source/analysis/h3-q1', kind: 'analysis_image' as const, alt: '第8题原解析图', sha256: 'b'.repeat(64), width: 900, height: 700 },
+      ],
+    }
+    const high3Record: LearningRecordData = {
+      ...record,
+      summary: { ...record.summary, total: 1, learned: 1 },
+      skills: [makeSkill({ skillId: 'H3_STOICH', title: '化学计量', recentQuestions: [originalEvidence] })],
+    }
+    render(<LearningRecordPanel record={high3Record} gradeBand="高三" audience="guardian" />)
+
+    const skillCard = screen.getByText('化学计量').closest('details')!
+    fireEvent.click(within(skillCard).getByText('化学计量').closest('summary')!)
+    fireEvent.click(within(skillCard).getByText(/真实作答 1/).closest('summary')!)
+    expect(within(skillCard).getAllByLabelText('原题来源')).toHaveLength(1)
+    expect(within(skillCard).getByText('2025年福建省质检')).toBeInTheDocument()
+    expect(within(skillCard).getByRole('button', { name: '加载当时的原题图与解析图' })).toBeInTheDocument()
+  })
 })

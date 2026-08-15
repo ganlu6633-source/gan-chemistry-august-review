@@ -23,6 +23,57 @@ async function sha256(value: string) {
 function validUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
+function recordValue(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+type BoundedJsonResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; status: 400 | 413; error: string };
+async function readBoundedJsonObject(req: Request, maxBytes = 5 * 1024 * 1024): Promise<BoundedJsonResult> {
+  const declaredLength = req.headers.get("content-length");
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0) {
+      return { ok: false, status: 400, error: "请求长度无效。" };
+    }
+    if (parsedLength > maxBytes) return { ok: false, status: 413, error: "请求正文超过5 MB限制。" };
+  }
+  if (!req.body) return { ok: false, status: 400, error: "请求正文不能为空。" };
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return { ok: false, status: 413, error: "请求正文超过5 MB限制。" };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return { ok: false, status: 400, error: "请求正文不是有效UTF-8。" };
+  }
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return { ok: false, status: 400, error: "请求正文必须是JSON对象。" };
+    }
+    return { ok: true, value: value as Record<string, unknown> };
+  } catch {
+    return { ok: false, status: 400, error: "请求正文不是有效JSON。" };
+  }
+}
 function validVideoUrl(provider: string, value: string) {
   try {
     const url = new URL(value);
@@ -94,7 +145,11 @@ async function teacher(req: Request) {
   return { displayName: data[0].principal_name || "甘老师" };
 }
 
-async function readOnlyStudentPreview(req: Request, action: "student_preview_dashboard" | "preview_start_plan" | "student_learning_record", data: unknown) {
+async function readOnlyStudentPreview(
+  req: Request,
+  action: "student_preview_dashboard" | "preview_start_plan" | "student_learning_record" | "question_asset" | "question_feedback",
+  data: unknown,
+) {
   const response = await fetch(`${url}/functions/v1/chemistry-access`, {
     method: "POST",
     headers: {
@@ -199,16 +254,28 @@ Deno.serve(async (req: Request) => {
   try {
     const user = await teacher(req);
     if (!user) return reply(req, { error: "登录已失效，请重新输入姓名和登录码。" }, 401);
-    const body = await req.json();
-    if (body.action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
-    if (body.action === "student_preview_dashboard" || body.action === "preview_start_plan" || body.action === "student_learning_record") {
-      const preview = await readOnlyStudentPreview(req, body.action, body.data);
+    const parsedBody = await readBoundedJsonObject(req);
+    if (!parsedBody.ok) return reply(req, { error: parsedBody.error }, parsedBody.status);
+    const body = parsedBody.value;
+    const action = typeof body.action === "string" ? body.action : "";
+    const bodyData = recordValue(body.data);
+
+
+    if (action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
+    if (
+      action === "student_preview_dashboard"
+      || action === "preview_start_plan"
+      || action === "student_learning_record"
+      || action === "question_asset"
+      || action === "question_feedback"
+    ) {
+      const preview = await readOnlyStudentPreview(req, action, bodyData);
       return reply(req, preview.payload, preview.status);
     }
-    if (body.action === "list_video_recommendations") {
-      const requestedStudentId = body.data?.studentId ? String(body.data.studentId) : null;
-      const requestedStatus = body.data?.status ? String(body.data.status) : null;
-      const requestedDate = body.data?.date ? String(body.data.date) : null;
+    if (action === "list_video_recommendations") {
+      const requestedStudentId = bodyData.studentId ? String(bodyData.studentId) : null;
+      const requestedStatus = bodyData.status ? String(bodyData.status) : null;
+      const requestedDate = bodyData.date ? String(bodyData.date) : null;
       if (requestedStudentId && !validUuid(requestedStudentId)) return reply(req, { error: "学生信息无效。" }, 400);
       if (requestedStatus && !["draft", "published", "withdrawn"].includes(requestedStatus)) {
         return reply(req, { error: "视频审核状态无效。" }, 400);
@@ -222,8 +289,8 @@ Deno.serve(async (req: Request) => {
         )),
       });
     }
-    if (body.action === "create_video_recommendation") {
-      const data = body.data || {};
+    if (action === "create_video_recommendation") {
+      const data = bodyData;
       const studentId = String(data.studentId || "");
       const skillId = String(data.skillId || "").trim();
       const title = String(data.title || "").trim();
@@ -270,10 +337,10 @@ Deno.serve(async (req: Request) => {
       const recommendations = await listVideoRecommendations(studentId, true);
       return reply(req, { recommendation: recommendations.find((item) => item.id === created.data) || null }, 201);
     }
-    if (["publish_video_recommendation", "withdraw_video_recommendation"].includes(body.action)) {
-      const recommendationId = String(body.data?.recommendationId || "");
+    if (["publish_video_recommendation", "withdraw_video_recommendation"].includes(action)) {
+      const recommendationId = String(bodyData.recommendationId || "");
       if (!validUuid(recommendationId)) return reply(req, { error: "视频推荐信息无效。" }, 400);
-      const targetStatus = body.action === "publish_video_recommendation" ? "published" : "withdrawn";
+      const targetStatus = action === "publish_video_recommendation" ? "published" : "withdrawn";
       const changed = await admin.rpc("chem_video_set_recommendation_status", {
         p_recommendation_id: recommendationId,
         p_target_status: targetStatus,
@@ -291,8 +358,8 @@ Deno.serve(async (req: Request) => {
       const recommendations = await listVideoRecommendations(null, true);
       return reply(req, { recommendation: recommendations.find((item) => item.id === recommendationId) || null });
     }
-    if (body.action === "save_observation") {
-      const o = body.data || {};
+    if (action === "save_observation") {
+      const o = bodyData;
       if (!o.studentId || !o.courseDate || !o.taughtContent || !o.observedEvidence) return reply(req, { error: "课堂记录信息不完整。" }, 400);
       const { data, error } = await admin.from("chem_teacher_observations").insert({
         student_id: o.studentId, course_date: o.courseDate, taught_content: o.taughtContent,
@@ -303,8 +370,8 @@ Deno.serve(async (req: Request) => {
       if (error) throw error;
       return reply(req, { observation: { id: data.id, studentId: data.student_id, courseDate: data.course_date, taughtContent: data.taught_content, observedEvidence: data.observed_evidence, internalNote: data.internal_note, studentMessage: data.student_message, guardianMessage: data.guardian_message, visibility: data.visibility } });
     }
-    if (body.action === "reset_access_codes") {
-      const studentId = String(body.data?.studentId || "");
+    if (action === "reset_access_codes") {
+      const studentId = String(bodyData.studentId || "");
       const { data: student } = await admin.from("chem_students_v2").select("id").eq("id", studentId).maybeSingle();
       if (!student) return reply(req, { error: "学生不存在。" }, 404);
       const studentCode = code(); let guardianCode = code();
@@ -314,25 +381,92 @@ Deno.serve(async (req: Request) => {
       if (first.error || second.error) throw first.error || second.error;
       return reply(req, { studentCode, guardianCode });
     }
-    if (body.action === "list_questions") {
-      const { data, error } = await admin.from("chem_questions").select("id,mother_id,skill_id,level,stem,review_status,scope_status").order("updated_at", { ascending: false }).limit(100);
+    if (action === "list_questions") {
+      const gradeBand = bodyData.gradeBand ? String(bodyData.gradeBand) : null;
+      const reviewStatus = bodyData.reviewStatus ? String(bodyData.reviewStatus) : null;
+      const sourceKind = bodyData.sourceKind ? String(bodyData.sourceKind) : null;
+      const page = Math.max(1, Number(bodyData.page) || 1);
+      const pageSize = Math.min(50, Math.max(5, Number(bodyData.pageSize) || 20));
+      if (gradeBand && !["初三", "高一", "高二", "高三"].includes(gradeBand)) return reply(req, { error: "年级筛选无效。" }, 400);
+      if (reviewStatus && !["draft", "needs_review", "approved", "retired"].includes(reviewStatus)) return reply(req, { error: "审核状态筛选无效。" }, 400);
+      if (sourceKind && !["teacher_original", "licensed_local", "original_variant"].includes(sourceKind)) return reply(req, { error: "题目来源筛选无效。" }, 400);
+      let query = admin.from("chem_questions").select(
+        "id,mother_id,skill_id,concept_key,level,grade_band,stem,options,correct_option,explanation,scaffold,review_status,scope_status,source_kind,source_info,asset_refs,render_mode,content_fingerprint,source_release_id,usable_for_review,updated_at",
+        { count: "exact" },
+      );
+      if (gradeBand) query = query.eq("grade_band", gradeBand);
+      if (reviewStatus) query = query.eq("review_status", reviewStatus);
+      if (sourceKind) query = query.eq("source_kind", sourceKind);
+      const start = (page - 1) * pageSize;
+      const { data, error, count } = await query
+        .order("updated_at", { ascending: false })
+        .order("id")
+        .range(start, start + pageSize - 1);
       if (error) throw error;
-      return reply(req, { questions: data });
+      return reply(req, { questions: data || [], page, pageSize, total: count || 0 });
     }
-    if (body.action === "review_question") {
-      const { id, reviewStatus } = body.data || {};
+    if (action === "review_question") {
+      const id = String(bodyData.id || "");
+      const reviewStatus = String(bodyData.reviewStatus || "");
       if (!["approved", "retired", "needs_review"].includes(reviewStatus)) return reply(req, { error: "审核状态无效。" }, 400);
-      const { error } = await admin.from("chem_questions").update({ review_status: reviewStatus }).eq("id", id);
+      const questionResult = await admin.from("chem_questions").select(
+        "id,grade_band,options,correct_option,scope_status,source_kind,source_info,asset_refs,render_mode,source_item_key,content_fingerprint,source_release_id",
+      ).eq("id", id).maybeSingle();
+      if (questionResult.error) throw questionResult.error;
+      if (!questionResult.data) return reply(req, { error: "题目不存在。" }, 404);
+      const question = questionResult.data as Record<string, unknown>;
+      if (question.source_release_id) {
+        return reply(req, {
+          error: "这是完整原题版本中的题目，不能单题修改。请校对并发布一个完整的新版本。",
+        }, 409);
+      }
+      if (reviewStatus === "approved" && question.source_kind === "licensed_local") {
+        const source = question.source_info as Record<string, unknown> | null;
+        const refs = Array.isArray(question.asset_refs) ? question.asset_refs as Array<Record<string, unknown>> : [];
+        const options = Array.isArray(question.options) ? question.options : [];
+        const requiredSource = ["title", "exam", "questionNo", "locator"].every((key) => String(source?.[key] || "").trim());
+        if (
+          question.grade_band !== "高三"
+          || question.scope_status !== "IN"
+          || !requiredSource
+          || !["native", "image_assist", "image_primary"].includes(String(question.render_mode))
+          || (question.render_mode !== "native" && refs.length === 0)
+          || options.length !== 4
+          || !Number.isInteger(Number(question.correct_option))
+          || Number(question.correct_option) < 0
+          || Number(question.correct_option) >= options.length
+          || String(question.source_item_key || "").length < 16
+          || !/^[0-9a-f]{64}$/.test(String(question.content_fingerprint || ""))
+        ) return reply(req, { error: "原题的题面、答案、福建范围、来源或图片信息还不完整，不能批准。" }, 409);
+        const paths = refs.map((asset) => String(asset.path || "")).filter(Boolean);
+        const assets = await admin.rpc("chem_get_question_assets", { p_asset_paths: paths });
+        if (assets.error) throw assets.error;
+        const assetByPath = new Map(((assets.data || []) as Array<Record<string, unknown>>).map((asset) => [String(asset.asset_path), asset]));
+        const assetMismatch = refs.some((ref) => {
+          const asset = assetByPath.get(String(ref.path || ""));
+          return !asset
+            || String(asset.question_id) !== String(question.id)
+            || String(asset.sha256) !== String(ref.sha256 || "")
+            || Number(asset.width) !== Number(ref.width)
+            || Number(asset.height) !== Number(ref.height);
+        });
+        if (assetMismatch || assetByPath.size !== new Set(paths).size) {
+          return reply(req, { error: "原题图片缺失或哈希不一致，不能批准。" }, 409);
+        }
+      }
+      const updates: Record<string, unknown> = { review_status: reviewStatus };
+      if (reviewStatus !== "approved") updates.usable_for_review = false;
+      const { error } = await admin.from("chem_questions").update(updates).eq("id", id);
       if (error) throw error;
       return reply(req, { ok: true });
     }
-    if (body.action === "list_course_nodes") {
+    if (action === "list_course_nodes") {
       const { data, error } = await admin.from("chem_course_nodes").select("*").order("grade_band").order("sequence");
       if (error) throw error;
       return reply(req, { nodes: data });
     }
-    if (body.action === "approve_course_node") {
-      const { error } = await admin.from("chem_course_nodes").update({ teacher_approved: Boolean(body.data?.approved) }).eq("id", body.data?.id);
+    if (action === "approve_course_node") {
+      const { error } = await admin.from("chem_course_nodes").update({ teacher_approved: Boolean(bodyData.approved) }).eq("id", bodyData.id);
       if (error) throw error;
       return reply(req, { ok: true });
     }

@@ -294,6 +294,55 @@ test('forgotten code can be reset with a private recovery phrase', async ({ page
   await expect(panel).toContainText('不要使用身份证号、生日、手机号')
 })
 
+test('public High-3 demo stays on the safe teacher-authored pool and never requests licensed assets', async ({ page }) => {
+  const sourceActions: string[] = []
+  const demoQuestion = {
+    id: 'e2e-high3-demo-q1', motherId: 'e2e-high3-demo-m1', skillId: 'H3_STOICH', level: 3, gradeBand: '高三',
+    stem: '某反应中各物质的量关系如下，选择符合守恒关系的一项。', options: ['安全演示选项甲', '安全演示选项乙', '安全演示选项丙', '安全演示选项丁'],
+    correctOption: 0, explanation: '先依据题设写出守恒关系，再完成计算。',
+    reviewStatus: 'approved', scopeStatus: 'IN', sourceKind: 'teacher_original', renderMode: 'native', revisionToken: 'e2e-demo-revision',
+    assetRefs: [],
+  }
+  await page.route('**/functions/v1/chemistry-access', async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fallback()
+    const body = route.request().postDataJSON() as { action: string; data?: { planId?: string } }
+    if (body.action === 'start_plan' && body.data?.planId?.startsWith('高三-')) {
+      const plan = { ...reviewPlans[0], id: body.data.planId, studentId: 'demo-高三', mode: 'REVIEW', title: '高三安全演示复习', skillIds: ['H3_STOICH'], knowledgeSummaries: ['化学计量'], attemptCount: 1 }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ payload: { plan, cards: [], questions: [demoQuestion], attemptSequence: 1, roundNumber: 2, roundLimit: 5, questionCount: 1, isResolved: false, isComplete: false, roundsRemaining: 4 } }) })
+      return
+    }
+    if (body.action === 'question_asset' || body.action === 'question_feedback') {
+      sourceActions.push(body.action)
+      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: '演示账号不得访问本地授权原题。' }) })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('演示学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.getByRole('button', { name: '高三' }).click()
+  await page.locator('.focus-card .primary-button').click()
+
+  await expect(page.getByRole('heading', { name: demoQuestion.stem })).toBeVisible()
+  await expect(page.locator('.source-letter-options')).toHaveCount(0)
+  await expect(page.getByText('2025年福建省质检')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  expect(await page.locator('.question-card').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+
+  await page.getByRole('button', { name: 'A. 安全演示选项甲' }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.getByRole('button', { name: '提交答案' }).click()
+  await expect(page.locator('.answer-feedback')).toContainText('先依据题设写出守恒关系')
+  expect(sourceActions).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('student code routes to student experience without guardian entry', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')

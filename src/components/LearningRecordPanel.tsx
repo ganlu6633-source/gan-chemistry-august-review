@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { BookOpenCheck, CheckCircle2, ChevronDown, CircleDashed, CircleDot, Clock3, RotateCcw } from 'lucide-react'
 import { ABILITY_MAP_BLUEPRINTS } from '../data/abilityMap'
 import type { GradeBand, LearningRecordData, LearningRecordQuestionEvidence, LearningRecordSkill } from '../domain/types'
+import { QuestionSourceMedia } from './QuestionSourceMedia'
 
 type RecordAudience = 'student' | 'guardian' | 'teacher'
 type RecordFilter = 'all' | 'full' | 'partial' | 'unlit' | 'due' | 'future'
@@ -123,12 +124,12 @@ export function LearningRecordPanel({ record, gradeBand, audience = 'student' }:
 
     {groups.length ? <div className="record-stage-list">{groups.map((group) => <section className="record-stage" key={group.id}>
       <header><span>{group.number}</span><div><h2>{group.title}</h2><p>{group.summary}</p></div><b>{group.skills.length}项</b></header>
-      <div className="record-skill-list">{group.skills.map((skill) => <LearningRecordSkillCard key={skill.skillId} skill={skill} audience={audience} />)}</div>
+      <div className="record-skill-list">{group.skills.map((skill) => <LearningRecordSkillCard key={skill.skillId} skill={skill} audience={audience} gradeBand={gradeBand} />)}</div>
     </section>)}</div> : <div className="record-empty"><CircleDashed /><b>这个筛选下暂时没有记录</b><p>切换上方分类，可以继续查看完整学习路线。</p></div>}
   </section>
 }
 
-function LearningRecordSkillCard({ skill, audience }: { skill: LearningRecordSkill; audience: RecordAudience }) {
+function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: LearningRecordSkill; audience: RecordAudience; gradeBand: GradeBand }) {
   const status = skillStatus(skill)
   const progress = Math.max(0, Math.min(100, skill.maxLevel ? skill.verifiedLevel / skill.maxLevel * 100 : 0))
   const total = skill.answeredQuestionCount
@@ -149,7 +150,7 @@ function LearningRecordSkillCard({ skill, audience }: { skill: LearningRecordSki
 
       <section className="record-evidence"><div className="record-subhead"><div><span>真实证据</span><h4>做过什么题、怎样作答、怎样订正</h4></div><small>{skill.recentQuestionsTruncated ? `当前显示最近 ${skill.recentQuestions.length} 道（已读取 ${total} 道）` : total ? `已读取 ${total} 道作答` : '完成对应练习后自动保存'}</small></div>
         {skill.recentQuestionsTruncated && <p className="record-history-note compact"><Clock3 />当前显示最近记录，更早的真实作答仍保留在学习档案中。</p>}
-        {skill.recentQuestions.length ? <div className="record-question-list">{skill.recentQuestions.map((question, index) => <QuestionEvidence key={`${question.questionId}-${question.answeredAt}-${index}`} question={question} index={index} />)}</div>
+        {skill.recentQuestions.length ? <div className="record-question-list">{skill.recentQuestions.map((question, index) => <QuestionEvidence key={`${question.questionId}-${question.answeredAt}-${index}`} question={question} index={index} gradeBand={gradeBand} />)}</div>
           : <div className="record-empty compact"><CircleDashed /><b>真实作答证据即将在这里累积</b><p>完成一次对应练习后，题目、选择、订正和解析会一起保存到这里。</p></div>}
       </section>
 
@@ -158,13 +159,14 @@ function LearningRecordSkillCard({ skill, audience }: { skill: LearningRecordSki
   </details>
 }
 
-function QuestionEvidence({ question, index }: { question: LearningRecordQuestionEvidence; index: number }) {
+function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
+  const showsLicensedReviewSource = gradeBand === '高三' && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
+  const nativeStem = <p className="record-question-stem">{question.stem}</p>
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">
     <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p>{question.stem}</p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
     <div className="record-question-body">
       <QuestionHistoryStatus question={question} />
-      {question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}
-      <p className="record-question-stem">{question.stem}</p>
+      {showsLicensedReviewSource ? <QuestionSourceMedia question={{ id: question.questionId, stem: question.stem, options: question.options, sourceInfo: question.sourceInfo, assetRefs: question.assetRefs, renderMode: question.renderMode }} enabled deferLoad readOnly feedback nativeContent={nativeStem} /> : <>{question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}{nativeStem}</>}
       {question.options.length > 0 && <ol className="record-option-list">{question.options.map((option, optionIndex) => <li key={`${optionIndex}-${option}`} className={`${optionIndex === question.selectedOption ? 'selected' : ''} ${optionIndex === question.correctOption ? 'correct' : ''}`}><span>{String.fromCharCode(65 + optionIndex)}</span><p>{option}</p>{optionIndex === question.selectedOption && <small>学生选择</small>}{optionIndex === question.correctOption && <small>正确答案</small>}</li>)}</ol>}
       <div className="record-answer-row"><div><span>学生选择</span><b>{answerText(question, question.selectedOption)}</b></div><div><span>正确答案</span><b>{answerText(question, question.correctOption)}</b></div><div><span>作答状态</span><b>{question.correct ? '答对，继续保持' : '回看思路，再做同类题'}</b></div></div>
       <div className="record-explanation"><b>解析与订正</b><p>{question.explanation || '这道题的解析正在校对，校对完成后会在这里补齐。'}</p></div>

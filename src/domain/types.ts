@@ -37,6 +37,25 @@ export interface SourceEvidence {
   status: EvidenceStatus
 }
 
+export interface QuestionSourceInfo {
+  title: string
+  exam: string
+  year?: string | number | null
+  questionNo: string
+  locator: string
+  transcriptionPolicy?: 'verbatim_normalized' | 'source_image_authoritative'
+}
+
+export interface QuestionAssetRef {
+  kind: 'question_image' | 'formula_fallback' | 'source_scan' | 'analysis_image'
+  /** Opaque server asset identifier; never a local path or public URL. */
+  assetId: string
+  alt: string
+  sha256: string
+  width: number
+  height: number
+}
+
 export interface DataConflict {
   field: string
   values: Array<{ sourceId: string; value: unknown }>
@@ -105,6 +124,25 @@ export interface Question {
   scopeStatus: 'IN' | 'CTX-IN' | 'POSTPONE' | 'OUT'
   sourceKind: 'teacher_original' | 'licensed_local' | 'original_variant'
   imageUrl?: string | null
+  sourceInfo?: QuestionSourceInfo | null
+  assetRefs?: QuestionAssetRef[]
+  renderMode?: 'native' | 'image_assist' | 'image_primary'
+  /** Server-owned crop-and-render revision token; submitted back to prevent mid-round mutation. */
+  revisionToken?: string | null
+}
+
+/** Server-issued only after a High-3 licensed question's first answer is locked. */
+export interface QuestionFeedback {
+  questionId: string
+  selectedOption: number
+  correct: boolean
+  correctOption: number
+  uncertain: boolean
+  durationSec: number
+  explanation: string
+  scaffold?: string | null
+  analysisAssetRefs: QuestionAssetRef[]
+  revisionToken?: string | null
 }
 
 export interface KnowledgeCard {
@@ -235,6 +273,7 @@ export interface AttemptAnswer {
   uncertain: boolean
   durationSec: number
   selectedOption: number
+  revisionToken?: string | null
 }
 
 export interface LearningAttempt {
@@ -384,6 +423,12 @@ export interface LearningRecordQuestionEvidence {
   correctOption: number
   explanation: string
   imageUrl?: string | null
+  sourceKind?: Question['sourceKind'] | null
+  sourceInfo?: QuestionSourceInfo | null
+  assetRefs?: QuestionAssetRef[]
+  renderMode?: 'native' | 'image_assist' | 'image_primary'
+  revisionToken?: string | null
+  mode?: LearningMode
   correct: boolean
   uncertain: boolean
   durationSec: number

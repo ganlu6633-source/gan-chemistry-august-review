@@ -120,4 +120,23 @@ describe('LearningRound Enter shortcut', () => {
     fireEvent.keyDown(window, { key: 'Enter' })
     expect(onComplete).toHaveBeenCalledWith(dashboard)
   })
+
+  it('does not activate the main Enter shortcut from source-media controls or while its dialog is open', () => {
+    renderRound(2)
+    const mediaButton = document.createElement('button')
+    mediaButton.setAttribute('data-question-media-control', '')
+    document.body.append(mediaButton)
+    mediaButton.focus()
+    fireEvent.keyDown(mediaButton, { key: 'Enter' })
+    expect(screen.getByRole('heading', { name: '第一张知识卡' })).toBeInTheDocument()
+    mediaButton.remove()
+
+    const dialog = document.createElement('dialog')
+    dialog.setAttribute('data-question-media-dialog', '')
+    dialog.setAttribute('open', '')
+    document.body.append(dialog)
+    fireEvent.keyDown(window, { key: 'Enter' })
+    expect(screen.getByRole('heading', { name: '第一张知识卡' })).toBeInTheDocument()
+    dialog.remove()
+  })
 })

@@ -1,9 +1,11 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, Eye, Film, GraduationCap, KeyRound, LayoutDashboard, LogIn, MessageSquareText, MonitorPlay, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
-import type { GradeBand, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
+import type { GradeBand, QuestionAssetRef, QuestionSourceInfo, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
 import { loadTeacherDashboard, saveTeacherObservation, teacherApi } from '../lib/api'
 import { clearAccessSession, readAccessSession } from '../lib/session'
+import { ChemText } from './ChemText'
+import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { TeacherVideoManager } from './VideoLearning'
 
 type TeacherView = 'overview' | 'observation' | 'students' | 'preview' | 'videos' | 'plans' | 'questions' | 'settings'
@@ -182,13 +184,124 @@ function PlanEditor({ dashboard }: { dashboard: TeacherDashboardData }) {
   return <><div className="teacher-page-head"><div><span className="eyebrow">课程脑与考试脑的正式输入</span><h1>学习计划编辑器</h1></div></div><section className="teacher-panel"><p>课程节点只有经教师确认后才会参与选题。</p><div className="editor-summary"><div><b>{dashboard.pendingCourseNodes}</b><span>课程节点待审核</span></div><div><b>3</b><span>调度模式</span></div><div><b>8 / 10</b><span>默认 / 硬上限</span></div></div><div className="audit-list">{nodes.map((node) => <article key={node.id}><div><b>{node.title}</b><p>{node.grade_band} · {node.textbook_version} · {node.chapter}</p></div><button className="secondary-button" disabled={busy === node.id} onClick={() => void toggle(node)}>{node.teacher_approved ? '撤回批准' : '批准使用'}</button></article>)}</div></section></>
 }
 
-type QuestionAuditRow = { id: string; mother_id: string; skill_id: string; level: number; stem: string; review_status: string; scope_status: string }
-function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }) {
+type QuestionAuditRow = {
+  id: string
+  mother_id: string
+  skill_id: string
+  concept_key?: string | null
+  level: number
+  grade_band: GradeBand
+  stem: string
+  options: string[]
+  correct_option: number
+  explanation: string
+  scaffold?: string | null
+  review_status: 'draft' | 'needs_review' | 'approved' | 'retired'
+  scope_status: string
+  source_kind: 'teacher_original' | 'licensed_local' | 'original_variant'
+  source_info?: QuestionSourceInfo | null
+  asset_refs?: Array<QuestionAssetRef & { path?: string }>
+  render_mode?: 'native' | 'image_assist' | 'image_primary'
+  content_fingerprint?: string | null
+  source_release_id?: string | null
+  usable_for_review: boolean
+}
+
+type QuestionAuditResponse = {
+  questions: QuestionAuditRow[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+const reviewStatusLabel: Record<QuestionAuditRow['review_status'], string> = {
+  draft: '草稿',
+  needs_review: '待人工复核',
+  approved: '已批准',
+  retired: '已停用',
+}
+
+export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }) {
   const [questions, setQuestions] = useState<QuestionAuditRow[]>([])
   const [busy, setBusy] = useState('')
-  useEffect(() => { void teacherApi<{ questions: QuestionAuditRow[] }>('list_questions').then((r) => setQuestions(r.questions)) }, [])
-  async function review(id: string, reviewStatus: string) { setBusy(id); await teacherApi('review_question', { id, reviewStatus }); setQuestions((all) => all.map((q) => q.id === id ? { ...q, review_status: reviewStatus } : q)); setBusy('') }
-  return <><div className="teacher-page-head"><div><span className="eyebrow">draft绝不进入学生端</span><h1>题库审核</h1></div></div><section className="teacher-panel"><div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>检查化学正确性、唯一答案、题面完整、福建范围、图片与公式后才能批准。</p></div></div><div className="audit-list">{questions.map((q) => <article key={q.id}><div><b>{q.stem}</b><p>{q.skill_id} · L{q.level} · {q.scope_status} · {q.review_status}</p></div><div className="audit-actions"><button disabled={busy === q.id} onClick={() => void review(q.id, 'approved')}>批准</button><button disabled={busy === q.id} onClick={() => void review(q.id, 'needs_review')}>待复核</button><button disabled={busy === q.id} onClick={() => void review(q.id, 'retired')}>停用</button></div></article>)}</div></section></>
+  const [gradeBand, setGradeBand] = useState<'' | GradeBand>('高三')
+  const [reviewStatus, setReviewStatus] = useState<'' | QuestionAuditRow['review_status']>('')
+  const [sourceKind, setSourceKind] = useState<'' | QuestionAuditRow['source_kind']>('licensed_local')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const pageSize = 20
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    void teacherApi<QuestionAuditResponse>('list_questions', {
+      gradeBand: gradeBand || undefined,
+      reviewStatus: reviewStatus || undefined,
+      sourceKind: sourceKind || undefined,
+      page,
+      pageSize,
+    }).then((result) => {
+      if (!active) return
+      setQuestions(result.questions)
+      setTotal(result.total)
+    }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : '题库暂时无法读取。')
+    }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [gradeBand, page, reviewStatus, sourceKind])
+
+  async function review(id: string, nextStatus: QuestionAuditRow['review_status']) {
+    setBusy(id)
+    setError('')
+    try {
+      await teacherApi('review_question', { id, reviewStatus: nextStatus })
+      setQuestions((all) => all.map((question) => question.id === id ? { ...question, review_status: nextStatus, usable_for_review: nextStatus === 'approved' ? question.usable_for_review : false } : question))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '审核状态没有保存成功。')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  return <>
+    <div className="teacher-page-head"><div><span className="eyebrow">原题题面、答案、原解析与出处逐项核对</span><h1>题库审核</h1></div></div>
+    <section className="teacher-panel">
+      <div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>只有题面完整、答案唯一、原解析匹配、福建范围正确且原图校验通过，才允许进入高三复习。</p></div></div>
+      <div className="question-audit-filters" aria-label="题库筛选">
+        <label>年级<select value={gradeBand} onChange={(event) => { setGradeBand(event.target.value as '' | GradeBand); setPage(1) }}><option value="">全部</option><option value="高一">高一</option><option value="高二">高二</option><option value="高三">高三</option></select></label>
+        <label>来源<select value={sourceKind} onChange={(event) => { setSourceKind(event.target.value as '' | QuestionAuditRow['source_kind']); setPage(1) }}><option value="">全部</option><option value="licensed_local">本地资料原题</option><option value="teacher_original">教师原创</option><option value="original_variant">原创变式</option></select></label>
+        <label>状态<select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value as '' | QuestionAuditRow['review_status']); setPage(1) }}><option value="">全部</option><option value="needs_review">待人工复核</option><option value="approved">已批准</option><option value="retired">已停用</option><option value="draft">草稿</option></select></label>
+        <b>{total} 道</b>
+      </div>
+      {error && <div className="inline-alert" role="alert">{error}</div>}
+      {loading ? <div className="center-loading"><RefreshCw className="spin" />正在读取完整原题证据……</div> : <div className="question-audit-list">
+        {questions.map((question) => {
+          const refs = (question.asset_refs ?? []).map((ref) => ({ ...ref, assetId: ref.assetId || ref.path || '' })).filter((ref) => ref.assetId)
+          const sourceQuestion = { id: question.id, stem: question.stem, options: question.options, sourceInfo: question.source_info, assetRefs: refs, renderMode: question.render_mode }
+          const releaseManaged = Boolean(question.source_release_id)
+          return <details className="question-audit-card" key={question.id}>
+            <summary><div><span>{question.grade_band} · {question.skill_id} · L{question.level}</span><b><ChemText>{question.stem}</ChemText></b><small>{reviewStatusLabel[question.review_status]} · {question.scope_status} · {question.source_kind === 'licensed_local' ? '原题' : question.source_kind}</small></div><strong>{question.usable_for_review ? '复习中' : '未下发'}</strong></summary>
+            <div className="question-audit-detail">
+              {question.source_kind === 'licensed_local' && question.grade_band === '高三'
+                ? <QuestionSourceMedia question={sourceQuestion} enabled deferLoad readOnly feedback />
+                : <div className="question-audit-native"><h3>题干</h3><p><ChemText>{question.stem}</ChemText></p></div>}
+              <section><h3>文字辅助稿与答案</h3><p className="question-audit-transcript-note">复杂公式、结构式与装置图以原题图为准。</p><ol className="question-audit-options">{question.options.map((option, index) => <li className={index === question.correct_option ? 'is-answer' : ''} key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}</b><ChemText>{option}</ChemText>{index === question.correct_option && <span>正确答案</span>}</li>)}</ol></section>
+              <section className="question-audit-analysis"><h3>文字解析（原解析图为最终依据）</h3><p><ChemText>{question.explanation}</ChemText></p>{question.scaffold && <small>提示：<ChemText>{question.scaffold}</ChemText></small>}</section>
+              <dl className="question-audit-metadata"><div><dt>母题</dt><dd>{question.mother_id}</dd></div><div><dt>细概念</dt><dd>{question.concept_key || '待标注'}</dd></div><div><dt>内容指纹</dt><dd>{question.content_fingerprint ? `${question.content_fingerprint.slice(0, 12)}…` : '缺失'}</dd></div><div><dt>图片</dt><dd>{refs.filter((ref) => ref.kind !== 'analysis_image').length} 张题面 · {refs.filter((ref) => ref.kind === 'analysis_image').length} 张解析</dd></div></dl>
+              {releaseManaged && <p className="question-release-lock">该题属于已锁定的完整原题版本；可在这里逐项检查，但不能单题修改。需调整时应校对并发布整套新版本。</p>}
+              <div className="audit-actions"><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'approved')}>批准</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'needs_review')}>待复核</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'retired')}>停用</button></div>
+            </div>
+          </details>
+        })}
+        {!questions.length && <div className="directory-empty">当前筛选条件下没有题目。</div>}
+      </div>}
+      <div className="question-audit-pagination"><button className="secondary-button" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span>第 {page}/{pageCount} 页</span><button className="secondary-button" disabled={page >= pageCount || loading} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button></div>
+    </section>
+  </>
 }
 
 function AccessSettings({ dashboard }: { dashboard: TeacherDashboardData }) {

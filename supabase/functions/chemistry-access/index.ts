@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { selectAdaptiveQuestions } from "./adaptive.ts";
+import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHigh3Solution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -107,12 +108,158 @@ const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<strin
     isResolved, isComplete, roundsRemaining: isComplete ? 0 : Math.max(0, roundLimit - attempts.length),
   };
 };
-const questionShape = (row: Record<string, unknown>) => ({
-  id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key, level: row.level,
-  gradeBand: row.grade_band, stem: row.stem, options: row.options, correctOption: row.correct_option,
-  explanation: row.explanation, scaffold: row.scaffold, reviewStatus: row.review_status,
-  scopeStatus: row.scope_status, sourceKind: row.source_kind, imageUrl: row.image_url,
-});
+
+function questionSourceInfo(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const title = String(source.title || "").trim();
+  const exam = String(source.exam || "").trim();
+  const questionNo = String(source.questionNo || "").trim();
+  const locator = String(source.locator || "").trim();
+  if (!title || !exam || !questionNo || !locator) return null;
+  return {
+    title,
+    exam,
+    year: source.year === null || source.year === undefined ? null : String(source.year),
+    questionNo,
+    locator,
+    transcriptionPolicy: source.transcriptionPolicy === "verbatim_normalized"
+      ? "verbatim_normalized"
+      : "source_image_authoritative",
+  };
+}
+
+function questionAssetRefs(value: unknown, includeAnalysis = false) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+    const asset = candidate as Record<string, unknown>;
+    const path = String(asset.path || "");
+    const kind = String(asset.kind || "");
+    const alt = String(asset.alt || "").trim();
+    const sha256 = String(asset.sha256 || "");
+    const width = Number(asset.width);
+    const height = Number(asset.height);
+    if (
+      !/^[a-zA-Z0-9/_-]{16,200}$/.test(path)
+      || !["question_image", "formula_fallback", "source_scan", "analysis_image"].includes(kind)
+      || (kind === "analysis_image" && !includeAnalysis)
+      || !alt
+      || !/^[0-9a-f]{64}$/.test(sha256)
+      || !Number.isInteger(width)
+      || !Number.isInteger(height)
+    ) return [];
+    return [{ kind, assetId: path, alt, sha256, width, height }];
+  });
+}
+
+function matchingRawAssetRef(
+  value: unknown,
+  assetId: string,
+  asset: Record<string, unknown>,
+) {
+  return matchingSourceAssetRef(value, assetId, asset);
+}
+
+function sourceIdentity(row: Record<string, unknown> | null | undefined) {
+  if (!row) return { sourceItemKey: null as string | null, contentFingerprint: null as string | null };
+  const sourceItemKey = String(row.source_item_key || row.sourceItemKey || "").trim() || null;
+  const contentFingerprint = String(
+    row.content_fingerprint || row.contentFingerprint || "",
+  ).trim() || null;
+  return { sourceItemKey, contentFingerprint };
+}
+
+type SourceAdaptiveQuestion = Record<string, unknown> & {
+  id: string;
+  mother_id?: string;
+  skill_id: string;
+  concept_key?: string | null;
+  level: number;
+  source_item_key?: string | null;
+  content_fingerprint?: string | null;
+  question_revision_token?: string | null;
+};
+
+type SourceAdaptiveHistory = Record<string, unknown> & {
+  attempt_id: string;
+  question_id: string;
+  mother_id?: string | null;
+  skill_id?: string | null;
+  concept_key?: string | null;
+  source_item_key?: string | null;
+  content_fingerprint?: string | null;
+  attempt_sequence?: number | null;
+  correct: boolean;
+  uncertain?: boolean | null;
+  question_snapshot?: unknown;
+};
+
+function sourceDistinctQuestionPool<T extends Record<string, unknown>>(
+  questions: T[],
+  history: Array<Record<string, unknown>>,
+): T[] {
+  const usedSourceItems = new Set<string>();
+  const usedFingerprints = new Set<string>();
+  for (const answer of history) {
+    const identity = sourceIdentity(answer);
+    if (identity.sourceItemKey) usedSourceItems.add(identity.sourceItemKey);
+    if (identity.contentFingerprint) usedFingerprints.add(identity.contentFingerprint);
+  }
+  const candidateSourceItems = new Set<string>();
+  const candidateFingerprints = new Set<string>();
+  return questions.filter((question) => {
+    const identity = sourceIdentity(question);
+    if (
+      (identity.sourceItemKey && (usedSourceItems.has(identity.sourceItemKey) || candidateSourceItems.has(identity.sourceItemKey)))
+      || (identity.contentFingerprint && (usedFingerprints.has(identity.contentFingerprint) || candidateFingerprints.has(identity.contentFingerprint)))
+    ) return false;
+    if (identity.sourceItemKey) candidateSourceItems.add(identity.sourceItemKey);
+    if (identity.contentFingerprint) candidateFingerprints.add(identity.contentFingerprint);
+    return true;
+  });
+}
+
+function isLicensedHigh3Question(row: Record<string, unknown>) {
+  return row.grade_band === "高三" && row.source_kind === "licensed_local";
+}
+
+const questionShape = (row: Record<string, unknown>, secureLicensedHigh3Review = false) => {
+  const hideSolution = shouldHideLicensedHigh3Solution(row, secureLicensedHigh3Review);
+  return {
+    id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key, level: row.level,
+    gradeBand: row.grade_band, stem: row.stem, options: row.options,
+    ...issuedSolutionFields(row, hideSolution),
+    reviewStatus: row.review_status, scopeStatus: row.scope_status, sourceKind: row.source_kind,
+    imageUrl: row.image_url, sourceInfo: questionSourceInfo(row.source_info),
+    // Answer-bearing analysis references are issued only by question_feedback
+    // after the server has atomically locked the student's first selection.
+    assetRefs: issuedAssetRefs(questionAssetRefs(row.asset_refs, true), hideSolution),
+    renderMode: ["native", "image_assist", "image_primary"].includes(String(row.render_mode)) ? row.render_mode : "native",
+    revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
+  };
+};
+
+function questionFeedbackShape(
+  row: Record<string, unknown>,
+  selectedOption: number,
+  answerMeta: { uncertain?: boolean; durationSec?: number } = {},
+) {
+  const correctOption = Number(row.correct_option);
+  return {
+    questionId: String(row.id),
+    selectedOption,
+    uncertain: answerMeta.uncertain === true,
+    durationSec: Number.isFinite(answerMeta.durationSec) ? Number(answerMeta.durationSec) : 0,
+    correct: selectedOption === correctOption,
+    correctOption,
+    explanation: String(row.explanation || ""),
+    scaffold: row.scaffold ? String(row.scaffold) : null,
+    analysisAssetRefs: questionAssetRefs(row.asset_refs, true)
+      .filter((asset) => asset.kind === "analysis_image"),
+    revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
+  };
+}
 const cardShape = (row: Record<string, unknown>) => ({
   id: row.id, skillId: row.skill_id, title: row.title, core: row.core, detail: row.detail,
   steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
@@ -296,6 +443,11 @@ function historicalQuestion(
       correctOption: -1,
       explanation: "题目已退出当前题库，系统不会用现在的题目内容改写这次历史作答。",
       imageUrl: null as string | null,
+      sourceKind: null as string | null,
+      sourceInfo: null,
+      assetRefs: [],
+      renderMode: "native",
+      revisionToken: null as string | null,
       snapshotAvailable: false,
       currentQuestionStatus: currentStatus,
     };
@@ -306,6 +458,17 @@ function historicalQuestion(
     correctOption: Number(source.correctOption ?? source.correct_option),
     explanation: String(source.explanation || "本次作答的解析暂不可显示。"),
     imageUrl: source.imageUrl || source.image_url ? String(source.imageUrl || source.image_url) : null,
+    sourceKind: source.sourceKind || source.source_kind ? String(source.sourceKind || source.source_kind) : null,
+    sourceInfo: questionSourceInfo(source.sourceInfo || source.source_info),
+    // A historical answer is already submitted evidence, so its complete
+    // source-backed record may include the worked-solution image.
+    assetRefs: questionAssetRefs(source.assetRefs || source.asset_refs, true),
+    renderMode: ["native", "image_assist", "image_primary"].includes(String(source.renderMode || source.render_mode))
+      ? String(source.renderMode || source.render_mode)
+      : "native",
+    revisionToken: source.revisionToken || source.question_revision_token
+      ? String(source.revisionToken || source.question_revision_token)
+      : null,
     snapshotAvailable: Boolean(snapshot),
     currentQuestionStatus: currentStatus,
   };
@@ -347,6 +510,7 @@ async function studentLearningRecord(studentId: string) {
   const profile = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single();
   if (profile.error) throw profile.error;
   const gradeBand = String(profile.data.grade_band);
+  const demoProfile = (profile.data.metadata as Record<string, unknown> | null)?.demo === true;
   const attemptHistoryLimit = 500;
   const answerHistoryLimit = 500;
   const recentQuestionsPerSkillLimit = 20;
@@ -354,7 +518,7 @@ async function studentLearningRecord(studentId: string) {
     supabase.from("chem_skills").select("id,title,module_id,max_level").eq("active", true).eq("grade_band", gradeBand).order("module_id"),
     supabase.from("chem_student_skill_state").select("skill_id,verified_level,candidate_level,stability,next_review_at,last_reviewed_at,teacher_intervention").eq("student_id", studentId),
     supabase.from("chem_learning_plans").select("id,plan_date,title,skill_ids,knowledge_summaries").eq("student_id", studentId).order("plan_date"),
-    supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at", { count: "exact" }).eq("student_id", studentId).order("completed_at", { ascending: false }).limit(attemptHistoryLimit),
+    supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at,mode", { count: "exact" }).eq("student_id", studentId).order("completed_at", { ascending: false }).limit(attemptHistoryLimit),
     supabase.from("chem_knowledge_cards").select("id,skill_id,title,core,steps,structured_content").eq("review_status", "approved"),
   ]);
   for (const result of [skillsResult, statesResult, plansResult, attemptsResult, cardsResult]) if (result.error) throw result.error;
@@ -371,7 +535,7 @@ async function studentLearningRecord(studentId: string) {
   const questionIds = [...new Set(answers.map((answer) => String(answer.question_id)))];
   const questionsResult = questionIds.length
     ? await supabase.from("chem_questions")
-      .select("id,mother_id,skill_id,level,stem,options,correct_option,explanation,image_url,review_status,scope_status")
+      .select("id,mother_id,skill_id,level,stem,options,correct_option,explanation,image_url,source_kind,source_info,asset_refs,render_mode,content_fingerprint,question_revision_token,review_status,scope_status")
       .in("id", questionIds)
     : { data: [], error: null };
   if (questionsResult.error) throw questionsResult.error;
@@ -381,6 +545,7 @@ async function studentLearningRecord(studentId: string) {
   const plans = plansResult.data || [];
   const stateBySkill = new Map(states.map((state) => [String(state.skill_id), state]));
   const questionById = new Map((questionsResult.data || []).map((question) => [String(question.id), question]));
+  const attemptById = new Map(attempts.map((attempt) => [String(attempt.id), attempt]));
   const cohort = String(profile.data.metadata?.curriculumCohort || "");
   const confirmedSkillIds = Array.isArray(profile.data.metadata?.confirmedLearnedSkillIds)
     ? profile.data.metadata.confirmedLearnedSkillIds.map(String).filter(Boolean)
@@ -398,11 +563,16 @@ async function studentLearningRecord(studentId: string) {
     const allQuestionEvidence = skillAnswers.map((answer) => {
       const question = questionById.get(String(answer.question_id));
       const historical = historicalQuestion(answer, question);
+      if (demoProfile && historical.sourceKind === "licensed_local") return [];
       return [{
         questionId: String(answer.question_id), motherId: String(answer.mother_id || question?.mother_id || ""), level: Number(answer.level),
         stem: historical.stem, options: historical.options,
         selectedOption: Number(answer.selected_option), correctOption: historical.correctOption, explanation: historical.explanation,
         imageUrl: historical.imageUrl, correct: Boolean(answer.correct), uncertain: Boolean(answer.uncertain),
+        sourceKind: historical.sourceKind, sourceInfo: historical.sourceInfo,
+        assetRefs: historical.assetRefs, renderMode: historical.renderMode,
+        revisionToken: historical.revisionToken,
+        mode: String(attemptById.get(String(answer.attempt_id))?.mode || "REVIEW"),
         durationSec: Number(answer.duration_sec) || 0, answeredAt: String(answer.created_at),
         snapshotAvailable: historical.snapshotAvailable, currentQuestionStatus: historical.currentQuestionStatus,
       }];
@@ -599,6 +769,7 @@ async function demoStudentForGrade(currentStudentId: string, gradeBand: string) 
 type StartPlanOptions = {
   allowCompletedPreview?: boolean;
   previewRound?: number;
+  includeAnswerLocks?: boolean;
 };
 
 async function startPlanPayload(studentId: string, planId: string, options: StartPlanOptions = {}) {
@@ -609,8 +780,9 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     .eq("student_id", studentId)
     .single();
   if (planError) throw planError;
-  const gradeResult = await supabase.from("chem_students_v2").select("grade_band").eq("id", studentId).single();
+  const gradeResult = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single();
   if (gradeResult.error) throw gradeResult.error;
+  const demoProfile = (gradeResult.data.metadata as Record<string, unknown> | null)?.demo === true;
   const skillIds: string[] = Array.isArray(plan.skill_ids)
     ? (plan.skill_ids as unknown[]).map((skillId) => String(skillId)).filter(Boolean)
     : [];
@@ -633,9 +805,29 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     .in("skill_id", skillIds)
     .eq("review_status", "approved")
     .eq("scope_status", "IN")
-    .not("mother_id", "is", null)
-    .eq(questionUsageColumn, true);
+    .not("mother_id", "is", null);
   if (plan.mode === "REVIEW") eligibleQuestions = eligibleQuestions.not("concept_key", "is", null);
+  const demoHigh3Review = demoProfile && plan.mode === "REVIEW" && gradeResult.data.grade_band === "高三";
+  if (demoHigh3Review) {
+    // Public demo identities never enumerate copyrighted local originals or
+    // their private asset identifiers. They use a separately approved,
+    // teacher-authored demo pool with ordinary local feedback. This pool is
+    // deliberately independent of the production usable_for_review flag.
+    eligibleQuestions = eligibleQuestions
+      .eq("source_kind", "teacher_original")
+      .eq("usable_for_demo", true);
+  } else {
+    eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true);
+    if (plan.mode === "REVIEW" && gradeResult.data.grade_band === "高三") {
+      // Real High-3 REVIEW and teacher preview of a real student are
+      // source-only by product policy. Fail closed if a generated row is
+      // accidentally re-enabled later.
+      eligibleQuestions = eligibleQuestions
+        .eq("source_kind", "licensed_local")
+        .eq("render_mode", "image_primary")
+        .not("source_release_id", "is", null);
+    }
+  }
   if (maxQuestionLevel !== null) eligibleQuestions = eligibleQuestions.lte("level", maxQuestionLevel);
   // The adaptive selector uses the source index as its final deterministic
   // tie-breaker. Ordering by the immutable question id keeps the five issued
@@ -656,14 +848,28 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   // another round of the same plan day.
   const attemptIds = attempts.map((attempt) => String(attempt.id));
   const history = attemptIds.length
-    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,concept_key,correct,uncertain").in("attempt_id", attemptIds).in("skill_id", skillIds)
+    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,concept_key,correct,uncertain,question_snapshot").in("attempt_id", attemptIds).in("skill_id", skillIds)
     : { data: [], error: null };
   if (history.error) throw history.error;
+  const historyQuestionIds = [...new Set((history.data || []).map((answer) => String(answer.question_id)).filter(Boolean))];
+  const historyQuestionMetadata = historyQuestionIds.length
+    ? await supabase.from("chem_questions").select("id,source_item_key,content_fingerprint").in("id", historyQuestionIds)
+    : { data: [], error: null };
+  if (historyQuestionMetadata.error) throw historyQuestionMetadata.error;
+  const historicalIdentityByQuestionId = new Map(
+    (historyQuestionMetadata.data || []).map((question) => [String(question.id), sourceIdentity(question)]),
+  );
   const sequenceByAttemptId = new Map(attempts.map((attempt) => [String(attempt.id), Number(attempt.sequence)]));
-  const historyRows = (history.data || []).map((answer) => ({
-    ...answer,
-    attempt_sequence: sequenceByAttemptId.get(String(answer.attempt_id)) ?? null,
-  }));
+  const historyRows: SourceAdaptiveHistory[] = (history.data || []).map((answer) => {
+    const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
+    const currentIdentity = historicalIdentityByQuestionId.get(String(answer.question_id));
+    return {
+      ...answer,
+      source_item_key: String(snapshot?.sourceItemKey || currentIdentity?.sourceItemKey || "") || null,
+      content_fingerprint: String(snapshot?.contentFingerprint || currentIdentity?.contentFingerprint || "") || null,
+      attempt_sequence: sequenceByAttemptId.get(String(answer.attempt_id)) ?? null,
+    };
+  });
   const latestAttemptId = attempts.at(-1)?.id ? String(attempts.at(-1)?.id) : null;
   const latestAnswers = latestAttemptId
     ? historyRows.filter((answer) => String(answer.attempt_id) === latestAttemptId)
@@ -686,17 +892,17 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       ? Math.max(0, Math.min(actualAttemptCount, roundLimit) - 1)
       : Math.min(actualAttemptCount, roundLimit - 1);
   const roundNumber = selectionSequence + 1;
-  let selectionHistory = historyRows;
-  let adaptiveQuestions;
+  const questionPool = (questions.data || []) as SourceAdaptiveQuestion[];
+  let selectionHistory: SourceAdaptiveHistory[] = historyRows;
+  let adaptiveQuestions: SourceAdaptiveQuestion[] = [];
   if (options.previewRound !== undefined) {
     // Preview/demo answers are intentionally not stored. Reconstruct every
     // preceding preview round as virtual unresolved evidence so rounds 2-5
     // still contain completely different questions and mother questions.
     selectionHistory = [];
-    adaptiveQuestions = [];
     for (let previewIndex = 0; previewIndex <= selectionSequence; previewIndex += 1) {
       adaptiveQuestions = selectAdaptiveQuestions(
-        questions.data || [],
+        sourceDistinctQuestionPool(questionPool, selectionHistory),
         states.data || [],
         selectionHistory,
         previewIndex,
@@ -712,6 +918,8 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
             mother_id: question.mother_id ? String(question.mother_id) : null,
             skill_id: String(question.skill_id),
             concept_key: question.concept_key ? String(question.concept_key) : null,
+            source_item_key: question.source_item_key ? String(question.source_item_key) : null,
+            content_fingerprint: question.content_fingerprint ? String(question.content_fingerprint) : null,
             attempt_sequence: previewIndex,
             correct: false,
             uncertain: true,
@@ -721,7 +929,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     }
   } else {
     adaptiveQuestions = selectAdaptiveQuestions(
-      questions.data || [],
+      sourceDistinctQuestionPool(questionPool, selectionHistory),
       states.data || [],
       selectionHistory,
       selectionSequence,
@@ -733,6 +941,35 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       422,
       `第 ${roundNumber} 轮需要 ${questionCount} 道今天从未出现过的已审核题，但当前只有 ${adaptiveQuestions.length} 道新母题；题库变式不足，本轮已停止并通知甘老师。`,
     );
+  }
+  let lockedFeedback: Array<Record<string, unknown>> = [];
+  if (options.includeAnswerLocks && plan.mode === "REVIEW") {
+    const securedIds = adaptiveQuestions
+      .filter((question) => isLicensedHigh3Question(question))
+      .map((question) => String(question.id));
+    if (securedIds.length) {
+      const lockResult = await supabase.rpc("chem_get_question_answer_locks", {
+        p_student_id: studentId,
+        p_plan_day_id: String(plan.id),
+        p_attempt_sequence: selectionSequence,
+        p_question_ids: securedIds,
+      });
+      if (lockResult.error) throw lockResult.error;
+      const questionById = new Map(adaptiveQuestions.map((question) => [String(question.id), question]));
+      lockedFeedback = ((lockResult.data || []) as Array<Record<string, unknown>>).map((lock) => {
+        const question = questionById.get(String(lock.question_id));
+        if (!question) throw new RequestError(409, "已锁定答案与当前题组不一致，请联系甘老师处理。");
+        const expectedRevisionToken = question.question_revision_token ? String(question.question_revision_token) : null;
+        const lockedRevisionToken = lock.revision_token ? String(lock.revision_token) : null;
+        if (lockedRevisionToken !== expectedRevisionToken) {
+          throw new RequestError(409, "原题在中断期间已经更新，请联系甘老师处理本轮记录。");
+        }
+        return questionFeedbackShape(question, Number(lock.selected_option), {
+          uncertain: lock.uncertain === true,
+          durationSec: Number(lock.duration_sec) || 0,
+        });
+      });
+    }
   }
   const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
   const orderedCards = [...(cards.data || [])].sort((a, b) => (cardOrder.get(a.skill_id) ?? 99) - (cardOrder.get(b.skill_id) ?? 99));
@@ -746,7 +983,8 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   return {
     plan: planShape(plan, planAttemptRows),
     cards: orderedCards.map(cardShape),
-    questions: adaptiveQuestions.map(questionShape),
+    questions: adaptiveQuestions.map((question) => questionShape(question, plan.mode === "REVIEW")),
+    lockedFeedback,
     attemptSequence: selectionSequence,
     roundNumber,
     roundLimit,
@@ -811,6 +1049,337 @@ Deno.serve(async (req: Request) => {
 
     const identity = await authenticate(req);
     if (!identity) return reply(req, { error: "登录已失效，请重新输入访问码。" }, 401);
+
+    if (body.action === "question_asset") {
+      const questionId = String(body.data?.questionId || "");
+      const assetId = String(body.data?.assetId || "");
+      const phase = String(body.data?.phase || "");
+      if (
+        !/^[a-zA-Z0-9_-]{1,160}$/.test(questionId)
+        || !/^[a-zA-Z0-9/_-]{16,200}$/.test(assetId)
+        || !["question", "analysis"].includes(phase)
+      ) {
+        return reply(req, { error: "原题图片请求无效。" }, 400);
+      }
+
+      // Students and guardians are restricted to their bound profile. Demo
+      // sessions may target only another demo profile through resolveDemoTarget.
+      // Teacher sessions may inspect every High-3 source question.
+      let assetStudentId = identity.studentId;
+      if (identity.role !== "teacher") {
+        if (!identity.studentId) return reply(req, { error: "无权读取该原题图片。" }, 403);
+        if (identity.role === "student") {
+          assetStudentId = await resolveDemoTarget(
+            identity.studentId,
+            body.data?.studentId ? String(body.data.studentId) : undefined,
+          );
+        }
+        if (!assetStudentId) return reply(req, { error: "无权读取该原题图片。" }, 403);
+        const profile = await supabase
+          .from("chem_students_v2")
+          .select("grade_band,record_status,metadata")
+          .eq("id", assetStudentId)
+          .maybeSingle();
+        if (profile.error) throw profile.error;
+        if (!profile.data || profile.data.grade_band !== "高三" || profile.data.record_status !== "active") {
+          return reply(req, { error: "无权读取该原题图片。" }, 403);
+        }
+        if ((profile.data.metadata as Record<string, unknown> | null)?.demo === true) {
+          return reply(req, { error: "演示账号不提供本地授权原题或解析图片。" }, 403);
+        }
+      }
+
+      const assetsResult = await supabase.rpc("chem_get_question_assets", { p_asset_paths: [assetId] });
+      if (assetsResult.error) throw assetsResult.error;
+      const asset = Array.isArray(assetsResult.data)
+        ? assetsResult.data[0] as Record<string, unknown> | undefined
+        : undefined;
+      if (!asset || String(asset.question_id || "") !== questionId) {
+        return reply(req, { error: "原题图片不存在。" }, 404);
+      }
+      const questionResult = await supabase
+        .from("chem_questions")
+        .select("id,grade_band,scope_status,source_kind,review_status,usable_for_review,asset_refs,question_revision_token")
+        .eq("id", questionId)
+        .maybeSingle();
+      if (questionResult.error) throw questionResult.error;
+      const question = questionResult.data as Record<string, unknown> | null;
+      const currentMatchingRef = question
+        ? matchingRawAssetRef(question.asset_refs, assetId, asset)
+        : null;
+      if (
+        !question
+        || question.grade_band !== "高三"
+        || question.source_kind !== "licensed_local"
+      ) {
+        return reply(req, { error: "原题图片不存在。" }, 404);
+      }
+      const isAnalysis = String(asset.asset_kind) === "analysis_image";
+      const structuralPhaseStatus = sourceAssetPhaseStatus({
+        phase,
+        assetKind: String(asset.asset_kind),
+        role: "teacher",
+        hasCompletedAnswer: true,
+      });
+      if (structuralPhaseStatus !== 200) {
+        return reply(req, { error: "原题图片阶段不匹配。" }, 409);
+      }
+      if (identity.role !== "teacher") {
+        // Persisted evidence permits a historical read. Without it, a student
+        // question image must belong to the exact set the server just issued;
+        // an analysis image requires the server-owned first-answer lock. A
+        // guardian never receives current-round assets.
+        const evidence = await supabase
+          .from("chem_attempt_answers")
+          .select("id,question_snapshot,chem_learning_attempts!inner(student_id,completed_at)")
+          .eq("question_id", questionId)
+          .eq("chem_learning_attempts.student_id", assetStudentId)
+          .not("chem_learning_attempts.completed_at", "is", null)
+          .limit(20);
+        if (evidence.error) throw evidence.error;
+        const hasCompletedAnswer = (evidence.data || []).some((answer) => {
+          const snapshot = validQuestionSnapshot(answer.question_snapshot)
+            ? answer.question_snapshot
+            : null;
+          return Boolean(snapshot && matchingRawAssetRef(
+            snapshot.assetRefs || snapshot.asset_refs,
+            assetId,
+            asset,
+          ));
+        });
+        const currentAssetEligible = Boolean(currentMatchingRef)
+          && question.review_status === "approved"
+          && question.scope_status === "IN"
+          && question.usable_for_review === true;
+        let hasLockedAnswer = false;
+        if (!hasCompletedAnswer && isAnalysis && identity.role === "student") {
+          const planId = String(body.data?.planId || "");
+          const attemptSequence = body.data?.attemptSequence;
+          const suppliedRevisionToken = body.data?.revisionToken === null || body.data?.revisionToken === undefined
+            ? null
+            : String(body.data.revisionToken);
+          const expectedRevisionToken = question.question_revision_token
+            ? String(question.question_revision_token)
+            : null;
+          if (
+            validUuid(planId)
+            && Number.isInteger(attemptSequence)
+            && attemptSequence >= 0
+            && attemptSequence <= 7
+            && suppliedRevisionToken === expectedRevisionToken
+            && currentMatchingRef
+          ) {
+            const lockEvidence = await supabase.rpc("chem_has_current_question_answer_lock", {
+              p_student_id: assetStudentId,
+              p_plan_day_id: planId,
+              p_attempt_sequence: attemptSequence,
+              p_question_id: questionId,
+              p_revision_token: expectedRevisionToken,
+            });
+            if (lockEvidence.error) throw lockEvidence.error;
+            hasLockedAnswer = lockEvidence.data === true;
+          }
+        }
+        const phaseAccessStatus = sourceAssetPhaseStatus({
+          phase,
+          assetKind: String(asset.asset_kind),
+          role: identity.role,
+          hasCompletedAnswer,
+          hasLockedAnswer,
+        });
+        if (phaseAccessStatus === 403) {
+          return reply(req, { error: "先提交这道题的第一次选择，才能查看原题解析图。" }, 403);
+        }
+        if (!isAnalysis && !hasCompletedAnswer) {
+          if (!currentAssetEligible) {
+            return reply(req, { error: "原题图片不存在。" }, 404);
+          }
+          let isExpectedCurrentQuestion = false;
+          let revisionMatches = false;
+          const planId = String(body.data?.planId || "");
+          const attemptSequence = body.data?.attemptSequence;
+          const suppliedRevisionToken = body.data?.revisionToken === null || body.data?.revisionToken === undefined
+            ? null
+            : String(body.data.revisionToken);
+          const expectedRevisionToken = question.question_revision_token
+            ? String(question.question_revision_token)
+            : null;
+          revisionMatches = suppliedRevisionToken === expectedRevisionToken;
+          if (
+            identity.role === "student"
+            && validUuid(planId)
+            && Number.isInteger(attemptSequence)
+            && attemptSequence >= 0
+            && attemptSequence <= 7
+            && revisionMatches
+          ) {
+            const previewRound = body.data?.previewRound === undefined ? undefined : Number(body.data.previewRound);
+            const demoTarget = await isDemoStudent(assetStudentId!);
+            if (previewRound === undefined || demoTarget) {
+              try {
+                const expectedPayload = await startPlanPayload(
+                  assetStudentId!,
+                  planId,
+                  demoTarget ? { allowCompletedPreview: true, previewRound } : {},
+                );
+                isExpectedCurrentQuestion = expectedPayload.plan.mode === "REVIEW"
+                  && Number(expectedPayload.attemptSequence) === Number(attemptSequence)
+                  && (expectedPayload.questions as Array<Record<string, unknown>>).some((candidate) =>
+                    String(candidate.id) === questionId
+                    && String(candidate.revisionToken || "") === String(expectedRevisionToken || "")
+                  );
+              } catch {
+                isExpectedCurrentQuestion = false;
+              }
+            }
+          }
+          const questionPhaseStatus = sourceQuestionPhaseStatus({
+            role: identity.role,
+            hasCompletedAnswer,
+            isExpectedCurrentQuestion,
+            revisionMatches,
+          });
+          if (questionPhaseStatus !== 200) {
+            return reply(req, { error: "这张原题图不属于当前账号正在作答的本轮题组。" }, 403);
+          }
+        }
+      }
+      const mimeType = String(asset.mime_type || "");
+      const payloadBase64 = String(asset.payload_base64 || "");
+      if (!/^image\/(png|jpeg|webp)$/.test(mimeType) || !payloadBase64) {
+        return reply(req, { error: "原题图片数据无效。" }, 500);
+      }
+      // Never echo asset_path, question_id, local paths, signed URLs, or any
+      // other storage locator.  assetId is an opaque request capability only.
+      return reply(req, {
+        asset: {
+          kind: String(asset.asset_kind),
+          mimeType,
+          dataUrl: `data:${mimeType};base64,${payloadBase64}`,
+          sha256: String(asset.sha256),
+          width: Number(asset.width),
+          height: Number(asset.height),
+        },
+      });
+    }
+
+    if (body.action === "question_feedback") {
+      if (identity.role === "guardian") return reply(req, { error: "家长端不能代替学生作答。" }, 403);
+      const planId = String(body.data?.planId || "");
+      const questionId = String(body.data?.questionId || "");
+      const selectedOption = body.data?.selectedOption;
+      const submittedRevisionToken = body.data?.revisionToken === null || body.data?.revisionToken === undefined
+        ? null
+        : String(body.data.revisionToken);
+      const previewRound = body.data?.previewRound === undefined ? undefined : Number(body.data.previewRound);
+      if (
+        !validUuid(planId)
+        || !/^[a-zA-Z0-9_-]{1,160}$/.test(questionId)
+        || !Number.isInteger(selectedOption)
+        || selectedOption < 0
+        || selectedOption > 9
+      ) return reply(req, { error: "答题反馈请求无效。" }, 400);
+
+      let targetId: string | null = null;
+      let readOnlyPreview = false;
+      if (identity.role === "teacher") {
+        targetId = String(body.data?.studentId || "");
+        readOnlyPreview = true;
+      } else if (identity.role === "student" && identity.studentId) {
+        targetId = await resolveDemoTarget(
+          identity.studentId,
+          body.data?.studentId ? String(body.data.studentId) : undefined,
+        );
+        if (targetId) readOnlyPreview = await isDemoStudent(targetId);
+        if (previewRound !== undefined && !readOnlyPreview) {
+          return reply(req, { error: "真实学习记录不能指定练习轮次。" }, 403);
+        }
+      }
+      if (!targetId || !validUuid(targetId)) return reply(req, { error: "无权提交该题答案。" }, 403);
+      if (await isDemoStudent(targetId)) {
+        return reply(req, { error: "演示账号使用独立安全题库，不提供本地授权原题反馈。" }, 403);
+      }
+
+      const payload = await startPlanPayload(
+        targetId,
+        planId,
+        readOnlyPreview ? { allowCompletedPreview: true, previewRound } : {},
+      );
+      if (payload.plan.mode !== "REVIEW") return reply(req, { error: "该反馈接口只用于高三原题复习。" }, 409);
+      const issuedQuestion = (payload.questions as Array<Record<string, unknown>>)
+        .find((candidate) => String(candidate.id) === questionId);
+      if (
+        !issuedQuestion
+        || issuedQuestion.gradeBand !== "高三"
+        || issuedQuestion.sourceKind !== "licensed_local"
+      ) return reply(req, { error: "这道题不属于服务器刚刚生成的本轮原题。" }, 409);
+      const issuedOptions = Array.isArray(issuedQuestion.options) ? issuedQuestion.options : [];
+      if (selectedOption >= issuedOptions.length) return reply(req, { error: "答案选项无效。" }, 400);
+      const expectedRevisionToken = issuedQuestion.revisionToken
+        ? String(issuedQuestion.revisionToken)
+        : null;
+      if (submittedRevisionToken !== expectedRevisionToken) {
+        return reply(req, { error: "原题内容已经更新，请重新打开本轮练习后再作答。" }, 409);
+      }
+
+      const questionResult = await supabase
+        .from("chem_questions")
+        .select("id,grade_band,source_kind,correct_option,explanation,scaffold,asset_refs,question_revision_token")
+        .eq("id", questionId)
+        .eq("grade_band", "高三")
+        .eq("source_kind", "licensed_local")
+        .eq("review_status", "approved")
+        .eq("scope_status", "IN")
+        .maybeSingle();
+      if (questionResult.error) throw questionResult.error;
+      if (!questionResult.data) return reply(req, { error: "原题已经退出当前题库，请重新打开本轮练习。" }, 409);
+      const currentRevisionToken = questionResult.data.question_revision_token
+        ? String(questionResult.data.question_revision_token)
+        : null;
+      if (currentRevisionToken !== expectedRevisionToken) {
+        return reply(req, { error: "原题内容已经更新，请重新打开本轮练习后再作答。" }, 409);
+      }
+
+      let lockedOption = selectedOption as number;
+      let lockedUncertain = body.data?.uncertain === true;
+      const rawFeedbackDuration = Number(body.data?.durationSec);
+      let lockedDurationSec = Number.isFinite(rawFeedbackDuration)
+        ? Math.min(3600, Math.max(0, Math.round(rawFeedbackDuration)))
+        : 0;
+      if (!readOnlyPreview) {
+        const lockResult = await supabase.rpc("chem_lock_question_answer", {
+          p_student_id: targetId,
+          p_plan_day_id: planId,
+          p_attempt_sequence: Number(payload.attemptSequence),
+          p_question_id: questionId,
+          p_selected_option: selectedOption,
+          p_uncertain: body.data?.uncertain === true,
+          p_duration_sec: lockedDurationSec,
+          p_revision_token: expectedRevisionToken,
+        });
+        if (lockResult.error) throw lockResult.error;
+        const locked = Array.isArray(lockResult.data)
+          ? lockResult.data[0] as Record<string, unknown> | undefined
+          : undefined;
+        if (!locked) throw new RequestError(500, "答案暂时无法锁定，请稍后重试。");
+        lockedOption = Number(locked.selected_option);
+        lockedUncertain = locked.uncertain === true;
+        lockedDurationSec = Number(locked.duration_sec) || 0;
+        const lockedRevisionToken = locked.revision_token ? String(locked.revision_token) : null;
+        if (lockedOption !== selectedOption || lockedRevisionToken !== expectedRevisionToken) {
+          return reply(req, { error: "这道题已经按第一次提交的选项锁定，不能更换答案。" }, 409);
+        }
+      }
+
+      return reply(req, {
+        feedback: questionFeedbackShape(questionResult.data, lockedOption, {
+          uncertain: lockedUncertain,
+          durationSec: lockedDurationSec,
+        }),
+        simulated: readOnlyPreview,
+      });
+    }
+
     if (body.action === "student_dashboard" && identity.role === "student" && identity.studentId) return reply(req, { dashboard: await studentDashboard(identity.studentId) });
     if (body.action === "guardian_dashboard" && identity.role === "guardian" && identity.studentId) return reply(req, { dashboard: await guardianDashboard(identity.studentId) });
 
@@ -926,7 +1495,11 @@ Deno.serve(async (req: Request) => {
       const demo = await isDemoStudent(targetId);
       if (previewRound !== undefined && !demo) return reply(req, { error: "真实学习记录不能指定练习轮次。" }, 403);
       return reply(req, {
-        payload: await startPlanPayload(targetId, planId, demo ? { allowCompletedPreview: true, previewRound } : {}),
+        payload: await startPlanPayload(
+          targetId,
+          planId,
+          demo ? { allowCompletedPreview: true, previewRound } : { includeAnswerLocks: true },
+        ),
       });
     }
 
@@ -976,7 +1549,7 @@ Deno.serve(async (req: Request) => {
           : "usable_for_review";
       let questionQuery = supabase
         .from("chem_questions")
-        .select("id,mother_id,skill_id,concept_key,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status")
+        .select("id,mother_id,skill_id,concept_key,level,grade_band,stem,options,correct_option,explanation,image_url,review_status,scope_status,source_kind,source_info,asset_refs,render_mode,source_item_key,content_fingerprint,question_revision_token")
         .in("id", questionIds)
         .eq("grade_band", targetProfile.data.grade_band)
         .in("skill_id", planSkillIds)
@@ -985,6 +1558,12 @@ Deno.serve(async (req: Request) => {
         .not("mother_id", "is", null)
         .eq(questionUsageColumn, true);
       if (plan.mode === "REVIEW") questionQuery = questionQuery.not("concept_key", "is", null);
+      if (plan.mode === "REVIEW" && targetProfile.data.grade_band === "高三") {
+        questionQuery = questionQuery
+          .eq("source_kind", "licensed_local")
+          .eq("render_mode", "image_primary")
+          .not("source_release_id", "is", null);
+      }
       if (maxQuestionLevel !== null) questionQuery = questionQuery.lte("level", maxQuestionLevel);
       const [questionResult, planAttemptsResult] = await Promise.all([
         questionQuery,
@@ -999,6 +1578,44 @@ Deno.serve(async (req: Request) => {
       if ((questionResult.data || []).length !== questionIds.length) {
         return reply(req, { error: "本轮包含未审核、超出范围或高于当前难度上限的题目，请重新打开练习。" }, 400);
       }
+      const securedQuestionIds = (questionResult.data || [])
+        .filter((question) => plan.mode === "REVIEW" && isLicensedHigh3Question(question))
+        .map((question) => String(question.id));
+      const lockedAnswerByQuestionId = new Map<string, Record<string, unknown>>();
+      if (securedQuestionIds.length) {
+        const lockResult = await supabase.rpc("chem_get_question_answer_locks", {
+          p_student_id: targetId,
+          p_plan_day_id: String(plan.id),
+          p_attempt_sequence: (planAttemptsResult.data || []).length,
+          p_question_ids: securedQuestionIds,
+        });
+        if (lockResult.error) throw lockResult.error;
+        for (const lock of (lockResult.data || []) as Array<Record<string, unknown>>) {
+          lockedAnswerByQuestionId.set(String(lock.question_id), lock);
+        }
+        if (lockedAnswerByQuestionId.size !== securedQuestionIds.length) {
+          return reply(req, { error: "请先逐题提交并取得服务器反馈，再完成本轮记录。" }, 409);
+        }
+        const submittedByQuestionId = new Map(
+          submittedAnswers.map((answer) => [String(answer.questionId), answer]),
+        );
+        for (const securedQuestionId of securedQuestionIds) {
+          const submitted = submittedByQuestionId.get(securedQuestionId);
+          const locked = lockedAnswerByQuestionId.get(securedQuestionId);
+          const lockedRevisionToken = locked?.revision_token ? String(locked.revision_token) : null;
+          const submittedRevisionToken = submitted?.revisionToken === null || submitted?.revisionToken === undefined
+            ? null
+            : String(submitted.revisionToken);
+          if (
+            !submitted
+            || !locked
+            || Number(submitted.selectedOption) !== Number(locked.selected_option)
+            || submittedRevisionToken !== lockedRevisionToken
+          ) {
+            return reply(req, { error: "本轮答案必须与服务器锁定的第一次选择一致，不能更换后再提交。" }, 409);
+          }
+        }
+      }
       const previousAttempts = planAttemptsResult.data || [];
       const attemptSequence = previousAttempts.length;
       if (attemptSequence >= roundLimit) {
@@ -1011,22 +1628,46 @@ Deno.serve(async (req: Request) => {
       const priorAnswersResult = previousAttemptIds.length
         ? await supabase
           .from("chem_attempt_answers")
-          .select("attempt_id,question_id,mother_id,concept_key,correct,uncertain")
+          .select("attempt_id,question_id,mother_id,concept_key,correct,uncertain,question_snapshot")
           .in("attempt_id", previousAttemptIds)
         : { data: [], error: null };
       if (priorAnswersResult.error) throw priorAnswersResult.error;
       const priorAnswers = priorAnswersResult.data || [];
+      const priorQuestionIds = [...new Set(priorAnswers.map((answer) => String(answer.question_id)).filter(Boolean))];
+      const priorQuestionMetadataResult = priorQuestionIds.length
+        ? await supabase.from("chem_questions").select("id,source_item_key,content_fingerprint").in("id", priorQuestionIds)
+        : { data: [], error: null };
+      if (priorQuestionMetadataResult.error) throw priorQuestionMetadataResult.error;
+      const priorIdentityByQuestionId = new Map(
+        (priorQuestionMetadataResult.data || []).map((question) => [String(question.id), sourceIdentity(question)]),
+      );
       const usedQuestionIds = new Set(priorAnswers.map((answer) => String(answer.question_id)));
       const usedMotherIds = new Set(priorAnswers.map((answer) => String(answer.mother_id)).filter(Boolean));
+      const usedSourceItemKeys = new Set<string>();
+      const usedContentFingerprints = new Set<string>();
+      for (const answer of priorAnswers) {
+        const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
+        const currentIdentity = priorIdentityByQuestionId.get(String(answer.question_id));
+        const sourceItemKey = String(snapshot?.sourceItemKey || currentIdentity?.sourceItemKey || "");
+        const contentFingerprint = String(snapshot?.contentFingerprint || currentIdentity?.contentFingerprint || "");
+        if (sourceItemKey) usedSourceItemKeys.add(sourceItemKey);
+        if (contentFingerprint) usedContentFingerprints.add(contentFingerprint);
+      }
       const submittedMothers = (questionResult.data || []).map((question) => String(question.mother_id));
+      const submittedSourceItems = (questionResult.data || []).map((question) => sourceIdentity(question).sourceItemKey).filter(Boolean) as string[];
+      const submittedFingerprints = (questionResult.data || []).map((question) => sourceIdentity(question).contentFingerprint).filter(Boolean) as string[];
       if (
         submittedMothers.some((motherId) => !motherId) ||
         new Set(submittedMothers).size !== submittedMothers.length ||
+        new Set(submittedSourceItems).size !== submittedSourceItems.length ||
+        new Set(submittedFingerprints).size !== submittedFingerprints.length ||
         (questionResult.data || []).some((question) =>
           usedQuestionIds.has(String(question.id)) || usedMotherIds.has(String(question.mother_id))
+          || Boolean(sourceIdentity(question).sourceItemKey && usedSourceItemKeys.has(sourceIdentity(question).sourceItemKey!))
+          || Boolean(sourceIdentity(question).contentFingerprint && usedContentFingerprints.has(sourceIdentity(question).contentFingerprint!))
         )
       ) {
-        return reply(req, { error: "同一天的后续轮次不能重复题目或同一母题，请重新打开本轮练习。" }, 409);
+        return reply(req, { error: "同一天的后续轮次不能重复题目或同一母题，也不能重复同一来源原题，请重新打开本轮练习。" }, 409);
       }
       const latestAttemptId = previousAttempts.at(-1)?.id ? String(previousAttempts.at(-1)?.id) : null;
       if (latestAttemptId) {
@@ -1068,12 +1709,24 @@ Deno.serve(async (req: Request) => {
       }> = [];
       for (const submitted of submittedAnswers) {
         const question = questionById.get(String(submitted.questionId));
-        const selectedOption = typeof submitted.selectedOption === "number" ? submitted.selectedOption : Number.NaN;
+        const lockedAnswer = lockedAnswerByQuestionId.get(String(submitted.questionId));
+        const selectedOption = lockedAnswer
+          ? Number(lockedAnswer.selected_option)
+          : typeof submitted.selectedOption === "number" ? submitted.selectedOption : Number.NaN;
         const options = Array.isArray(question?.options) ? question.options : [];
         if (!question || !Number.isInteger(selectedOption) || selectedOption < 0 || selectedOption >= options.length) {
           return reply(req, { error: "答案选项无效，请重新打开本轮练习。" }, 400);
         }
-        const rawDuration = Number(submitted.durationSec);
+        const expectedRevisionToken = question.question_revision_token
+          ? String(question.question_revision_token)
+          : null;
+        const submittedRevisionToken = submitted.revisionToken === null || submitted.revisionToken === undefined
+          ? null
+          : String(submitted.revisionToken);
+        if (submittedRevisionToken !== expectedRevisionToken) {
+          return reply(req, { error: "原题内容已经更新，请重新打开本轮练习后再提交。" }, 409);
+        }
+        const rawDuration = Number(lockedAnswer?.duration_sec ?? submitted.durationSec);
         canonicalAnswers.push({
           question_id: String(question.id),
           mother_id: String(question.mother_id),
@@ -1081,11 +1734,11 @@ Deno.serve(async (req: Request) => {
           concept_key: question.concept_key ? String(question.concept_key) : null,
           level: Number(question.level),
           correct: selectedOption === Number(question.correct_option),
-          uncertain: submitted.uncertain === true,
+          uncertain: lockedAnswer ? lockedAnswer.uncertain === true : submitted.uncertain === true,
           duration_sec: Number.isFinite(rawDuration) ? Math.min(3600, Math.max(0, Math.round(rawDuration))) : 0,
           selected_option: selectedOption,
           question_snapshot: {
-            version: 1,
+            version: 3,
             source: "submission",
             capturedAt: new Date().toISOString(),
             questionId: String(question.id),
@@ -1098,7 +1751,18 @@ Deno.serve(async (req: Request) => {
             options: options.map(String),
             correctOption: Number(question.correct_option),
             explanation: String(question.explanation),
-            imageUrl: question.image_url ? String(question.image_url) : null,
+            // v2 stores stable private descriptors only.  It never stores a
+            // base64 payload, a signed URL, or an expiring storage locator.
+            imageUrl: null,
+            sourceKind: question.source_kind ? String(question.source_kind) : null,
+            sourceInfo: questionSourceInfo(question.source_info),
+            assetRefs: Array.isArray(question.asset_refs) ? question.asset_refs : [],
+            renderMode: ["native", "image_assist", "image_primary"].includes(String(question.render_mode))
+              ? String(question.render_mode)
+              : "native",
+            sourceItemKey: question.source_item_key ? String(question.source_item_key) : null,
+            contentFingerprint: question.content_fingerprint ? String(question.content_fingerprint) : null,
+            revisionToken: expectedRevisionToken,
             reviewStatus: String(question.review_status),
             scopeStatus: String(question.scope_status),
           },
@@ -1143,35 +1807,39 @@ Deno.serve(async (req: Request) => {
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)) {
         return reply(req, { error: "提交标识无效，请重新打开本轮练习。" }, 400);
       }
-      const { error: attemptError } = await supabase.from("chem_learning_attempts").insert({
-        id: attemptId,
-        student_id: targetId,
-        plan_day_id: plan.id,
-        attempt_kind: attemptSequence === 0 ? "scheduled" : "review",
-        sequence: attemptSequence,
-        mode: plan.mode,
-        started_at: startedAt,
-        completed_at: completedAtIso,
-        first_score: canonicalAnswers.filter((answer) => answer.correct).length,
+      const finalization = await supabase.rpc("chem_finalize_learning_attempt", {
+        p_attempt_id: attemptId,
+        p_student_id: targetId,
+        p_plan_day_id: String(plan.id),
+        p_attempt_kind: attemptSequence === 0 ? "scheduled" : "review",
+        p_sequence: attemptSequence,
+        p_mode: String(plan.mode),
+        p_started_at: startedAt,
+        p_completed_at: completedAtIso,
+        p_first_score: canonicalAnswers.filter((answer) => answer.correct).length,
+        p_answers: canonicalAnswers.map((answer) => ({
+          ...answer,
+          revision_token: answer.question_snapshot.revisionToken ?? null,
+        })),
+        p_skill_states: [...computedStateBySkill.values()],
       });
-      if (attemptError?.code === "23505") {
+      if (finalization.error?.code === "23505") {
         return reply(req, { error: "这一轮已经提交，不能重复写入。请返回学习计划刷新状态。" }, 409);
       }
-      if (attemptError) throw attemptError;
-      const answers = canonicalAnswers.map((answer) => ({ attempt_id: attemptId, ...answer }));
-      const { error: answersError } = await supabase.from("chem_attempt_answers").insert(answers);
-      if (answersError) {
-        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", targetId);
-        throw answersError;
-      }
-      const skillStateResult = await supabase
-        .from("chem_student_skill_state")
-        .upsert([...computedStateBySkill.values()], { onConflict: "student_id,skill_id" });
-      if (skillStateResult.error) {
-        await supabase.from("chem_learning_attempts").delete().eq("id", attemptId).eq("student_id", targetId);
-        throw skillStateResult.error;
-      }
-      return reply(req, { dashboard: await studentDashboard(targetId), achievements: [] });
+      if (finalization.error) throw finalization.error;
+      if (finalization.data !== true) throw new RequestError(500, "本轮记录未能完整保存，请稍后重试。");
+      const completedFeedback = canonicalAnswers.map((answer) => {
+        const question = questionById.get(answer.question_id)!;
+        return questionFeedbackShape(question, answer.selected_option, {
+          uncertain: answer.uncertain,
+          durationSec: answer.duration_sec,
+        });
+      });
+      return reply(req, {
+        dashboard: await studentDashboard(targetId),
+        achievements: [],
+        feedback: completedFeedback,
+      });
     }
     return reply(req, { error: "无权执行该操作。" }, 403);
   } catch (error) {

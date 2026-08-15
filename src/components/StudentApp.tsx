@@ -1,20 +1,24 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
-import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
+import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { SKILLS } from '../data/catalog'
-import { accessApi, loadLearningRecord, submitAttempt, teacherApi } from '../lib/api'
+import { accessApi, loadLearningRecord, loadQuestionFeedback, previewQuestionFeedback, submitAttempt, teacherApi } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { ChemText } from './ChemText'
 import { LearningRecordPanel } from './LearningRecordPanel'
+import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 
 type StudentView = 'today' | 'map' | 'growth' | 'settings'
+type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
 export type PlanPayload = {
   plan: LearningPlanDay
   cards: KnowledgeCard[]
-  questions: Question[]
+  questions: IssuedQuestion[]
+  /** Existing server-locked answers returned only when resuming this round. */
+  lockedFeedback?: QuestionFeedback[]
   attemptSequence: number
   roundNumber: number
   roundLimit: number
@@ -243,18 +247,28 @@ function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDas
 export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
   const roundNumber = payload.roundNumber || payload.attemptSequence + 1
   const roundLimit = payload.roundLimit || payload.plan.roundLimit || 5
+  const initialServerFeedback = Object.fromEntries((payload.lockedFeedback ?? []).map((item) => [item.questionId, item]))
+  const initialAnswers: LearningAttempt['answers'] = payload.questions.flatMap((question) => {
+    const item = initialServerFeedback[question.id]
+    return item ? [{ questionId: question.id, motherId: question.motherId, skillId: question.skillId, level: question.level, correct: item.correct, uncertain: item.uncertain, durationSec: item.durationSec, selectedOption: item.selectedOption, revisionToken: question.revisionToken }] : []
+  })
+  const firstUnansweredQuestion = payload.questions.findIndex((question) => !initialServerFeedback[question.id])
+  const initialQuestionIndex = firstUnansweredQuestion >= 0 ? firstUnansweredQuestion : Math.max(0, payload.questions.length - 1)
+  const resumedFeedback = payload.questions[initialQuestionIndex] ? initialServerFeedback[payload.questions[initialQuestionIndex].id] : undefined
   const [phase, setPhase] = useState<'cards' | 'quiz' | 'result'>(roundNumber === 1 ? 'cards' : 'quiz')
   const [cardIndex, setCardIndex] = useState(0)
-  const [questionIndex, setQuestionIndex] = useState(0)
-  const [selected, setSelected] = useState<number | null>(null)
-  const [uncertain, setUncertain] = useState(false)
-  const [answers, setAnswers] = useState<LearningAttempt['answers']>([])
+  const [questionIndex, setQuestionIndex] = useState(initialQuestionIndex)
+  const [selected, setSelected] = useState<number | null>(resumedFeedback?.selectedOption ?? null)
+  const [uncertain, setUncertain] = useState(resumedFeedback?.uncertain ?? false)
+  const [answers, setAnswers] = useState<LearningAttempt['answers']>(initialAnswers)
   const [startedAt] = useState(new Date().toISOString())
   const [questionStartedAt, setQuestionStartedAt] = useState(Date.now())
-  const [feedback, setFeedback] = useState(false)
+  const [feedback, setFeedback] = useState(Boolean(resumedFeedback))
+  const [serverFeedback, setServerFeedback] = useState<Record<string, QuestionFeedback>>(initialServerFeedback)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
+  const [primaryMediaReady, setPrimaryMediaReady] = useState<Record<string, boolean>>({})
   const primaryActionRef = useRef<HTMLButtonElement>(null)
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
@@ -264,6 +278,8 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       if (event.key !== 'Enter' || event.repeat || event.isComposing || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
       const target = event.target
       if (target instanceof HTMLElement && (target.matches('input, textarea, select') || target.isContentEditable)) return
+      if (document.querySelector('dialog[data-question-media-dialog][open]')) return
+      if (target instanceof HTMLElement && target.closest('[data-question-source-media], [data-question-media-dialog], [data-question-media-control]')) return
       const action = primaryActionRef.current
       if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return
       if (target instanceof Node && action.contains(target)) return
@@ -280,14 +296,73 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '我理解了，开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
-    const isCorrect = selected === question.correctOption
-    function submit() {
-      if (selected === null) return
-      setAnswers((items) => [...items, { questionId: question.id, motherId: question.motherId, skillId: question.skillId, level: question.level, correct: isCorrect, uncertain, durationSec: Math.max(1, Math.round((Date.now() - questionStartedAt) / 1000)), selectedOption: selected }])
+    const isLicensedHigh3Review = payload.plan.mode === 'REVIEW' && question.gradeBand === '高三' && question.sourceKind === 'licensed_local'
+    const hasLocalFeedbackContract = Number.isInteger(question.correctOption) && typeof question.explanation === 'string'
+    const currentServerFeedback = serverFeedback[question.id]
+    const resolvedCorrectOption = currentServerFeedback?.correctOption ?? question.correctOption
+    const resolvedExplanation = currentServerFeedback?.explanation ?? question.explanation ?? ''
+    const resolvedScaffold = currentServerFeedback?.scaffold ?? question.scaffold
+    const isCorrect = isLicensedHigh3Review ? currentServerFeedback?.correct === true : selected === question.correctOption
+    const isImagePrimary = isLicensedHigh3Review && question.renderMode === 'image_primary'
+    const sourceMediaReady = !isImagePrimary || primaryMediaReady[question.id] === true
+    const analysisAssetRefs = currentServerFeedback?.analysisAssetRefs ?? []
+    const sourceAssetContext = {
+      ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
+      planId: payload.plan.id,
+      attemptSequence: payload.attemptSequence,
+      revisionToken: question.revisionToken ?? null,
+    }
+    async function submit() {
+      if (selected === null || !sourceMediaReady) return
+      const durationSec = Math.max(1, Math.round((Date.now() - questionStartedAt) / 1000))
+      if (isLicensedHigh3Review) {
+        setBusy(true)
+        try {
+          setError('')
+          const input = {
+            ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
+            planId: payload.plan.id,
+            questionId: question.id,
+            selectedOption: selected,
+            uncertain,
+            durationSec,
+            revisionToken: question.revisionToken ?? null,
+          }
+          const result = session.role === 'teacher'
+            ? await previewQuestionFeedback(input)
+            : await loadQuestionFeedback(session, input)
+          if (result.feedback.questionId !== question.id || result.feedback.selectedOption !== selected) {
+            throw new Error('服务器反馈与当前题目不一致，请重新打开本轮练习。')
+          }
+          setServerFeedback((items) => ({ ...items, [question.id]: result.feedback }))
+          setAnswers((items) => [...items, { questionId: question.id, motherId: question.motherId, skillId: question.skillId, level: question.level, correct: result.feedback.correct, uncertain: result.feedback.uncertain, durationSec: result.feedback.durationSec, selectedOption: result.feedback.selectedOption, revisionToken: question.revisionToken }])
+          setFeedback(true)
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : '这道题暂时无法提交，请稍后重试。')
+        } finally {
+          setBusy(false)
+        }
+        return
+      }
+      if (!hasLocalFeedbackContract) {
+        setError('这道题的反馈信息不完整，已停止提交，请联系甘老师。')
+        return
+      }
+      setAnswers((items) => [...items, { questionId: question.id, motherId: question.motherId, skillId: question.skillId, level: question.level, correct: selected === question.correctOption, uncertain, durationSec, selectedOption: selected, revisionToken: question.revisionToken }])
       setFeedback(true)
     }
     async function next() {
-      if (questionIndex < payload.questions.length - 1) { setQuestionIndex(questionIndex + 1); setSelected(null); setUncertain(false); setFeedback(false); setQuestionStartedAt(Date.now()); return }
+      if (questionIndex < payload.questions.length - 1) {
+        const nextQuestionIndex = questionIndex + 1
+        const nextQuestion = payload.questions[nextQuestionIndex]
+        const resumed = serverFeedback[nextQuestion.id]
+        setQuestionIndex(nextQuestionIndex)
+        setSelected(resumed?.selectedOption ?? null)
+        setUncertain(resumed?.uncertain ?? false)
+        setFeedback(Boolean(resumed))
+        setQuestionStartedAt(Date.now())
+        return
+      }
       setBusy(true)
       const finalAnswers = [...answers, ...(feedback ? [] : [])]
       const attempt: LearningAttempt = { id: crypto.randomUUID(), studentId: practiceDashboard?.profile.id ?? '', planDayId: payload.plan.id, attemptKind: payload.attemptSequence === 0 ? 'scheduled' : 'review', sequence: payload.attemptSequence, mode: payload.plan.mode, startedAt, completedAt: new Date().toISOString(), answers: finalAnswers, firstScore: finalAnswers.filter((answer) => answer.correct).length }
@@ -298,6 +373,17 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           setPhase('result')
         } else {
           const result = await submitAttempt(session, attempt)
+          if (isLicensedHigh3Review) {
+            const finalFeedback = result.feedback ?? []
+            if (finalFeedback.length !== finalAnswers.length) throw new Error('本轮答案已保存，但反馈不完整，请返回学习档案查看。')
+            const finalFeedbackByQuestionId = new Map(finalFeedback.map((item) => [item.questionId, item]))
+            setAnswers(finalAnswers.map((answer) => {
+              const item = finalFeedbackByQuestionId.get(answer.questionId)
+              if (!item) return answer
+              return { ...answer, selectedOption: item.selectedOption, correct: item.correct, uncertain: item.uncertain, durationSec: item.durationSec }
+            }))
+            setServerFeedback(Object.fromEntries(finalFeedback.map((item) => [item.questionId, item])))
+          }
           setNextDashboard(result.dashboard)
           setPhase('result')
         }
@@ -305,7 +391,8 @@ export function LearningRound({ session, payload, practiceMode = false, practice
         setError(reason instanceof Error ? reason.message : '这一轮暂时没有保存成功，请稍后再试。')
       } finally { setBusy(false) }
     }
-    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮换一种问法</b><p>继续检验同一知识逻辑，但题目与母题都和今天前面的轮次不同；第5轮也不会回到原题。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>第 {roundNumber} 轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span><h1><ChemText>{question.stem}</ChemText></h1><div className="option-list">{question.options.map((option, index) => <button disabled={feedback} className={`${selected === index ? 'selected' : ''} ${feedback && index === question.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== question.correctOption ? 'wrong' : ''}`} key={option} onClick={() => setSelected(index)}><span>{String.fromCharCode(65 + index)}</span><ChemText>{option}</ChemText></button>)}</div><label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? '答案正确，再确认一次就更稳' : '判断正确' : '先把关键一步稳住'}</b><p><ChemText>{question.explanation}</ChemText></p>{!isCorrect && question.scaffold && <p><CircleHelp size={16} />提示：<ChemText>{question.scaffold}</ChemText></p>}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={selected === null} onClick={submit}>提交答案</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
+    const nativeStem = <h1><ChemText>{question.stem}</ChemText></h1>
+    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮换一种问法</b><p>继续检验同一知识逻辑，但题目与母题都和今天前面的轮次不同；第5轮也不会回到原题。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>第 {roundNumber} 轮 · {questionIndex + 1}/{payload.questions.length}</span><span>{SKILLS.find((skill) => skill.id === question.skillId)?.title}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level}检验</span>{isLicensedHigh3Review ? <QuestionSourceMedia question={question} enabled session={session} accessContext={sourceAssetContext} nativeContent={nativeStem} onZoomClose={() => primaryActionRef.current?.focus()} onPrimaryReadyChange={(ready) => setPrimaryMediaReady((current) => current[question.id] === ready ? current : { ...current, [question.id]: ready })} /> : nativeStem}<div className={`option-list ${isImagePrimary ? 'source-letter-options' : ''}`}>{question.options.map((option, index) => { const letter = String.fromCharCode(65 + index); return <button aria-label={`${letter}. ${option}`} disabled={feedback || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === resolvedCorrectOption ? 'correct' : ''} ${feedback && selected === index && index !== resolvedCorrectOption ? 'wrong' : ''}`} key={`${index}-${option}`} onClick={() => setSelected(index)}><span>{letter}</span>{!isImagePrimary && <ChemText>{option}</ChemText>}</button> })}</div>{isImagePrimary && !sourceMediaReady && <p className="source-submit-blocked" role="status">原题主图加载完整后才能提交，避免因缺图误答。</p>}<label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback || busy} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? '答案正确，再确认一次就更稳' : '判断正确' : '先把关键一步稳住'}</b><p><ChemText>{resolvedExplanation}</ChemText></p>{!isCorrect && resolvedScaffold && <p><CircleHelp size={16} />提示：<ChemText>{resolvedScaffold}</ChemText></p>}{isLicensedHigh3Review && analysisAssetRefs.length > 0 && (session.role === 'teacher' || !practiceMode ? <QuestionSourceMedia question={{ ...question, renderMode: 'native', assetRefs: analysisAssetRefs }} enabled session={session} accessContext={sourceAssetContext} showSource={false} feedback onZoomClose={() => primaryActionRef.current?.focus()} /> : <p className="source-analysis-locked">演示账号只显示服务器返回的文字解析，不写入真实作答记录。</p>)}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null || !sourceMediaReady} onClick={() => void submit()}>{busy ? '正在锁定第一次选择…' : '提交答案'}</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
   }
 
   const correct = answers.filter((answer) => answer.correct).length

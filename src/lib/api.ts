@@ -1,4 +1,4 @@
-import type { CreateVideoRecommendationInput, GuardianDashboardData, LearningAttempt, LearningRecordData, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
+import type { CreateVideoRecommendationInput, GuardianDashboardData, LearningAttempt, LearningRecordData, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
 import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
@@ -39,6 +39,27 @@ export async function accessApi<T>(session: SessionIdentity, action: string, dat
   return parseResponse<T>(response)
 }
 
+export interface LoadedQuestionAsset {
+  dataUrl: string
+  mimeType: string
+  sha256: string
+  width: number
+  height: number
+}
+
+/** Load one authenticated, server-owned question image without exposing its storage path. */
+export interface QuestionAssetAccessContext {
+  planId: string
+  attemptSequence: number
+  revisionToken?: string | null
+  previewRound?: number
+  studentId?: string
+}
+
+export async function loadQuestionAsset(session: SessionIdentity, questionId: string, assetId: string, phase: 'question' | 'analysis', context?: QuestionAssetAccessContext) {
+  return accessApi<{ asset: LoadedQuestionAsset }>(session, 'question_asset', { questionId, assetId, phase, ...(context ?? {}) })
+}
+
 export async function loadStudentDashboard(session: SessionIdentity) {
   return accessApi<{ dashboard: StudentDashboardData }>(session, 'student_dashboard')
 }
@@ -52,7 +73,28 @@ export async function loadLearningRecord(session: SessionIdentity, studentId?: s
 }
 
 export async function submitAttempt(session: SessionIdentity, attempt: LearningAttempt) {
-  return accessApi<{ dashboard: StudentDashboardData; achievements: string[] }>(session, 'submit_attempt', attempt)
+  return accessApi<{ dashboard: StudentDashboardData; achievements: string[]; feedback?: QuestionFeedback[] }>(session, 'submit_attempt', attempt)
+}
+
+export interface QuestionFeedbackInput {
+  studentId?: string
+  planId: string
+  questionId: string
+  selectedOption: number
+  uncertain: boolean
+  durationSec: number
+  revisionToken?: string | null
+  previewRound?: number
+}
+
+/** Lock a real student's first High-3 source answer before revealing feedback. */
+export async function loadQuestionFeedback(session: SessionIdentity, input: QuestionFeedbackInput) {
+  return accessApi<{ feedback: QuestionFeedback; simulated: boolean }>(session, 'question_feedback', input)
+}
+
+/** Read-only teacher simulation; no real attempt or answer lock is written. */
+export async function previewQuestionFeedback(input: QuestionFeedbackInput) {
+  return teacherApi<{ feedback: QuestionFeedback; simulated: true }>('question_feedback', input)
 }
 
 export async function teacherApi<T>(action: string, data?: unknown): Promise<T> {
