@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Image as ImageIcon, RefreshCw, X, ZoomIn } from 'lucide-react'
 import type { QuestionAssetRef, QuestionSourceInfo, SessionIdentity } from '../domain/types'
 import { compactImageWhitespace } from '../domain/compactImageWhitespace'
+import { stripLeadingQuestionSource } from '../domain/questionPresentation'
 import { loadQuestionAsset, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { readAccessSession } from '../lib/session'
 import { ChemText } from './ChemText'
@@ -188,7 +189,7 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
     {renderMode === 'native' ? <>{nativeContent}{loadRequested && problemRefs.length > 0 ? assetGallery(problemRefs) : null}</> : null}
     {renderMode === 'image_primary' ? <>{loadRequested && assetGallery(problemRefs)}<details className="source-transcription">
       <summary data-question-media-control>查看文字辅助稿（公式、图示以原题图为准）</summary>
-      <div><p><ChemText>{question.stem}</ChemText></p>{question.options.length > 0 && <ol>{question.options.map((option, index) => <li key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}.</b><ChemText>{option}</ChemText></li>)}</ol>}</div>
+      <div><p><ChemText>{stripLeadingQuestionSource(question.stem)}</ChemText></p>{question.options.length > 0 && <ol>{question.options.map((option, index) => <li key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}.</b><ChemText>{option}</ChemText></li>)}</ol>}</div>
     </details></> : null}
 
     {feedback && analysisRefs.length > 0 && (!deferLoad || loadRequested) ? <section className="source-analysis-media" aria-label="原题解析图"><h3>原题解析图</h3>{assetGallery(analysisRefs, true)}</section> : null}

@@ -1,4 +1,39 @@
 export type ImageRowSlice = { start: number; end: number }
+export type ImageBounds = { left: number; top: number; right: number; bottom: number }
+
+export function findTopBlueCitationBounds(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+): ImageBounds | null {
+  const searchHeight = Math.max(1, Math.floor(height * 0.28))
+  let left = width
+  let right = -1
+  let top = searchHeight
+  let bottom = -1
+  let matches = 0
+  for (let y = 0; y < searchHeight; y += 1) {
+    for (let x = 0; x < Math.floor(width * 0.62); x += 1) {
+      const offset = (y * width + x) * 4
+      const red = pixels[offset]
+      const green = pixels[offset + 1]
+      const blue = pixels[offset + 2]
+      const alpha = pixels[offset + 3]
+      // Source labels in the original worksheets are printed in a saturated blue.
+      // Keep the threshold deliberately narrow so blue chemistry diagrams are not
+      // altered unless they appear in the first line and form a text-sized cluster.
+      if (alpha > 32 && blue > 105 && blue - red > 45 && blue - green > 12 && green > 55) {
+        left = Math.min(left, x)
+        right = Math.max(right, x)
+        top = Math.min(top, y)
+        bottom = Math.max(bottom, y)
+        matches += 1
+      }
+    }
+  }
+  if (matches < 24 || right - left < 28 || bottom - top < 5) return null
+  return { left, top, right: right + 1, bottom: bottom + 1 }
+}
 
 export function compactBlankRowSlices(blankRows: readonly boolean[], maximumBlankRows = 28, minimumCompressibleRows = 64): ImageRowSlice[] {
   const slices: ImageRowSlice[] = []
@@ -33,7 +68,24 @@ export async function compactImageWhitespace(dataUrl: string): Promise<string> {
   const context = source.getContext('2d', { willReadFrequently: true })
   if (!context) return dataUrl
   context.drawImage(image, 0, 0)
-  const pixels = context.getImageData(0, 0, source.width, source.height).data
+  const imageData = context.getImageData(0, 0, source.width, source.height)
+  const citation = findTopBlueCitationBounds(imageData.data, source.width, source.height)
+  if (citation) {
+    const padX = Math.max(3, Math.round(source.width * 0.004))
+    const padY = Math.max(2, Math.round(source.height * 0.01))
+    const left = Math.max(0, citation.left - padX)
+    const right = Math.min(source.width, citation.right + padX)
+    const top = Math.max(0, citation.top - padY)
+    const bottom = Math.min(source.height, citation.bottom + padY)
+    const shift = right - left
+    // Remove only the citation's line band, then close the gap so the stem starts
+    // naturally after the question number. Other rows and diagrams are untouched.
+    context.drawImage(source, right, top, source.width - right, bottom - top, left, top, source.width - right, bottom - top)
+    context.fillStyle = '#fff'
+    context.fillRect(source.width - shift, top, shift, bottom - top)
+    imageData.data.set(context.getImageData(0, 0, source.width, source.height).data)
+  }
+  const pixels = imageData.data
   const blankRows = Array.from({ length: source.height }, (_, y) => {
     let inkPixels = 0
     for (let x = 0; x < source.width; x += 2) {
@@ -47,7 +99,7 @@ export async function compactImageWhitespace(dataUrl: string): Promise<string> {
   })
   const slices = compactBlankRowSlices(blankRows)
   const compactHeight = slices.reduce((sum, slice) => sum + slice.end - slice.start, 0)
-  if (compactHeight >= source.height - 4) return dataUrl
+  if (compactHeight >= source.height - 4) return citation ? source.toDataURL('image/png') : dataUrl
 
   const output = document.createElement('canvas')
   output.width = source.width
