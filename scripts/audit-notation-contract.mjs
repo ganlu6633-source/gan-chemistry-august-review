@@ -57,6 +57,30 @@ for (const required of ['分子', '原子', '离子', '电子', '质子', '中�
   if (!moleText.includes(required)) errors.push(`H1_MOLE_INTRO对象或示范缺项：${required}`)
 }
 
+const equilibrium = zeroForgettingCards.find((card) => card.skillId === 'H2_K')
+const equilibriumText = JSON.stringify(equilibrium)
+for (const required of [
+  'aA+bB⇌cC+dD',
+  'Kc=c(C)^c·c(D)^d/[c(A)^a·c(B)^b]',
+  '所有浓度取平衡值',
+  '省略纯固体和纯液体',
+]) {
+  if (!equilibriumText.includes(required)) errors.push(`H2_K平衡常数表达式缺项：${required}`)
+}
+
+const equilibriumVisualPath = resolve(repoRoot, 'src', 'components', 'EquilibriumConstantFormulaVisual.tsx')
+const equilibriumVisualText = readFileSync(equilibriumVisualPath, 'utf8')
+for (const required of [
+  'equilibrium-numerator',
+  'equilibrium-denominator',
+  '<i>c</i><sup>c</sup>(C)',
+  '<i>c</i><sup>d</sup>(D)',
+  '<i>c</i><sup>a</sup>(A)',
+  '<i>c</i><sup>b</sup>(B)',
+]) {
+  if (!equilibriumVisualText.includes(required)) errors.push(`Kc教材式分式图缺项：${required}`)
+}
+
 if (errors.length) {
   console.error(`符号与氧化还原逻辑契约失败（${errors.length}项）\n- ${errors.join('\n- ')}`)
   process.exit(1)
@@ -69,4 +93,5 @@ console.log(JSON.stringify({
   forbiddenNotationHits: 0,
   redoxChains: 2,
   particleObjectKinds: 7,
+  equilibriumFormulaDisplay: 'stacked_fraction',
 }, null, 2))

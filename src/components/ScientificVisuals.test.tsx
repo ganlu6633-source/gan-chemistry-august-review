@@ -33,6 +33,19 @@ describe('scientific knowledge diagrams', () => {
     expect(screen.getAllByText('正反应活化能 Eₐ')).toHaveLength(2)
   })
 
+  it('writes Kc as the familiar stacked textbook fraction', () => {
+    render(<StructuredKnowledgeMap content={content('平衡常数与转化率')} skillId="H2_K" />)
+
+    const figure = screen.getByRole('figure', { name: '浓度平衡常数怎么写' })
+    expect(figure).toHaveTextContent('aA + bB ⇌ cC + dD')
+    expect(figure.querySelector('.equilibrium-numerator')).toHaveTextContent('cc(C)·cd(D)')
+    expect(figure.querySelector('.equilibrium-denominator')).toHaveTextContent('ca(A)·cb(B)')
+    expect(figure.querySelector('.equilibrium-numerator')).toHaveClass('equilibrium-numerator')
+    expect(figure.querySelector('.equilibrium-denominator')).toHaveClass('equilibrium-denominator')
+    expect(figure).toHaveTextContent('指数对应化学计量数')
+    expect(figure).toHaveTextContent('纯固体、纯液体的浓度视为常数')
+  })
+
   it('places one concrete H₂ combustion picture beside its worked example and distinguishes both height differences', () => {
     const thermo = content('反应热的能量账本')
     thermo.workedExamples = [{

@@ -6,6 +6,7 @@ import { SKILLS } from '../data/catalog'
 import { accessApi, loadLearningRecord, loadQuestionFeedback, previewQuestionFeedback, submitAttempt, teacherApi } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { ChemText } from './ChemText'
+import { EquilibriumConstantFormulaVisual } from './EquilibriumConstantFormulaVisual'
 import { LearningRecordPanel } from './LearningRecordPanel'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
@@ -624,6 +625,7 @@ export function StructuredKnowledgeMap({ content, skillId }: { content: Structur
     {skillId && supportsSourceInformedChemVisual(skillId)
       ? <SourceInformedChemVisual skillId={skillId} />
       : <QuickVisualSummary visual={content.visualSummary ?? fallbackVisual(content)} />}
+    {skillId === 'H2_K' || skillId === 'H3_EQUILIBRIUM' ? <EquilibriumConstantFormulaVisual /> : null}
     <details className="full-explanation"><summary><span><b>从零学会</b><small>展开完整讲解、例子、易错边界与自查</small></span><i aria-hidden="true">⌄</i></summary><div className="classification-map">
       {content.rootTree ? <section className="knowledge-tree-panel" aria-labelledby="knowledge-tree-title"><div className="map-section-title"><span>01</span><div><h2 id="knowledge-tree-title">知识总树</h2><p>先沿纵向主干走完，再补横向标签。</p></div></div><ul className="knowledge-tree"><KnowledgeBranch node={content.rootTree} /></ul></section> : null}
       {content.sections.map((section, index) => <section className="classification-section" key={section.title}><div className="map-section-title"><span>{String(index + offset).padStart(2, '0')}</span><div><h2><ChemText>{section.title}</ChemText></h2>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</div></div><div className="classification-items">{section.items.map((item) => <details className="classification-item" key={item.label}><summary className="classification-item-summary"><span><ChemText>{item.label}</ChemText></span><i aria-hidden="true">⌄</i></summary><div className="classification-item-body point-with-demo"><div className="point-copy"><p><ChemText>{item.rule}</ChemText></p>{item.caution && <div className="branch-caution">注意：<ChemText>{item.caution}</ChemText></div>}</div><NodeLearningAid node={item} /></div></details>)}</div></section>)}
