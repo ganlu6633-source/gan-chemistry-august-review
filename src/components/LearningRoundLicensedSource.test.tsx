@@ -48,10 +48,11 @@ describe('LearningRound licensed High-3 source question', () => {
   })
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
-  it('uses the exact source image, waits to load analysis, and submits the revision token', async () => {
+  it('uses the exact source image without student-facing source or analysis artwork, and submits the revision token', async () => {
     render(<LearningRound session={session} payload={payload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
     expect(await screen.findByAltText('第8题原题题面')).toBeInTheDocument()
+    expect(screen.queryByLabelText('原题来源')).not.toBeInTheDocument()
     expect(sourceQuestion).not.toHaveProperty('correctOption')
     expect(sourceQuestion).not.toHaveProperty('explanation')
     const context = { planId: 'h3-plan', attemptSequence: 1, revisionToken: 'sha256-question-revision' }
@@ -68,9 +69,9 @@ describe('LearningRound licensed High-3 source question', () => {
     fireEvent.keyDown(window, { key: 'Enter' })
     expect(await screen.findByText('判断正确')).toBeInTheDocument()
     expect(loadQuestionFeedback).toHaveBeenCalledWith(session, expect.objectContaining({ planId: 'h3-plan', questionId: 'licensed-h3-q1', selectedOption: 0, revisionToken: 'sha256-question-revision' }))
-    expect(await screen.findByRole('heading', { name: '原题解析图' })).toBeInTheDocument()
-    expect(await screen.findByAltText('第8题原题解析')).toBeInTheDocument()
-    expect(loadQuestionAsset).toHaveBeenCalledWith(session, 'licensed-h3-q1', 'analysis-image', 'analysis', context)
+    expect(screen.queryByRole('heading', { name: '原题解析图' })).not.toBeInTheDocument()
+    expect(screen.queryByAltText('第8题原题解析')).not.toBeInTheDocument()
+    expect(loadQuestionAsset).not.toHaveBeenCalledWith(session, 'licensed-h3-q1', 'analysis-image', 'analysis', context)
     fireEvent.click(screen.getByRole('button', { name: '完成第 2 轮' }))
 
     await waitFor(() => expect(submitAttempt).toHaveBeenCalledTimes(1))
@@ -85,7 +86,7 @@ describe('LearningRound licensed High-3 source question', () => {
     const answerA = screen.getByRole('button', { name: 'A. 原题选项甲' })
     expect(answerA).toBeDisabled()
     expect(loadQuestionFeedback).not.toHaveBeenCalled()
-    expect(await screen.findByAltText('第8题原题解析')).toBeInTheDocument()
+    expect(screen.queryByAltText('第8题原题解析')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '完成第 2 轮' }))
     await waitFor(() => expect(submitAttempt).toHaveBeenCalledTimes(1))

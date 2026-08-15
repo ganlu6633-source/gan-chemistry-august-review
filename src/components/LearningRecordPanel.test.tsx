@@ -88,7 +88,7 @@ describe('LearningRecordPanel', () => {
     expect(within(skillCard).getByText(/这道历史题已退出当前使用版本/)).toBeInTheDocument()
   })
 
-  it('shows a licensed High-3 REVIEW source once and defers its original and analysis images', () => {
+  it('shows only the historical question image without exposing source details or analysis artwork', () => {
     const originalEvidence = {
       ...makeSkill({}).recentQuestions[0],
       questionId: 'h3-source-q1',
@@ -111,8 +111,8 @@ describe('LearningRecordPanel', () => {
     const skillCard = screen.getByText('化学计量').closest('details')!
     fireEvent.click(within(skillCard).getByText('化学计量').closest('summary')!)
     fireEvent.click(within(skillCard).getByText(/真实作答 1/).closest('summary')!)
-    expect(within(skillCard).getAllByLabelText('原题来源')).toHaveLength(1)
-    expect(within(skillCard).getByText('2025年福建省质检')).toBeInTheDocument()
-    expect(within(skillCard).getByRole('button', { name: '加载当时的原题图与解析图' })).toBeInTheDocument()
+    expect(within(skillCard).queryByLabelText('原题来源')).not.toBeInTheDocument()
+    expect(within(skillCard).queryByText('2025年福建省质检')).not.toBeInTheDocument()
+    expect(within(skillCard).getByRole('button', { name: '加载当时的原题图' })).toBeInTheDocument()
   })
 })

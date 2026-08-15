@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Image as ImageIcon, RefreshCw, X, ZoomIn } from 'lucide-react'
 import type { QuestionAssetRef, QuestionSourceInfo, SessionIdentity } from '../domain/types'
+import { compactImageWhitespace } from '../domain/compactImageWhitespace'
 import { loadQuestionAsset, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { readAccessSession } from '../lib/session'
 import { ChemText } from './ChemText'
@@ -39,6 +40,19 @@ type AssetLoadState = {
   status: 'idle' | 'loading' | 'ready' | 'error'
   asset?: LoadedQuestionAsset
   message?: string
+}
+
+function CompactQuestionImage({ dataUrl, alt, width, height }: { dataUrl: string; alt: string; width?: number; height?: number }) {
+  const [displayUrl, setDisplayUrl] = useState(dataUrl)
+  useEffect(() => {
+    let active = true
+    setDisplayUrl(dataUrl)
+    void compactImageWhitespace(dataUrl).then((result) => {
+      if (active) setDisplayUrl(result)
+    })
+    return () => { active = false }
+  }, [dataUrl])
+  return <img src={displayUrl} alt={alt} width={width || undefined} height={displayUrl === dataUrl ? height || undefined : undefined} />
 }
 
 const emptyState = (): AssetLoadState => ({ status: 'idle' })
@@ -148,7 +162,7 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
       const state = assetStates[ref.assetId] ?? emptyState()
       if (state.status === 'ready' && state.asset) return <figure className="source-question-image" key={ref.assetId}>
         <button type="button" className="source-image-zoom" data-question-media-control onClick={(event) => { zoomTriggerRef.current = event.currentTarget; setZoomedAssetId(ref.assetId) }} aria-label={`放大查看${ref.alt}`}>
-          <img src={state.asset.dataUrl} alt={ref.alt} width={ref.width || undefined} height={ref.height || undefined} />
+          <CompactQuestionImage dataUrl={state.asset.dataUrl} alt={ref.alt} width={ref.width} height={ref.height} />
           <span><ZoomIn />点击放大</span>
         </button>
         {galleryRefs.length > 1 && <figcaption>{analysis ? '原题解析图' : '原题图'} {index + 1}/{galleryRefs.length}</figcaption>}
@@ -182,7 +196,7 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
     <dialog ref={dialogRef} className="source-image-dialog" data-question-media-dialog aria-label="放大查看原题图" onCancel={(event) => { event.preventDefault(); closeZoom() }} onClick={(event) => { if (event.target === event.currentTarget) closeZoom() }}>
       <div role="document">
         <header><b>原题大图</b><button type="button" data-question-media-control onClick={closeZoom} aria-label="关闭原题大图"><X /></button></header>
-        {zoomedAsset && zoomedRef && <img src={zoomedAsset.dataUrl} alt={`放大查看：${zoomedRef.alt}`} />}
+        {zoomedAsset && zoomedRef && <CompactQuestionImage dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${zoomedRef.alt}`} width={zoomedRef.width} height={zoomedRef.height} />}
       </div>
     </dialog>
   </section>
