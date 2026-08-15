@@ -3,7 +3,7 @@ import accessFunction from '../../supabase/functions/chemistry-access/index.ts?r
 
 describe('five-round review backend contract', () => {
   it('returns the plan and payload limits needed by every client', () => {
-    expect(accessFunction).toContain('questionCount, roundLimit, maxQuestionLevel: planMaxQuestionLevel(row)')
+    expect(accessFunction).toContain('questionCount, roundLimit, maxQuestionLevel: maximumLevel')
     expect(accessFunction).toContain('roundNumber,')
     expect(accessFunction).toContain('attemptSequence: selectionSequence')
     expect(accessFunction).toContain('roundsRemaining: isComplete ? 0')

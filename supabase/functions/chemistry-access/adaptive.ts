@@ -5,118 +5,81 @@ export type AdaptiveAnswer = {
   mother_id?: string | null
   skill_id?: string | null
   concept_key?: string | null
+  question_level?: number | null
   attempt_sequence?: number | null
   correct: boolean
   uncertain?: boolean | null
 }
 
 /**
- * Ranks approved in-scope questions against the learner's current evidence.
- * A plan-day never repeats a question or a mother question in later rounds.
- * It first replaces every unresolved fine-grained concept from the latest
- * round with a different mother question of the same concept. It then
- * guarantees skill coverage and fills the remaining budget with unseen
- * concepts. A question or mother question is never repeated that day.
+ * Selects one unseen original question for every fine-grained concept.
+ *
+ * Round 1 starts at the lowest available difficulty and covers each concept
+ * exactly once. In later rounds, a correct and confident answer moves to the
+ * nearest strictly harder unseen original; a wrong or uncertain answer stays
+ * at the same level when another original exists, otherwise it uses the
+ * nearest easier unseen original. Question and mother IDs never repeat during
+ * the same plan day.
  */
 export function selectAdaptiveQuestions<T extends AdaptiveQuestion>(
   questions: T[],
-  states: AdaptiveState[],
+  _states: AdaptiveState[],
   history: AdaptiveAnswer[],
   attemptSequence: number,
-  limit = 7,
-  now = new Date(),
+  limit = 5,
+  _now = new Date(),
 ): T[] {
-  const stateBySkill = new Map(states.map((state) => [state.skill_id, state]))
-  const historyByQuestion = new Map<string, { correct: number; wrong: number }>()
-  const usedQuestionIds = new Set<string>()
-  const usedMotherIds = new Set<string>()
-  const unresolvedBySkill = new Map<string, number>()
+  void _now
+  const usedQuestionIds = new Set(history.map((answer) => answer.question_id))
+  const usedMotherIds = new Set(history.flatMap((answer) => answer.mother_id ? [answer.mother_id] : []))
   const latestSequence = history.reduce((latest, answer) =>
     Math.max(latest, Number.isInteger(answer.attempt_sequence) ? Number(answer.attempt_sequence) : -1), -1)
   const latestRound = latestSequence >= 0
     ? history.filter((answer) => Number(answer.attempt_sequence) === latestSequence)
-    : history
-  const unresolvedConcepts = new Set(latestRound
-    .filter((answer) => !answer.correct || answer.uncertain)
-    .map((answer) => answer.concept_key)
-    .filter((concept): concept is string => Boolean(concept)))
-  for (const answer of history) {
-    usedQuestionIds.add(answer.question_id)
-    if (answer.mother_id) usedMotherIds.add(answer.mother_id)
-    const item = historyByQuestion.get(answer.question_id) ?? { correct: 0, wrong: 0 }
-    if (answer.correct && !answer.uncertain) item.correct += 1
-    else item.wrong += 1
-    historyByQuestion.set(answer.question_id, item)
-    if (!answer.correct || answer.uncertain) {
-      if (answer.skill_id) unresolvedBySkill.set(answer.skill_id, (unresolvedBySkill.get(answer.skill_id) ?? 0) + 1)
-    }
-  }
+    : []
+  const latestByConcept = new Map(latestRound.flatMap((answer) =>
+    answer.concept_key ? [[answer.concept_key, answer] as const] : []))
 
-  const ranked = questions.filter((question) => {
-    if (!question.mother_id) return false
-    if (usedQuestionIds.has(question.id)) return false
-    return !usedMotherIds.has(question.mother_id)
-  }).map((question, sourceIndex) => {
-    const state = stateBySkill.get(question.skill_id)
-    const evidence = historyByQuestion.get(question.id)
-    const targetLevel = Math.max(1, Number(state?.verified_level ?? 0) + 1)
-    const due = !state?.next_review_at || new Date(state.next_review_at) <= now
-    const rotation = (sourceIndex - attemptSequence + questions.length) % Math.max(questions.length, 1)
-    const unresolvedSkill = unresolvedBySkill.get(question.skill_id) ?? 0
-    const unresolvedConcept = question.concept_key ? unresolvedConcepts.has(question.concept_key) : false
-    const exactHistoryScore = !evidence ? 12 : -evidence.wrong * 4 - evidence.correct * 7
-    const score =
-      exactHistoryScore +
-      (unresolvedConcept ? 100 : 0) +
-      unresolvedSkill * 6 +
-      Number(state?.consecutive_errors ?? 0) * 4 +
-      (due ? 4 : 0) -
-      Math.abs(Number(question.level) - targetLevel) * 2
-    return { question, score, rotation }
-  }).sort((a, b) => b.score - a.score || a.rotation - b.rotation || a.question.id.localeCompare(b.question.id))
-
+  const unseen = questions.filter((question) =>
+    Boolean(question.mother_id)
+    && !usedQuestionIds.has(question.id)
+    && !usedMotherIds.has(question.mother_id!))
+  const concepts = [...new Set(questions.flatMap((question) => question.concept_key ? [question.concept_key] : []))].sort()
   const selected: T[] = []
-  const selectedIds = new Set<string>()
-  const selectedMotherIds = new Set<string>()
-  const selectedConcepts = new Set<string>()
-  function addCandidate(candidate: (typeof ranked)[number] | undefined) {
-    if (!candidate || selected.length >= limit) return
-    selected.push(candidate.question)
-    selectedIds.add(candidate.question.id)
-    if (candidate.question.mother_id) selectedMotherIds.add(candidate.question.mother_id)
-    if (candidate.question.concept_key) selectedConcepts.add(candidate.question.concept_key)
-  }
 
-  // An error or uncertainty must return as a different question that tests the
-  // same fine-grained concept. Never substitute a merely related skill.
-  for (const conceptKey of unresolvedConcepts) {
-    addCandidate(ranked.find((item) => item.question.concept_key === conceptKey &&
-      !selectedIds.has(item.question.id) &&
-      !selectedMotherIds.has(item.question.mother_id!)))
-  }
-
-  const skills = [...new Set(questions.map((question) => question.skill_id))]
-  for (const skillId of skills) {
-    const candidate = ranked.find((item) => item.question.skill_id === skillId &&
-      !selectedIds.has(item.question.id) &&
-      !selectedMotherIds.has(item.question.mother_id!) &&
-      (!item.question.concept_key || !selectedConcepts.has(item.question.concept_key)))
-    addCandidate(candidate)
-  }
-
-  // Prefer one question per concept in a round so five questions diagnose five
-  // separate points instead of spending the student's small budget twice.
-  for (const item of ranked) {
+  for (const conceptKey of concepts) {
     if (selected.length >= limit) break
-    if (!selectedIds.has(item.question.id) &&
-      !selectedMotherIds.has(item.question.mother_id!) &&
-      (!item.question.concept_key || !selectedConcepts.has(item.question.concept_key))) addCandidate(item)
+    const candidates = unseen.filter((question) => question.concept_key === conceptKey)
+    if (!candidates.length) continue
+    const previous = latestByConcept.get(conceptKey)
+    const previousLevel = Number(previous?.question_level ?? 0)
+    const mastered = previous?.correct === true && previous.uncertain !== true
+
+    candidates.sort((a, b) => {
+      if (!previous) return a.level - b.level || a.id.localeCompare(b.id)
+      if (mastered) {
+        const aHarder = a.level > previousLevel ? 0 : 1
+        const bHarder = b.level > previousLevel ? 0 : 1
+        return aHarder - bHarder
+          || Math.abs(a.level - previousLevel) - Math.abs(b.level - previousLevel)
+          || a.level - b.level
+          || a.id.localeCompare(b.id)
+      }
+      const aNotHarder = a.level <= previousLevel ? 0 : 1
+      const bNotHarder = b.level <= previousLevel ? 0 : 1
+      return aNotHarder - bNotHarder
+        || Math.abs(a.level - previousLevel) - Math.abs(b.level - previousLevel)
+        || a.level - b.level
+        || a.id.localeCompare(b.id)
+    })
+    selected.push(candidates[0])
   }
-  // A plan with fewer than five available concepts may still use another
-  // unseen variant, while the question and mother non-repeat rules remain hard.
-  for (const item of ranked) {
+
+  // Non-REVIEW callers or legacy pools may not have concept keys. Preserve a
+  // deterministic unseen fill without weakening the no-repeat rule.
+  for (const question of unseen.sort((a, b) => a.level - b.level || a.id.localeCompare(b.id))) {
     if (selected.length >= limit) break
-    if (!selectedIds.has(item.question.id) && !selectedMotherIds.has(item.question.mother_id!)) addCandidate(item)
+    if (!selected.some((item) => item.id === question.id)) selected.push(question)
   }
   return selected
 }

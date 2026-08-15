@@ -73,7 +73,7 @@ async function finishOneQuestion() {
   fireEvent.keyDown(window, { key: 'Enter' })
   fireEvent.click(screen.getByRole('button', { name: /A.*升价并失电子/ }))
   fireEvent.keyDown(window, { key: 'Enter' })
-  expect(screen.getByText('判断正确')).toBeInTheDocument()
+  expect(screen.getByText(/判断正确/)).toBeInTheDocument()
   fireEvent.keyDown(window, { key: 'Enter' })
   await screen.findByText('演示第 1 轮完成')
 }
@@ -94,14 +94,14 @@ describe('LearningRound Enter shortcut', () => {
     expect(screen.getByRole('button', { name: '提交答案' })).toBeDisabled()
 
     fireEvent.keyDown(window, { key: 'Enter' })
-    expect(screen.queryByText('判断正确')).not.toBeInTheDocument()
+    expect(screen.queryByText(/判断正确/)).not.toBeInTheDocument()
     const uncertain = screen.getByRole('checkbox')
     fireEvent.click(screen.getByRole('button', { name: /A.*升价并失电子/ }))
     fireEvent.keyDown(uncertain, { key: 'Enter' })
-    expect(screen.queryByText('判断正确')).not.toBeInTheDocument()
+    expect(screen.queryByText(/判断正确/)).not.toBeInTheDocument()
 
     fireEvent.keyDown(window, { key: 'Enter' })
-    expect(screen.getByText('判断正确')).toBeInTheDocument()
+    expect(screen.getByText(/判断正确/)).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Enter' })
     await screen.findByText('演示第 1 轮完成')
 

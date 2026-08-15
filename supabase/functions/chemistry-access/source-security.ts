@@ -1,7 +1,9 @@
 export type SourceAssetPhase = 'question' | 'analysis'
 
 export function shouldHideLicensedHigh3Solution(row: Record<string, unknown>, reviewMode: boolean) {
-  return reviewMode && row.grade_band === '高三' && row.source_kind === 'licensed_local'
+  return reviewMode
+    && ['高一', '高二', '高三'].includes(String(row.grade_band))
+    && row.source_kind === 'licensed_local'
 }
 
 export function issuedSolutionFields(row: Record<string, unknown>, hideSolution: boolean) {

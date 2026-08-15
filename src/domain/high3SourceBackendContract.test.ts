@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import accessFunction from '../../supabase/functions/chemistry-access/index.ts?raw'
 import sourceAssetsMigration from '../../supabase/migrations/20260815060000_add_source_backed_question_assets.sql?raw'
 
-describe('High-3 source-backed REVIEW backend contract', () => {
+describe('high-school source-backed REVIEW backend contract', () => {
   it('serves exact source assets only through an authenticated question-bound request', () => {
     expect(accessFunction).toContain('body.action === "question_asset"')
     expect(accessFunction).toContain('body.data?.questionId')
@@ -17,7 +17,7 @@ describe('High-3 source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('hasCompletedAnswer')
     expect(accessFunction).toContain('snapshot.assetRefs || snapshot.asset_refs')
     expect(accessFunction).toContain('currentAssetEligible')
-    expect(accessFunction).toContain('question.grade_band !== "高三"')
+    expect(accessFunction).toContain('!["高一", "高二", "高三"].includes(String(question.grade_band))')
     expect(accessFunction).toContain('question.scope_status === "IN"')
     expect(accessFunction).toContain('question.source_kind !== "licensed_local"')
     expect(accessFunction).toContain('dataUrl: `data:${mimeType};base64,${payloadBase64}`')
@@ -35,9 +35,9 @@ describe('High-3 source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('lockedFeedback')
   })
 
-  it('keeps public High-3 demos on a separate teacher-authored pool with no licensed asset or feedback access', () => {
-    expect(accessFunction).toContain('const demoHigh3Review = demoProfile && plan.mode === "REVIEW"')
-    expect(accessFunction).toContain('if (demoHigh3Review)')
+  it('keeps public high-school demos on a separate teacher-authored pool with no licensed asset or feedback access', () => {
+    expect(accessFunction).toContain('const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW"')
+    expect(accessFunction).toContain('if (demoHighSchoolReview)')
     expect(accessFunction).toContain('.eq("source_kind", "teacher_original")')
     expect(accessFunction).toContain('.eq("usable_for_demo", true)')
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true)')

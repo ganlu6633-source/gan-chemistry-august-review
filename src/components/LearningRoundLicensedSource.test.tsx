@@ -40,7 +40,7 @@ const payload: PlanPayload = {
   cards: [card], questions: [sourceQuestion], attemptSequence: 1, roundNumber: 2, roundLimit: 5, questionCount: 1, isResolved: false, isComplete: false, roundsRemaining: 4,
 }
 
-describe('LearningRound licensed High-3 source question', () => {
+describe('LearningRound licensed source question', () => {
   beforeEach(() => {
     vi.mocked(loadQuestionAsset).mockImplementation(async (_session, _questionId, assetId) => ({ asset: { dataUrl: `data:image/png;base64,${assetId}`, mimeType: 'image/png', sha256: `${assetId}-sha`, width: 800, height: 500 } }))
     vi.mocked(loadQuestionFeedback).mockResolvedValue({ feedback: answerFeedback, simulated: false })
@@ -67,7 +67,7 @@ describe('LearningRound licensed High-3 source question', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭原题大图' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '提交答案' })).toHaveFocus())
     fireEvent.keyDown(window, { key: 'Enter' })
-    expect(await screen.findByText('判断正确')).toBeInTheDocument()
+    expect(await screen.findByText(/判断正确/)).toBeInTheDocument()
     expect(loadQuestionFeedback).toHaveBeenCalledWith(session, expect.objectContaining({ planId: 'h3-plan', questionId: 'licensed-h3-q1', selectedOption: 0, revisionToken: 'sha256-question-revision' }))
     expect(screen.queryByRole('heading', { name: '原题解析图' })).not.toBeInTheDocument()
     expect(screen.queryByAltText('第8题原题解析')).not.toBeInTheDocument()
@@ -82,7 +82,7 @@ describe('LearningRound licensed High-3 source question', () => {
   it('restores a server-locked first answer after refresh without allowing a new choice', async () => {
     render(<LearningRound session={session} payload={{ ...payload, lockedFeedback: [answerFeedback] }} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
-    expect(await screen.findByText('判断正确')).toBeInTheDocument()
+    expect(await screen.findByText(/判断正确/)).toBeInTheDocument()
     const answerA = screen.getByRole('button', { name: 'A. 原题选项甲' })
     expect(answerA).toBeDisabled()
     expect(loadQuestionFeedback).not.toHaveBeenCalled()

@@ -96,13 +96,19 @@ const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<strin
   const latestAnswers = Array.isArray(latest?.chem_attempt_answers)
     ? latest.chem_attempt_answers as Array<Record<string, unknown>>
     : [];
-  const isResolved = latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true);
+  // With tiered originals, a fully correct first round is evidence to raise
+  // difficulty, not a reason to stop. The fastest valid path is L1→L2→L3.
+  const maximumLevel = planMaxQuestionLevel(row);
+  const isResolved = maximumLevel !== null && latestAnswers.length === questionCount && latestAnswers.every((answer) => {
+    const snapshot = answer.question_snapshot as Record<string, unknown> | null;
+    return answer.correct === true && answer.uncertain !== true && Number(snapshot?.level || 0) >= maximumLevel;
+  });
   const isComplete = isResolved || attempts.length >= roundLimit;
   return {
     id: row.id, studentId: row.student_id, date: row.plan_date, mode: row.mode, title: row.title,
     skillIds: row.skill_ids || [], knowledgeSummaries: row.knowledge_summaries || [],
     estimatedMinutes: row.estimated_minutes, source: row.source, isScheduled: row.is_scheduled,
-    questionCount, roundLimit, maxQuestionLevel: planMaxQuestionLevel(row),
+    questionCount, roundLimit, maxQuestionLevel: maximumLevel,
     attemptCount: attempts.length, firstScore: first?.first_score ?? null,
     latestScore: latest?.first_score ?? null, latestCompletedAt: latest?.completed_at ?? null,
     isResolved, isComplete, roundsRemaining: isComplete ? 0 : Math.max(0, roundLimit - attempts.length),
@@ -187,6 +193,7 @@ type SourceAdaptiveHistory = Record<string, unknown> & {
   mother_id?: string | null;
   skill_id?: string | null;
   concept_key?: string | null;
+  question_level?: number | null;
   source_item_key?: string | null;
   content_fingerprint?: string | null;
   attempt_sequence?: number | null;
@@ -194,6 +201,27 @@ type SourceAdaptiveHistory = Record<string, unknown> & {
   uncertain?: boolean | null;
   question_snapshot?: unknown;
 };
+
+function latestConceptsAtMaximumDifficulty(
+  latestAnswers: SourceAdaptiveHistory[],
+  questionPool: SourceAdaptiveQuestion[],
+  questionCount: number,
+) {
+  if (latestAnswers.length !== questionCount) return false;
+  const maximumByConcept = new Map<string, number>();
+  for (const question of questionPool) {
+    const conceptKey = String(question.concept_key || "");
+    if (!conceptKey) continue;
+    maximumByConcept.set(conceptKey, Math.max(maximumByConcept.get(conceptKey) || 0, Number(question.level) || 0));
+  }
+  return latestAnswers.every((answer) => {
+    const conceptKey = String(answer.concept_key || "");
+    return answer.correct === true
+      && answer.uncertain !== true
+      && Boolean(conceptKey)
+      && Number(answer.question_level || 0) >= Number(maximumByConcept.get(conceptKey) || Number.POSITIVE_INFINITY);
+  });
+}
 
 function sourceDistinctQuestionPool<T extends Record<string, unknown>>(
   questions: T[],
@@ -221,7 +249,7 @@ function sourceDistinctQuestionPool<T extends Record<string, unknown>>(
 }
 
 function isLicensedHigh3Question(row: Record<string, unknown>) {
-  return row.grade_band === "高三" && row.source_kind === "licensed_local";
+  return ["高一", "高二", "高三"].includes(String(row.grade_band)) && row.source_kind === "licensed_local";
 }
 
 const questionShape = (row: Record<string, unknown>, secureLicensedHigh3Review = false) => {
@@ -634,7 +662,7 @@ async function studentDashboard(studentId: string) {
     supabase.from("chem_learning_plans").select("*").eq("student_id", studentId).order("plan_date"),
     supabase.from("chem_student_skill_state").select("*,chem_skills(max_level)").eq("student_id", studentId),
     supabase.from("chem_skills").select("*").eq("active", true).eq("grade_band", profileResult.data.grade_band).order("module_id"),
-    supabase.from("chem_learning_attempts").select("id,plan_day_id,attempt_kind,sequence,first_score,completed_at,chem_attempt_answers(correct,uncertain)").eq("student_id", studentId).order("completed_at"),
+    supabase.from("chem_learning_attempts").select("id,plan_day_id,attempt_kind,sequence,first_score,completed_at,chem_attempt_answers(correct,uncertain,question_snapshot)").eq("student_id", studentId).order("completed_at"),
     loadVideoRecommendations(studentId),
   ]);
   for (const result of [planResult, stateResult, skillResult, attemptResult]) if (result.error) throw result.error;
@@ -807,8 +835,8 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     .eq("scope_status", "IN")
     .not("mother_id", "is", null);
   if (plan.mode === "REVIEW") eligibleQuestions = eligibleQuestions.not("concept_key", "is", null);
-  const demoHigh3Review = demoProfile && plan.mode === "REVIEW" && gradeResult.data.grade_band === "高三";
-  if (demoHigh3Review) {
+  const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
+  if (demoHighSchoolReview) {
     // Public demo identities never enumerate copyrighted local originals or
     // their private asset identifiers. They use a separately approved,
     // teacher-authored demo pool with ordinary local feedback. This pool is
@@ -818,8 +846,8 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       .eq("usable_for_demo", true);
   } else {
     eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true);
-    if (plan.mode === "REVIEW" && gradeResult.data.grade_band === "高三") {
-      // Real High-3 REVIEW and teacher preview of a real student are
+    if (plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band))) {
+      // Every real high-school REVIEW and teacher preview of a real student is
       // source-only by product policy. Fail closed if a generated row is
       // accidentally re-enabled later.
       eligibleQuestions = eligibleQuestions
@@ -853,7 +881,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   if (history.error) throw history.error;
   const historyQuestionIds = [...new Set((history.data || []).map((answer) => String(answer.question_id)).filter(Boolean))];
   const historyQuestionMetadata = historyQuestionIds.length
-    ? await supabase.from("chem_questions").select("id,source_item_key,content_fingerprint").in("id", historyQuestionIds)
+    ? await supabase.from("chem_questions").select("id,level,concept_key,source_item_key,content_fingerprint").in("id", historyQuestionIds)
     : { data: [], error: null };
   if (historyQuestionMetadata.error) throw historyQuestionMetadata.error;
   const historicalIdentityByQuestionId = new Map(
@@ -867,6 +895,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       ...answer,
       source_item_key: String(snapshot?.sourceItemKey || currentIdentity?.sourceItemKey || "") || null,
       content_fingerprint: String(snapshot?.contentFingerprint || currentIdentity?.contentFingerprint || "") || null,
+      question_level: Number(snapshot?.level || (historyQuestionMetadata.data || []).find((question) => String(question.id) === String(answer.question_id))?.level || 0) || null,
       attempt_sequence: sequenceByAttemptId.get(String(answer.attempt_id)) ?? null,
     };
   });
@@ -874,7 +903,37 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const latestAnswers = latestAttemptId
     ? historyRows.filter((answer) => String(answer.attempt_id) === latestAttemptId)
     : [];
-  const isResolved = latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true);
+  const questionPool = (questions.data || []) as SourceAdaptiveQuestion[];
+  if (plan.mode === "REVIEW" && !demoProfile && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band))) {
+    const conceptCounts = new Map<string, number>();
+    const conceptLevels = new Map<string, Set<number>>();
+    for (const question of questionPool) {
+      const conceptKey = String(question.concept_key || "");
+      if (conceptKey) {
+        conceptCounts.set(conceptKey, (conceptCounts.get(conceptKey) || 0) + 1);
+        const levels = conceptLevels.get(conceptKey) || new Set<number>();
+        levels.add(Number(question.level));
+        conceptLevels.set(conceptKey, levels);
+      }
+    }
+    // Five rounds are five different originals, not five artificial
+    // difficulty labels. High-1/High-2 use the audited three-step ladder:
+    // two L1 originals, one L2 original and two L3 originals per concept.
+    const expectedLevels = [1, 2, 3];
+    if (
+      skillIds.length !== 1
+      || conceptCounts.size !== questionCount
+      || [...conceptCounts.values()].some((count) => count !== roundLimit)
+      || (["高一", "高二"].includes(String(gradeResult.data.grade_band))
+        && [...conceptLevels.values()].some((levels) => expectedLevels.some((level) => !levels.has(level))))
+    ) {
+      throw new RequestError(
+        422,
+        `当天第一轮必须覆盖 ${questionCount} 个细知识点，且每个知识点要有 ${roundLimit} 道不重复原题；当前计划或原题池尚未达到要求，已停止下发。`,
+      );
+    }
+  }
+  const isResolved = latestConceptsAtMaximumDifficulty(latestAnswers, questionPool, questionCount);
   const reachedRoundLimit = actualAttemptCount >= roundLimit;
   if (!options.allowCompletedPreview && (reachedRoundLimit || isResolved)) {
     throw new RequestError(
@@ -892,7 +951,6 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       ? Math.max(0, Math.min(actualAttemptCount, roundLimit) - 1)
       : Math.min(actualAttemptCount, roundLimit - 1);
   const roundNumber = selectionSequence + 1;
-  const questionPool = (questions.data || []) as SourceAdaptiveQuestion[];
   let selectionHistory: SourceAdaptiveHistory[] = historyRows;
   let adaptiveQuestions: SourceAdaptiveQuestion[] = [];
   if (options.previewRound !== undefined) {
@@ -918,6 +976,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
             mother_id: question.mother_id ? String(question.mother_id) : null,
             skill_id: String(question.skill_id),
             concept_key: question.concept_key ? String(question.concept_key) : null,
+            question_level: Number(question.level) || null,
             source_item_key: question.source_item_key ? String(question.source_item_key) : null,
             content_fingerprint: question.content_fingerprint ? String(question.content_fingerprint) : null,
             attempt_sequence: previewIndex,
@@ -1081,7 +1140,7 @@ Deno.serve(async (req: Request) => {
           .eq("id", assetStudentId)
           .maybeSingle();
         if (profile.error) throw profile.error;
-        if (!profile.data || profile.data.grade_band !== "高三" || profile.data.record_status !== "active") {
+        if (!profile.data || !["高一", "高二", "高三"].includes(String(profile.data.grade_band)) || profile.data.record_status !== "active") {
           return reply(req, { error: "无权读取该原题图片。" }, 403);
         }
         if ((profile.data.metadata as Record<string, unknown> | null)?.demo === true) {
@@ -1109,7 +1168,7 @@ Deno.serve(async (req: Request) => {
         : null;
       if (
         !question
-        || question.grade_band !== "高三"
+        || !["高一", "高二", "高三"].includes(String(question.grade_band))
         || question.source_kind !== "licensed_local"
       ) {
         return reply(req, { error: "原题图片不存在。" }, 404);
@@ -1305,12 +1364,12 @@ Deno.serve(async (req: Request) => {
         planId,
         readOnlyPreview ? { allowCompletedPreview: true, previewRound } : {},
       );
-      if (payload.plan.mode !== "REVIEW") return reply(req, { error: "该反馈接口只用于高三原题复习。" }, 409);
+       if (payload.plan.mode !== "REVIEW") return reply(req, { error: "该反馈接口只用于高中原题复习。" }, 409);
       const issuedQuestion = (payload.questions as Array<Record<string, unknown>>)
         .find((candidate) => String(candidate.id) === questionId);
       if (
         !issuedQuestion
-        || issuedQuestion.gradeBand !== "高三"
+         || !["高一", "高二", "高三"].includes(String(issuedQuestion.gradeBand))
         || issuedQuestion.sourceKind !== "licensed_local"
       ) return reply(req, { error: "这道题不属于服务器刚刚生成的本轮原题。" }, 409);
       const issuedOptions = Array.isArray(issuedQuestion.options) ? issuedQuestion.options : [];
@@ -1326,7 +1385,7 @@ Deno.serve(async (req: Request) => {
         .from("chem_questions")
         .select("id,grade_band,source_kind,correct_option,explanation,scaffold,asset_refs,question_revision_token")
         .eq("id", questionId)
-        .eq("grade_band", "高三")
+        .eq("grade_band", issuedQuestion.gradeBand)
         .eq("source_kind", "licensed_local")
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
@@ -1558,7 +1617,7 @@ Deno.serve(async (req: Request) => {
         .not("mother_id", "is", null)
         .eq(questionUsageColumn, true);
       if (plan.mode === "REVIEW") questionQuery = questionQuery.not("concept_key", "is", null);
-      if (plan.mode === "REVIEW" && targetProfile.data.grade_band === "高三") {
+      if (plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(targetProfile.data.grade_band))) {
         questionQuery = questionQuery
           .eq("source_kind", "licensed_local")
           .eq("render_mode", "image_primary")
@@ -1669,14 +1728,6 @@ Deno.serve(async (req: Request) => {
       ) {
         return reply(req, { error: "同一天的后续轮次不能重复题目或同一母题，也不能重复同一来源原题，请重新打开本轮练习。" }, 409);
       }
-      const latestAttemptId = previousAttempts.at(-1)?.id ? String(previousAttempts.at(-1)?.id) : null;
-      if (latestAttemptId) {
-        const latestAnswers = priorAnswers.filter((answer) => String(answer.attempt_id) === latestAttemptId);
-        if (latestAnswers.length === questionCount && latestAnswers.every((answer) => answer.correct === true && answer.uncertain !== true)) {
-          return reply(req, { error: "今天这组问题已经全部解决，不能再写入新的学习记录。" }, 409);
-        }
-      }
-
       if (plan.mode === "REVIEW") {
         // Never trust a client to substitute five other eligible questions.
         // Rebuild the exact adaptive set for the current round from the

@@ -160,7 +160,7 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
 }
 
 function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
-  const showsLicensedReviewSource = gradeBand === '高三' && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
+  const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
   const nativeStem = <p className="record-question-stem">{question.stem}</p>
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">
     <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p>{question.stem}</p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>

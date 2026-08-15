@@ -260,7 +260,6 @@ Deno.serve(async (req: Request) => {
     const action = typeof body.action === "string" ? body.action : "";
     const bodyData = recordValue(body.data);
 
-
     if (action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
     if (
       action === "student_preview_dashboard"
