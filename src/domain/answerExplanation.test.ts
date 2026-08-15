@@ -14,4 +14,13 @@ describe('splitAnswerExplanation', () => {
   it('keeps an ordinary explanation as one paragraph', () => {
     expect(splitAnswerExplanation('先判断电子转移，再校验电荷守恒。')).toEqual([{ text: '先判断电子转移，再校验电荷守恒。' }])
   })
+
+  it('keeps A-D option explanations separate and ignores a trailing answer sentence', () => {
+    expect(splitAnswerExplanation('A．总体积不能直接相加，A错误；B．溶质质量守恒，B正确；C．混合后浓度介于两者之间，C错误；D．缺少密度，D错误；故选B。')).toEqual([
+      { option: 'A', text: 'A．总体积不能直接相加，A错误' },
+      { option: 'B', text: 'B．溶质质量守恒，B正确' },
+      { option: 'C', text: 'C．混合后浓度介于两者之间，C错误' },
+      { option: 'D', text: 'D．缺少密度，D错误' },
+    ])
+  })
 })
