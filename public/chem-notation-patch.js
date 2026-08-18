@@ -3,13 +3,23 @@
   style.textContent = '.chem-symbol sup{font-size:.68em;line-height:0;vertical-align:.5em;margin-left:.03em;font-style:normal;text-transform:none}'
   document.head.append(style)
 
-  const unitPattern = /^(mol|L|s|min|g|kg|Pa|kPa)(?:·)?([-−]\d+)$/
-  const tokenPattern = /(?:\b(?:mol|L|s|min|g|kg|Pa|kPa)(?:·)?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+\d*)/g
+  const unitPattern = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?([-−]\d+)$/
+  const tokenPattern = /(?:\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+(?:\d+)?(?:\^\d*[+-]|[+-])?)/g
+
+  function splitCharge(value) {
+    const explicit = value.match(/\^(\d*)([+-])$/)
+    if (explicit) return { body: value.slice(0, -explicit[0].length), digits: explicit[1], sign: explicit[2] }
+    const sign = value.match(/([+-])$/)
+    if (!sign) return { body: value, digits: '', sign: '' }
+    const rawBody = value.slice(0, -sign[0].length)
+    const singleElementCharge = rawBody.match(/^(?:[A-Z][a-z]?)(\d+)$/)
+    if (singleElementCharge) return { body: rawBody.slice(0, -singleElementCharge[1].length), digits: singleElementCharge[1], sign: sign[1] }
+    return { body: rawBody, digits: '', sign: sign[1] }
+  }
 
   function appendFormula(parent, value) {
-    const charge = value.match(/(\d*)([+-])$/)
-    const body = charge ? value.slice(0, -charge[0].length) : value
-    const singleElementCharge = charge && /^(?:[A-Z][a-z]?)\d+$/.test(body)
+    const charge = splitCharge(value)
+    const body = charge.body
     const wrapper = document.createElement('span')
     wrapper.className = 'chem-symbol'
     wrapper.setAttribute('aria-label', value)
@@ -21,7 +31,7 @@
         let end = index + 1
         while (end < body.length && /\d/.test(body[end])) end += 1
         const node = document.createTextNode(body.slice(index, end))
-        if (hasAtom && !singleElementCharge) {
+        if (hasAtom) {
           const sub = document.createElement('sub')
           sub.textContent = node.textContent
           wrapper.append(sub)
@@ -36,13 +46,9 @@
       index += 1
     }
 
-    if (singleElementCharge && charge) {
+    if (charge.sign) {
       const sup = document.createElement('sup')
-      sup.textContent = `${body.match(/\d+$/)?.[0] ?? ''}${charge[2]}`
-      wrapper.append(sup)
-    } else if (charge) {
-      const sup = document.createElement('sup')
-      sup.textContent = `${charge[1]}${charge[2]}`
+      sup.textContent = `${charge.digits}${charge.sign}`
       wrapper.append(sup)
     }
     parent.append(wrapper)
@@ -93,8 +99,23 @@
     element.dataset.chemNotationReady = 'true'
   }
 
+  const chemistryTextSelectors = [
+    '.source-transcription p, .source-transcription li',
+    '.question-card h1, .question-card .option-list button, .answer-explanation p',
+    '.knowledge-card h1, .knowledge-card .core-rule, .knowledge-card p, .knowledge-card li',
+    '.record-knowledge-grid b, .record-knowledge-grid p, .record-knowledge-grid span',
+    '.record-question-stem, .record-question summary p, .record-option-list p, .record-answer-row b, .record-explanation p',
+    '.record-topics span, .record-skill-summary h3, .record-next-step span',
+    '.guardian-card li, .timeline b, .timeline p',
+    '.video-card h3, .video-skill, .teacher-video-reason p, .guardian-video-reason',
+    '.preview-today h3, .preview-today p, .preview-week b, .preview-week p',
+  ].join(', ')
+
   function scan(root = document) {
-    root.querySelectorAll?.('.source-transcription p, .source-transcription li').forEach(formatElement)
+    const elements = []
+    if (root.matches?.(chemistryTextSelectors)) elements.push(root)
+    root.querySelectorAll?.(chemistryTextSelectors).forEach((element) => elements.push(element))
+    elements.forEach(formatElement)
   }
 
   scan()

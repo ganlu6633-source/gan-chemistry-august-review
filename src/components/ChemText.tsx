@@ -1,8 +1,8 @@
 import { Fragment, type ReactNode } from 'react'
 
 const AVOGADRO_TOKEN = 'N_A'
-const UNIT_EXPONENT = /^(mol|L|s|min|g|kg|Pa|kPa)(?:·)?([-−]\d+)$/
-const SPECIAL_TOKEN = /(?:\b(?:mol|L|s|min|g|kg|Pa|kPa)(?:·)?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+\d*)/g
+const UNIT_EXPONENT = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?([-−]\d+)$/
+const SPECIAL_TOKEN = /(?:\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+(?:\d+)?(?:\^\d*[+-]|[+-])?)/g
 
 function isFormulaToken(value: string) {
   return /\d|[+-]/.test(value)
@@ -45,18 +45,22 @@ function renderFormulaBody(value: string): ReactNode[] {
   return children
 }
 
-function renderFormulaToken(value: string, key: string) {
-  const charge = value.match(/(\d*)([+-])$/)
-  const body = charge ? value.slice(0, -charge[0].length) : value
-  const chargeDigits = charge?.[1] ?? ''
-  const chargeSign = charge?.[2] ?? ''
-  const bodyHasSingleElement = /^(?:[A-Z][a-z]?)\d+$/.test(body)
+function splitCharge(value: string) {
+  const explicit = value.match(/\^(\d*)([+-])$/)
+  if (explicit) return { body: value.slice(0, -explicit[0].length), digits: explicit[1], sign: explicit[2] }
 
-  // Fe3+ and Al3+ use the trailing number as a charge, while NH4+ uses it as
-  // the formula subscript. The single-element form is the unambiguous case.
-  const renderedBody = bodyHasSingleElement && charge
-    ? <>{body.replace(/\d+$/, '')}<sup>{`${body.match(/\d+$/)?.[0] ?? ''}${chargeSign}`}</sup></>
-    : <>{renderFormulaBody(body)}{charge && <sup>{`${chargeDigits}${chargeSign}`}</sup>}</>
+  const sign = value.match(/([+-])$/)
+  if (!sign) return { body: value, digits: '', sign: '' }
+
+  const rawBody = value.slice(0, -sign[0].length)
+  const singleElementCharge = rawBody.match(/^(?:[A-Z][a-z]?)(\d+)$/)
+  if (singleElementCharge) return { body: rawBody.slice(0, -singleElementCharge[1].length), digits: singleElementCharge[1], sign: sign[1] }
+  return { body: rawBody, digits: '', sign: sign[1] }
+}
+
+function renderFormulaToken(value: string, key: string) {
+  const charge = splitCharge(value)
+  const renderedBody = <>{renderFormulaBody(charge.body)}{charge.sign && <sup>{`${charge.digits}${charge.sign}`}</sup>}</>
 
   return <span className="chem-symbol" aria-label={value} key={key}>{renderedBody}</span>
 }

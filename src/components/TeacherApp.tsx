@@ -169,8 +169,8 @@ function StudentPreview({ dashboard, initialStudentId, onOpenFull }: { dashboard
     {!loading && preview && <div className="student-preview-frame">
       <div className="preview-identity"><div><span className="eyebrow">学生看到的首页概览</span><h2>{preview.profile.displayName} · {preview.profile.gradeBand}</h2><p>家长：{selected?.guardianNames.length ? selected.guardianNames.join('、') : '暂未登记'}</p></div><GraduationCap /></div>
       <div className="preview-metrics"><article><b>{preview.plans.length}</b><span>计划天数</span></article><article><b>{preview.todayQuestionCount}</b><span>本轮题目</span></article><article><b>{litSkills}</b><span>已点亮能力</span></article><article><b>{preview.achievements.length}</b><span>成长记录</span></article></div>
-      {todayPlan ? <section className="preview-today"><BookOpen /><div><span>{todayPlan.date === today ? '今天已点亮' : '当前安排'}</span><h3>{todayPlan.title}</h3><p>{todayPlan.knowledgeSummaries.join(' · ')}</p></div><b>约{todayPlan.estimatedMinutes}分钟</b></section> : <div className="directory-empty">这个学生还没有复习计划。</div>}
-      <section className="preview-week"><div className="panel-head"><h3>学习计划前7天</h3><span>用于核对标题、知识点与节奏</span></div><div>{upcoming.map((plan) => <article key={plan.id}><time>{plan.date.slice(5)}</time><div><b>{plan.title}</b><p>{plan.knowledgeSummaries.join('、')}</p></div></article>)}</div></section>
+      {todayPlan ? <section className="preview-today"><BookOpen /><div><span>{todayPlan.date === today ? '今天已点亮' : '当前安排'}</span><h3><ChemText>{todayPlan.title}</ChemText></h3><p><ChemText>{todayPlan.knowledgeSummaries.join(' · ')}</ChemText></p></div><b>约{todayPlan.estimatedMinutes}分钟</b></section> : <div className="directory-empty">这个学生还没有复习计划。</div>}
+      <section className="preview-week"><div className="panel-head"><h3>学习计划前7天</h3><span>用于核对标题、知识点与节奏</span></div><div>{upcoming.map((plan) => <article key={plan.id}><time>{plan.date.slice(5)}</time><div><b><ChemText>{plan.title}</ChemText></b><p><ChemText>{plan.knowledgeSummaries.join('、')}</ChemText></p></div></article>)}</div></section>
     </div>}
   </>
 }

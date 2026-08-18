@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, BookOpenCheck, Brain, CheckCircle2, Clock3, MessageCircle, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react'
 import type { GuardianDashboardData, LearningRecordData, SessionIdentity } from '../domain/types'
 import { loadLearningRecord } from '../lib/api'
+import { ChemText } from './ChemText'
 import { LearningRecordPanel } from './LearningRecordPanel'
 import { GuardianVideoSection } from './VideoLearning'
 
@@ -42,11 +43,11 @@ export function GuardianApp({ dashboard, session }: { dashboard: GuardianDashboa
           : <div className="record-loading" aria-label="正在读取完整学习档案"><span /><span /><span /></div>}
     </section>
     <div className="guardian-columns">
-      <section className="guardian-card"><div className="card-title positive-text"><CheckCircle2 /><div><span>本周明显进步</span><h2>已经获得什么</h2></div></div><ul className="plain-list">{dashboard.progress.length ? dashboard.progress.map((item) => <li key={item}>{item}</li>) : <li>本周还没有形成足够的稳定证据。</li>}</ul></section>
-      <section className="guardian-card"><div className="card-title attention-text"><AlertTriangle /><div><span>下一步重点</span><h2>一起把基础接得更稳</h2></div></div><ul className="plain-list">{dashboard.concerns.length ? dashboard.concerns.map((item) => <li key={item}>{item}</li>) : <li>目前按既定节奏继续复习即可。</li>}</ul></section>
+      <section className="guardian-card"><div className="card-title positive-text"><CheckCircle2 /><div><span>本周明显进步</span><h2>已经获得什么</h2></div></div><ul className="plain-list">{dashboard.progress.length ? dashboard.progress.map((item) => <li key={item}><ChemText>{item}</ChemText></li>) : <li>本周还没有形成足够的稳定证据。</li>}</ul></section>
+      <section className="guardian-card"><div className="card-title attention-text"><AlertTriangle /><div><span>下一步重点</span><h2>一起把基础接得更稳</h2></div></div><ul className="plain-list">{dashboard.concerns.length ? dashboard.concerns.map((item) => <li key={item}><ChemText>{item}</ChemText></li>) : <li>目前按既定节奏继续复习即可。</li>}</ul></section>
     </div>
     {dashboard.behaviorSignals.length > 0 && <section className="guardian-card"><div className="card-title"><Brain /><div><span>学习行为信号</span><h2>只报告重复出现的表现，不做心理诊断</h2></div></div><div className="behavior-grid">{dashboard.behaviorSignals.map((signal) => <article key={signal.kind}><b>{behaviorTitle(signal.kind)}</b><p>{signal.guardianCopy}</p><small>来自{signal.sessionCount}次训练、{signal.evidenceCount}条重复证据</small></article>)}</div></section>}
-    <section className="guardian-card timeline-card"><div className="card-title"><Clock3 /><div><span>老师与系统一直在做什么</span><h2>成长时间线</h2></div></div><div className="timeline">{dashboard.timeline.map((event) => <article key={event.id}><div className={`timeline-dot ${event.type}`} /> <div><time>{new Date(event.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time><b>{event.title}</b><p>{event.description}</p></div></article>)}</div></section>
+    <section className="guardian-card timeline-card"><div className="card-title"><Clock3 /><div><span>老师与系统一直在做什么</span><h2>成长时间线</h2></div></div><div className="timeline">{dashboard.timeline.map((event) => <article key={event.id}><div className={`timeline-dot ${event.type}`} /> <div><time>{new Date(event.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time><b><ChemText>{event.title}</ChemText></b><p><ChemText>{event.description}</ChemText></p></div></article>)}</div></section>
     <section className="privacy-card"><ShieldCheck /><div><b>这里呈现清楚、可信的学习说明</b><p>内容来自已经确认的学习事实，并给出下一步安排。</p></div></section>
   </div>
 }

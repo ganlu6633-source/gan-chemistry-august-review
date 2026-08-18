@@ -3,6 +3,7 @@ import { CheckCircle2, Clock3, ExternalLink, Eye, Film, Link2, PlayCircle, PlusC
 import type { CreateVideoRecommendationInput, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, VideoRecommendation, VideoRecommendationProgress, VideoRecommendationStatus } from '../domain/types'
 import { formatVideoEngagementTime as formatEngagementTime, getVideoProgress as progressOf, safeExternalVideoUrl, videoProgressView } from '../domain/videoLearning'
 import { createVideoRecommendation, listVideoRecommendations, publishVideoRecommendation, recordVideoEngagement, teacherApi, withdrawVideoRecommendation } from '../lib/api'
+import { ChemText } from './ChemText'
 
 type VideoRecorder = (input: RecordVideoEngagementInput) => Promise<{ recommendation?: VideoRecommendation; ok?: true }>
 
@@ -107,9 +108,9 @@ export function StudentVideoSection({
       const progress = progressOf(video)
       return <article className="video-card student-video-card" key={video.id}>
         <div className="video-card-top"><div className="video-provider"><PlayCircle /><span>{video.provider}</span></div><span className={`video-progress-badge ${view.tone}`}>{view.label}</span></div>
-        <h3>{video.title}</h3>
-        <p className="video-skill">对应知识点：{video.skillTitle || video.skillId}</p>
-        <div className="teacher-video-reason"><ShieldCheck /><div><b>甘老师为什么安排这个</b><p>{video.teacherReason}</p></div></div>
+        <h3><ChemText>{video.title}</ChemText></h3>
+        <p className="video-skill">对应知识点：<ChemText>{video.skillTitle || video.skillId}</ChemText></p>
+        <div className="teacher-video-reason"><ShieldCheck /><div><b>甘老师为什么安排这个</b><p><ChemText>{video.teacherReason}</ChemText></p></div></div>
         <div className="video-progress-row"><div className="video-progress-track" aria-label={`观看进度${view.percent}%`}><span style={{ width: `${view.percent}%` }} /></div><small>{view.detail}</small></div>
         <div className="video-actions">
           {safeUrl ? <a className="primary-button compact" href={safeUrl} target="_blank" rel="noreferrer" onClick={() => noteOpen(video)}>打开讲解<ExternalLink /></a> : <span className="video-link-invalid"><Link2 />链接待甘老师修正</span>}
@@ -128,7 +129,7 @@ export function GuardianVideoSection({ videos }: { videos: VideoRecommendation[]
     {!publishedVideos.length ? <div className="video-empty"><Film /><div><b>目前没有正在推送的讲解</b><p>需要补充时，甘老师会结合课堂与复习证据安排。</p></div></div> : <div className="guardian-video-list">{publishedVideos.map((video) => {
       const view = videoProgressView(video)
       const progress = progressOf(video)
-      return <article key={video.id} className={`guardian-video-item ${view.tone}`}><div className="guardian-video-status"><span className={`video-progress-badge ${view.tone}`}>{view.label}</span>{progress.lastEngagedAt && <time>{formatEngagementTime(progress.lastEngagedAt)}</time>}</div><h3>{video.title}</h3><p className="video-skill">{video.skillTitle || video.skillId} · {video.provider}</p><p className="guardian-video-reason"><b>安排原因：</b>{video.teacherReason}</p><small>{view.detail}</small></article>
+      return <article key={video.id} className={`guardian-video-item ${view.tone}`}><div className="guardian-video-status"><span className={`video-progress-badge ${view.tone}`}>{view.label}</span>{progress.lastEngagedAt && <time>{formatEngagementTime(progress.lastEngagedAt)}</time>}</div><h3><ChemText>{video.title}</ChemText></h3><p className="video-skill"><ChemText>{video.skillTitle || video.skillId}</ChemText> · {video.provider}</p><p className="guardian-video-reason"><b>安排原因：</b><ChemText>{video.teacherReason}</ChemText></p><small>{view.detail}</small></article>
     })}</div>}
   </section>
 }
@@ -243,7 +244,7 @@ export function TeacherVideoManager({ dashboard }: { dashboard: TeacherDashboard
       {loading ? <div className="center-loading"><RefreshCw className="spin" />正在读取讲解安排…</div> : <div className="teacher-video-list">{visibleRecommendations.map((video) => {
         const view = videoProgressView(video)
         const safeUrl = safeExternalVideoUrl(video.url)
-        return <article key={video.id} className={`teacher-video-item status-${video.status}`}><div className="teacher-video-item-head"><div><span className={`video-status ${video.status}`}>{statusCopy[video.status]}</span><span className={`video-progress-badge ${view.tone}`}>{view.label}</span></div><small>{video.publishedAt ? `发布于 ${formatEngagementTime(video.publishedAt)}` : '尚未发布'}</small></div><h3>{video.title}</h3><p className="video-skill">{video.skillTitle || video.skillId} · {video.provider}</p><div className="teacher-video-reason"><ShieldCheck /><div><b>给学生和家长的安排原因</b><p>{video.teacherReason}</p></div></div><div className="teacher-video-progress"><Clock3 /><div><b>{view.label}</b><p>{view.detail}{progressOf(video).eventCount ? ` · 已记录 ${progressOf(video).eventCount} 次观看动作` : ''}</p></div></div><div className="audit-actions">{safeUrl && <a href={safeUrl} target="_blank" rel="noreferrer"><ExternalLink />检查链接</a>}{video.status === 'draft' && <button disabled={busyId === video.id} onClick={() => void changeStatus(video, 'publish')}><Send />发布</button>}{video.status === 'published' && <button disabled={busyId === video.id} onClick={() => void changeStatus(video, 'withdraw')}><Undo2 />撤回</button>}</div></article>
+        return <article key={video.id} className={`teacher-video-item status-${video.status}`}><div className="teacher-video-item-head"><div><span className={`video-status ${video.status}`}>{statusCopy[video.status]}</span><span className={`video-progress-badge ${view.tone}`}>{view.label}</span></div><small>{video.publishedAt ? `发布于 ${formatEngagementTime(video.publishedAt)}` : '尚未发布'}</small></div><h3><ChemText>{video.title}</ChemText></h3><p className="video-skill"><ChemText>{video.skillTitle || video.skillId}</ChemText> · {video.provider}</p><div className="teacher-video-reason"><ShieldCheck /><div><b>给学生和家长的安排原因</b><p><ChemText>{video.teacherReason}</ChemText></p></div></div><div className="teacher-video-progress"><Clock3 /><div><b>{view.label}</b><p>{view.detail}{progressOf(video).eventCount ? ` · 已记录 ${progressOf(video).eventCount} 次观看动作` : ''}</p></div></div><div className="audit-actions">{safeUrl && <a href={safeUrl} target="_blank" rel="noreferrer"><ExternalLink />检查链接</a>}{video.status === 'draft' && <button disabled={busyId === video.id} onClick={() => void changeStatus(video, 'publish')}><Send />发布</button>}{video.status === 'published' && <button disabled={busyId === video.id} onClick={() => void changeStatus(video, 'withdraw')}><Undo2 />撤回</button>}</div></article>
       })}{!visibleRecommendations.length && <div className="video-empty"><Film /><div><b>当前筛选下没有讲解</b><p>可以在上方先为学生建立一条待审核草稿。</p></div></div>}</div>}
     </section>
   </>

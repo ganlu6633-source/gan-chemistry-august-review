@@ -88,6 +88,25 @@ describe('LearningRecordPanel', () => {
     expect(within(skillCard).getByText(/这道历史题已退出当前使用版本/)).toBeInTheDocument()
   })
 
+  it('formats chemistry notation in historical question evidence', () => {
+    const formulaQuestion = {
+      ...record.skills[0].recentQuestions[0],
+      stem: '比较NO2和N2的性质',
+      options: ['Fe2+', 'NH4+'],
+      explanation: 'SO4^2-中硫元素的化合价需要结合电荷守恒判断。',
+    }
+    const formulaRecord = { ...record, skills: [makeSkill({ recentQuestions: [formulaQuestion] })] }
+    render(<LearningRecordPanel record={formulaRecord} gradeBand="高一" audience="guardian" />)
+
+    const skillCard = screen.getByText('物质的分类').closest('details')!
+    fireEvent.click(within(skillCard).getByText('物质的分类').closest('summary')!)
+    fireEvent.click(within(skillCard).getByText(/真实作答 1/).closest('summary')!)
+    expect(within(skillCard).getAllByLabelText('NO2')[0].querySelector('sub')?.textContent).toBe('2')
+    expect(within(skillCard).getByLabelText('Fe2+').querySelector('sup')?.textContent).toBe('2+')
+    expect(within(skillCard).getByLabelText('NH4+').querySelector('sub')?.textContent).toBe('4')
+    expect(within(skillCard).getByLabelText('SO4^2-').querySelector('sup')?.textContent).toBe('2-')
+  })
+
   it('shows only the historical question image without exposing source details or analysis artwork', () => {
     const originalEvidence = {
       ...makeSkill({}).recentQuestions[0],

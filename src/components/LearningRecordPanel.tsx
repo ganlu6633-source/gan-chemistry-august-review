@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { BookOpenCheck, CheckCircle2, ChevronDown, CircleDashed, CircleDot, Clock3, RotateCcw } from 'lucide-react'
 import { ABILITY_MAP_BLUEPRINTS } from '../data/abilityMap'
 import type { GradeBand, LearningRecordData, LearningRecordQuestionEvidence, LearningRecordSkill } from '../domain/types'
+import { ChemText } from './ChemText'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
 
 type RecordAudience = 'student' | 'guardian' | 'teacher'
@@ -45,11 +46,11 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function answerText(question: LearningRecordQuestionEvidence, optionIndex: number) {
-  if (!Number.isInteger(optionIndex) || optionIndex < 0) return '历史答案暂不可显示'
+function AnswerText({ question, optionIndex }: { question: LearningRecordQuestionEvidence; optionIndex: number }) {
+  if (!Number.isInteger(optionIndex) || optionIndex < 0) return <>历史答案暂不可显示</>
   const option = question.options[optionIndex]
   const letter = optionIndex >= 0 && optionIndex < 26 ? String.fromCharCode(65 + optionIndex) : `${optionIndex + 1}`
-  return option ? `${letter}. ${option}` : `第 ${optionIndex + 1} 项`
+  return option ? <><span>{letter}. </span><ChemText>{option}</ChemText></> : <>第 {optionIndex + 1} 项</>
 }
 
 export function LearningRecordPanel({ record, gradeBand, audience = 'student' }: LearningRecordPanelProps) {
@@ -123,7 +124,7 @@ export function LearningRecordPanel({ record, gradeBand, audience = 'student' }:
     {record.historyWindow.hasMore && <p className="record-history-note"><Clock3 />当前显示最近记录：已读取 {record.historyWindow.loadedAttempts}/{record.historyWindow.totalAttempts} 轮学习、{record.historyWindow.loadedAnswers}/{record.historyWindow.totalAnswersInLoadedAttempts} 道作答；更早记录仍保留在学习档案中。</p>}
 
     {groups.length ? <div className="record-stage-list">{groups.map((group) => <section className="record-stage" key={group.id}>
-      <header><span>{group.number}</span><div><h2>{group.title}</h2><p>{group.summary}</p></div><b>{group.skills.length}项</b></header>
+      <header><span>{group.number}</span><div><h2><ChemText>{group.title}</ChemText></h2><p><ChemText>{group.summary}</ChemText></p></div><b>{group.skills.length}项</b></header>
       <div className="record-skill-list">{group.skills.map((skill) => <LearningRecordSkillCard key={skill.skillId} skill={skill} audience={audience} gradeBand={gradeBand} />)}</div>
     </section>)}</div> : <div className="record-empty"><CircleDashed /><b>这个筛选下暂时没有记录</b><p>切换上方分类，可以继续查看完整学习路线。</p></div>}
   </section>
@@ -137,14 +138,14 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
   return <details className={`record-skill learning-skill-card status-${status.className}`} data-testid="learning-skill-card">
     <summary>
       <span className="record-status-icon" aria-hidden="true">{status.className === 'full' ? '✓' : status.className === 'partial' ? '◐' : status.className === 'due' ? '↻' : status.className === 'future' ? '→' : '○'}</span>
-      <div className="record-skill-summary"><div><h3>{skill.title}</h3><span className={`record-status status-${status.className}`}>{status.label}</span></div><p>{status.copy}</p><div className="record-level"><i><span style={{ width: `${progress}%` }} /></i><b>L{skill.verifiedLevel}/{skill.maxLevel}</b></div></div>
+      <div className="record-skill-summary"><div><h3><ChemText>{skill.title}</ChemText></h3><span className={`record-status status-${status.className}`}>{status.label}</span></div><p>{status.copy}</p><div className="record-level"><i><span style={{ width: `${progress}%` }} /></i><b>L{skill.verifiedLevel}/{skill.maxLevel}</b></div></div>
       <div className="record-skill-numbers"><span><b>{total}</b>道真实作答</span><span><b>{skill.uniqueMotherCount}</b>类母题</span>{accuracy !== null && <span><b>{accuracy}%</b>当前正确率</span>}</div>
       <ChevronDown className="record-chevron" />
     </summary>
     <div className="record-skill-detail">
-      {skill.learnedTopics.length > 0 && <div className="record-topics"><b>已进入课堂/复习范围</b><div>{skill.learnedTopics.map((topic) => <span key={topic}>{topic}</span>)}</div></div>}
+      {skill.learnedTopics.length > 0 && <div className="record-topics"><b>已进入课堂/复习范围</b><div>{skill.learnedTopics.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div></div>}
       <section className="record-knowledge" data-evidence-scope={skill.knowledgeEvidenceScope}><div className="record-subhead"><div><span>完整回忆</span><h4>本模块具体包含</h4></div><small>模块目录帮助找回主线，逐点证据随对应题目累积</small></div>
-        {skill.knowledgeSections.length ? <div className="record-knowledge-grid">{skill.knowledgeSections.map((section) => <article key={section.id}><header><b>{section.title}</b>{section.summary && <p>{section.summary}</p>}</header><ul>{section.points.map((point) => <li key={point.id}><span>{point.title}</span>{point.rule && <p>{point.rule}</p>}</li>)}</ul></article>)}</div>
+        {skill.knowledgeSections.length ? <div className="record-knowledge-grid">{skill.knowledgeSections.map((section) => <article key={section.id}><header><b><ChemText>{section.title}</ChemText></b>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</header><ul>{section.points.map((point) => <li key={point.id}><span><ChemText>{point.title}</ChemText></span>{point.rule && <p><ChemText>{point.rule}</ChemText></p>}</li>)}</ul></article>)}</div>
           : <div className="record-empty compact"><BookOpenCheck /><b>知识目录正在逐项校对</b><p>当前先依据已经保存的真实作答查看学习证据。</p></div>}
       </section>
 
@@ -154,22 +155,22 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
           : <div className="record-empty compact"><CircleDashed /><b>真实作答证据即将在这里累积</b><p>完成一次对应练习后，题目、选择、订正和解析会一起保存到这里。</p></div>}
       </section>
 
-      <footer className="record-next-step"><div><Clock3 /><span>{skill.lastReviewedAt ? `最近复习：${formatDateTime(skill.lastReviewedAt)}` : '第一份复习证据正在等待建立'}</span></div>{skill.nextPlan ? <div><BookOpenCheck /><span>下一次安排：{skill.nextPlan.date.slice(5)} · {skill.nextPlan.title}</span></div> : <div><CheckCircle2 /><span>{skill.exposure === 'future' ? '后续教学计划会在进入学习范围时点亮' : '系统会结合记忆节点安排下一次复习'}</span></div>}{skill.teacherIntervention && audience !== 'student' && <div><RotateCcw /><span>甘老师会结合后续作答继续关注这一项</span></div>}</footer>
+      <footer className="record-next-step"><div><Clock3 /><span>{skill.lastReviewedAt ? `最近复习：${formatDateTime(skill.lastReviewedAt)}` : '第一份复习证据正在等待建立'}</span></div>{skill.nextPlan ? <div><BookOpenCheck /><span>下一次安排：{skill.nextPlan.date.slice(5)} · <ChemText>{skill.nextPlan.title}</ChemText></span></div> : <div><CheckCircle2 /><span>{skill.exposure === 'future' ? '后续教学计划会在进入学习范围时点亮' : '系统会结合记忆节点安排下一次复习'}</span></div>}{skill.teacherIntervention && audience !== 'student' && <div><RotateCcw /><span>甘老师会结合后续作答继续关注这一项</span></div>}</footer>
     </div>
   </details>
 }
 
 function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
   const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
-  const nativeStem = <p className="record-question-stem">{question.stem}</p>
+  const nativeStem = <p className="record-question-stem"><ChemText>{question.stem}</ChemText></p>
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">
-    <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p>{question.stem}</p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
+    <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p><ChemText>{question.stem}</ChemText></p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
     <div className="record-question-body">
       <QuestionHistoryStatus question={question} />
       {showsLicensedReviewSource ? <QuestionSourceMedia question={{ id: question.questionId, stem: question.stem, options: question.options, sourceInfo: question.sourceInfo, assetRefs: (question.assetRefs ?? []).filter((asset) => asset.kind !== 'analysis_image'), renderMode: question.renderMode }} enabled deferLoad readOnly showSource={false} nativeContent={nativeStem} /> : <>{question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}{nativeStem}</>}
-      {question.options.length > 0 && <ol className="record-option-list">{question.options.map((option, optionIndex) => <li key={`${optionIndex}-${option}`} className={`${optionIndex === question.selectedOption ? 'selected' : ''} ${optionIndex === question.correctOption ? 'correct' : ''}`}><span>{String.fromCharCode(65 + optionIndex)}</span><p>{option}</p>{optionIndex === question.selectedOption && <small>学生选择</small>}{optionIndex === question.correctOption && <small>正确答案</small>}</li>)}</ol>}
-      <div className="record-answer-row"><div><span>学生选择</span><b>{answerText(question, question.selectedOption)}</b></div><div><span>正确答案</span><b>{answerText(question, question.correctOption)}</b></div><div><span>作答状态</span><b>{question.correct ? '答对，继续保持' : '回看思路，再做同类题'}</b></div></div>
-      <div className="record-explanation"><b>解析与订正</b><p>{question.explanation || '这道题的解析正在校对，校对完成后会在这里补齐。'}</p></div>
+      {question.options.length > 0 && <ol className="record-option-list">{question.options.map((option, optionIndex) => <li key={`${optionIndex}-${option}`} className={`${optionIndex === question.selectedOption ? 'selected' : ''} ${optionIndex === question.correctOption ? 'correct' : ''}`}><span>{String.fromCharCode(65 + optionIndex)}</span><p><ChemText>{option}</ChemText></p>{optionIndex === question.selectedOption && <small>学生选择</small>}{optionIndex === question.correctOption && <small>正确答案</small>}</li>)}</ol>}
+      <div className="record-answer-row"><div><span>学生选择</span><b><AnswerText question={question} optionIndex={question.selectedOption} /></b></div><div><span>正确答案</span><b><AnswerText question={question} optionIndex={question.correctOption} /></b></div><div><span>作答状态</span><b>{question.correct ? '答对，继续保持' : '回看思路，再做同类题'}</b></div></div>
+      <div className="record-explanation"><b>解析与订正</b><p><ChemText>{question.explanation || '这道题的解析正在校对，校对完成后会在这里补齐。'}</ChemText></p></div>
       <p className="record-answer-meta">难度 L{question.level} · 用时 {question.durationSec} 秒{question.uncertain ? ' · 本题作答时标记了“不确定”' : ''}</p>
     </div>
   </details>

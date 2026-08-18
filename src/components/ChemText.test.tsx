@@ -32,6 +32,18 @@ describe('ChemText', () => {
     expect(container.textContent).toContain('CO +')
   })
 
+  it('keeps ionic charges distinct from formula subscripts', () => {
+    const { container } = render(<p><ChemText>Fe2+、NH4+、SO4^2-、Ca(OH)2和12 g·L-1。</ChemText></p>)
+
+    expect(container.querySelector('[aria-label="Fe2+"] sup')?.textContent).toBe('2+')
+    expect(container.querySelector('[aria-label="NH4+"] sub')?.textContent).toBe('4')
+    expect(container.querySelector('[aria-label="NH4+"] sup')?.textContent).toBe('+')
+    expect(container.querySelector('[aria-label="SO4^2-"] sub')?.textContent).toBe('4')
+    expect(container.querySelector('[aria-label="SO4^2-"] sup')?.textContent).toBe('2-')
+    expect(container.querySelector('[aria-label="Ca(OH)2"] sub')?.textContent).toBe('2')
+    expect(container.querySelector('[aria-label="L-1"] sup')?.textContent).toBe('−1')
+  })
+
   it('keeps ordinary numbered Chinese text unchanged', () => {
     const { container } = render(<p><ChemText>第1轮共5题，答案选B。</ChemText></p>)
 
