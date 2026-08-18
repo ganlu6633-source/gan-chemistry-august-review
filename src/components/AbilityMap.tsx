@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { Check, CheckCircle2, Circle, Clock3, Flame, Route, Sparkles, Target } from 'lucide-react'
 import { ABILITY_MAP_BLUEPRINTS, type AbilityMapRelation } from '../data/abilityMap'
 import type { LearningPlanDay, SkillDefinition, StudentDashboardData, StudentSkillState } from '../domain/types'
+import { ChemText } from './ChemText'
 
 type MapFilter = 'all' | 'forming' | 'lit' | 'due'
 type MapStatus = 'empty' | 'forming' | 'stable' | 'due' | 'recovered'
@@ -181,7 +182,7 @@ export function AbilityMap({ dashboard, onOpenPlan, busy = false }: { dashboard:
     </div>
 
     <div className="ability-atlas" data-grade={dashboard.profile.gradeBand}>
-      <div className="ability-atlas-intro"><span>{dashboard.profile.gradeBand}</span><div><h2>{blueprint.title}</h2><p>{blueprint.subtitle}</p></div></div>
+      <div className="ability-atlas-intro"><span>{dashboard.profile.gradeBand}</span><div><h2><ChemText>{blueprint.title}</ChemText></h2><p><ChemText>{blueprint.subtitle}</ChemText></p></div></div>
       <div className="ability-map-network" ref={networkRef}>
         <svg className="ability-map-links" width="100%" height="100%" aria-hidden="true">
           <defs>
@@ -191,7 +192,7 @@ export function AbilityMap({ dashboard, onOpenPlan, busy = false }: { dashboard:
           {drawnRelations.map((relation) => <path key={`${relation.from}-${relation.to}`} className={relation.kind} d={relation.path} markerEnd={`url(#${markerKey}-${relation.kind})`} />)}
         </svg>
         {stages.map((stage, stageIndex) => <section className="ability-map-stage" key={stage.id} aria-labelledby={`${stage.id}-title`}>
-          <header><span>{String(stageIndex + 1).padStart(2, '0')}</span><div><h3 id={`${stage.id}-title`}>{stage.title}</h3><p>{stage.summary}</p></div></header>
+          <header><span>{String(stageIndex + 1).padStart(2, '0')}</span><div><h3 id={`${stage.id}-title`}><ChemText>{stage.title}</ChemText></h3><p><ChemText>{stage.summary}</ChemText></p></div></header>
           <div className="ability-map-nodes">
             {stage.skillIds.flatMap((skillId) => {
               const skill = definitions.get(skillId)
@@ -214,7 +215,7 @@ export function AbilityMap({ dashboard, onOpenPlan, busy = false }: { dashboard:
               >
                 {isCurrent && <span className="ability-location"><Target aria-hidden="true" />{locationCopy}</span>}
                 <span className="ability-node-icon" style={{ '--ability-progress': `${progress}%` } as React.CSSProperties}><StatusIcon status={status} /></span>
-                <span className="ability-node-copy"><b>{skill.title}</b><small>{statusCopy(status)}</small></span>
+                <span className="ability-node-copy"><b><ChemText>{skill.title}</ChemText></b><small>{statusCopy(status)}</small></span>
                 <span className="ability-level">L{level}<i>/ L{skill.maxLevel}</i></span>
               </button>]
             })}
@@ -225,19 +226,19 @@ export function AbilityMap({ dashboard, onOpenPlan, busy = false }: { dashboard:
 
     {selected && <section className="ability-detail" aria-live="polite" aria-labelledby="ability-detail-title">
       <div className={`ability-detail-status status-${selectedStatus}`}><StatusIcon status={selectedStatus} /><span>{statusCopy(selectedStatus)}</span></div>
-      <div className="ability-detail-main"><span className="eyebrow">当前节点</span><h2 id="ability-detail-title">{selected.title}</h2><p>已通过检验的能力为 <b>L{selectedState?.verifiedLevel ?? 0} / L{selected.maxLevel}</b>。只有真实完成并通过检验的层级才会在地图上点亮。</p>
+      <div className="ability-detail-main"><span className="eyebrow">当前节点</span><h2 id="ability-detail-title"><ChemText>{selected.title}</ChemText></h2><p>已通过检验的能力为 <b>L{selectedState?.verifiedLevel ?? 0} / L{selected.maxLevel}</b>。只有真实完成并通过检验的层级才会在地图上点亮。</p>
         <div className="ability-level-track" aria-label={`已验证${selectedState?.verifiedLevel ?? 0}级，共${selected.maxLevel}级`}>{Array.from({ length: selected.maxLevel }, (_, index) => <i className={index < (selectedState?.verifiedLevel ?? 0) ? 'on' : ''} key={index}><span>L{index + 1}</span></i>)}</div>
       </div>
       <dl className="ability-detail-facts">
         <div><dt>上次检验</dt><dd>{shortDate(selectedState?.lastReviewedAt ?? null)}</dd></div>
         <div><dt>下次找回</dt><dd>{shortDate(selectedState?.nextReviewAt ?? null)}</dd></div>
-        <div><dt>地图联系</dt><dd>{selectedRelations.length ? selectedRelations.map((relation) => relationCopy(relation, selected)).join('；') : '当前是独立入口节点'}</dd></div>
-        <div><dt>关联安排</dt><dd>{relatedPlan ? `${shortDate(relatedPlan.date)} · ${relatedPlan.title}` : '计划会按课堂进度自动安排'}</dd></div>
+        <div><dt>地图联系</dt><dd>{selectedRelations.length ? <ChemText>{selectedRelations.map((relation) => relationCopy(relation, selected)).join('；')}</ChemText> : '当前是独立入口节点'}</dd></div>
+        <div><dt>关联安排</dt><dd>{relatedPlan ? <><span>{shortDate(relatedPlan.date)} · </span><ChemText>{relatedPlan.title}</ChemText></> : '计划会按课堂进度自动安排'}</dd></div>
       </dl>
       {selectedState?.teacherIntervention && <p className="ability-teacher-note">甘老师已关注这个节点，会结合课堂情况调整下一步。</p>}
       {relatedPlan && onOpenPlan && <button type="button" className="primary-button compact ability-plan-button" onClick={() => onOpenPlan(relatedPlan)} disabled={busy}>{busy ? '正在准备…' : '打开关联学习'}<Target aria-hidden="true" /></button>}
     </section>}
 
-    <details className="ability-text-route"><summary>查看这张图的完整文字路线</summary><div>{stages.map((stage, index) => <section key={stage.id}><h3>{index + 1}. {stage.title}</h3><p>{stage.summary}</p><ul>{stage.skillIds.filter((id) => definitions.has(id)).map((id) => <li key={id}>{namedSkill(id)}</li>)}</ul></section>)}<section className="ability-relation-list"><h3>能力怎样连接</h3><ul>{blueprint.relations.filter((relation) => definitions.has(relation.from) && definitions.has(relation.to)).map((relation) => <li key={`${relation.from}-${relation.to}`}><b>{namedSkill(relation.from)} → {namedSkill(relation.to)}</b><span>{relation.kind === 'main' ? '学习主线' : '支撑与迁移'}</span></li>)}</ul></section><p><b>连线说明：</b>箭头指向下一步；实线是建议学习主线，虚线表示前面的能力会支撑后面的综合应用，它不等于严格的先修关系。</p></div></details>
+    <details className="ability-text-route"><summary>查看这张图的完整文字路线</summary><div>{stages.map((stage, index) => <section key={stage.id}><h3>{index + 1}. <ChemText>{stage.title}</ChemText></h3><p><ChemText>{stage.summary}</ChemText></p><ul>{stage.skillIds.filter((id) => definitions.has(id)).map((id) => <li key={id}><ChemText>{namedSkill(id)}</ChemText></li>)}</ul></section>)}<section className="ability-relation-list"><h3>能力怎样连接</h3><ul>{blueprint.relations.filter((relation) => definitions.has(relation.from) && definitions.has(relation.to)).map((relation) => <li key={`${relation.from}-${relation.to}`}><b><ChemText>{`${namedSkill(relation.from)} → ${namedSkill(relation.to)}`}</ChemText></b><span>{relation.kind === 'main' ? '学习主线' : '支撑与迁移'}</span></li>)}</ul></section><p><b>连线说明：</b>箭头指向下一步；实线是建议学习主线，虚线表示前面的能力会支撑后面的综合应用，它不等于严格的先修关系。</p></div></details>
   </section>
 }

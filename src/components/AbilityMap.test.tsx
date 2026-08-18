@@ -74,4 +74,17 @@ describe('AbilityMap', () => {
     expect(screen.getByRole('button', { name: /氧化还原，正在形成.*最近复习/ })).toHaveTextContent('最近复习')
     expect(screen.queryByText('下一步')).not.toBeInTheDocument()
   })
+
+  it('formats chemistry notation in map titles and related plans', () => {
+    const chemistryDashboard = {
+      ...dashboard,
+      plans: [{ ...dashboard.plans[0], title: '复习Fe2+与SO4^2-' }],
+      skillDefinitions: definitions.map((skill) => skill.id === 'H1_REDOX' ? { ...skill, title: 'Fe2+与SO4^2-' } : skill),
+    }
+
+    const { container } = render(<AbilityMap dashboard={chemistryDashboard} />)
+
+    expect(container.querySelectorAll('.chem-symbol sub').length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('.chem-symbol sup').length).toBeGreaterThan(0)
+  })
 })
