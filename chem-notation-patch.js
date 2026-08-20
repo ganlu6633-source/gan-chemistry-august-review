@@ -109,6 +109,9 @@
     '.guardian-card li, .timeline b, .timeline p',
     '.video-card h3, .video-skill, .teacher-video-reason p, .guardian-video-reason',
     '.preview-today h3, .preview-today p, .preview-week b, .preview-week p',
+    '.ability-atlas-intro h2, .ability-atlas-intro p, .ability-map-stage h3, .ability-map-stage p',
+    '.ability-node-copy b, .ability-detail-main h2, .ability-detail-facts dd, .ability-text-route h3, .ability-text-route p, .ability-text-route li',
+    '.quiz-head span, .alert-list b, .alert-list p, .audit-list b, .audit-list p',
   ].join(', ')
 
   function scan(root = document) {
@@ -120,8 +123,27 @@
 
   scan()
   new MutationObserver((records) => {
-    records.forEach((record) => record.addedNodes.forEach((node) => {
-      if (node.nodeType === Node.ELEMENT_NODE) scan(node)
-    }))
-  }).observe(document.documentElement, { childList: true, subtree: true })
+    const elements = new Set()
+    records.forEach((record) => {
+      if (record.type === 'characterData') {
+        const parent = record.target.parentElement?.closest(chemistryTextSelectors)
+        if (parent) elements.add(parent)
+      }
+      if (record.type === 'childList') {
+        const target = record.target instanceof Element ? record.target.closest(chemistryTextSelectors) : null
+        if (target) elements.add(target)
+        record.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) scan(node)
+          else if (node.nodeType === Node.TEXT_NODE) {
+            const parent = node.parentElement?.closest(chemistryTextSelectors)
+            if (parent) elements.add(parent)
+          }
+        })
+      }
+    })
+    elements.forEach((element) => {
+      delete element.dataset.chemNotationReady
+      formatElement(element)
+    })
+  }).observe(document.documentElement, { childList: true, characterData: true, subtree: true })
 })()
