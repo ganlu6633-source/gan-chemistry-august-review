@@ -26,9 +26,10 @@ describe('ChemText', () => {
 
     expect(container.querySelectorAll('sub')).toHaveLength(4)
     expect(container.querySelectorAll('sup')).toHaveLength(2)
-    expect(screen.getByLabelText('NO2')).toBeInTheDocument()
-    expect(screen.getByLabelText('mol·L-1')).toBeInTheDocument()
+    expect(screen.getByLabelText('2NO2')).toBeInTheDocument()
+    expect(screen.getByLabelText('L-1')).toBeInTheDocument()
     expect(screen.getByLabelText('min-1')).toBeInTheDocument()
+    expect(container.textContent).toContain('0.1 mol·L')
     expect(container.textContent).toContain('CO +')
   })
 

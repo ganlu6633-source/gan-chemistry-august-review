@@ -30,6 +30,48 @@ export type PlanPayload = {
   roundsRemaining: number
 }
 
+const PLAN_OPEN_TIMEOUT_MS = 15_000
+
+type PlanOpenRequest = {
+  plan: LearningPlanDay
+  previewRound?: number
+}
+
+type PlanOpenState = {
+  status: 'loading' | 'error'
+  request: PlanOpenRequest
+  elapsedSeconds: number
+  error?: string
+}
+
+function planOpenProgress(elapsedSeconds: number) {
+  if (elapsedSeconds < 2) return {
+    title: '第1步/3 · 正在连接复习服务',
+    detail: '先确认你的身份和这一天的学习计划，通常需要3—7秒。',
+  }
+  if (elapsedSeconds < 5) return {
+    title: '第2步/3 · 正在核对知识卡与本轮原题',
+    detail: '系统正在等题库返回完整的知识卡和题目清单。',
+  }
+  return {
+    title: '第3步/3 · 正在安全装入本轮',
+    detail: '当前网络较慢；进入题目后，原题图片会逐张加载。',
+  }
+}
+
+function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开本轮', showRetryButton = false }: { state: PlanOpenState; onRetry: () => void; retryLabel?: string; showRetryButton?: boolean }) {
+  if (state.status === 'error') return <div className="plan-open-notice is-error" role="alert">
+    <div><b>本轮还没有打开</b><span>{state.error}</span><small>当前页面和已有学习记录都保留；重试只会重新读取本轮，不会重复提交答案。</small></div>
+    {showRetryButton && <button type="button" className="secondary-button compact" onClick={onRetry}><RotateCcw />{retryLabel}</button>}
+  </div>
+
+  const progress = planOpenProgress(state.elapsedSeconds)
+  return <div className="plan-open-notice is-loading" role="status" aria-live="polite">
+    <Clock3 aria-hidden="true" />
+    <div><b>{progress.title}</b><span>{progress.detail}</span><small>{state.elapsedSeconds > 0 ? `已等待 ${state.elapsedSeconds} 秒，请不要重复点击。` : '请求已经发出，请稍候。'}</small></div>
+  </div>
+}
+
 const nextRoundLabel = (plan: LearningPlanDay) => {
   if (plan.isResolved) return '今日问题已接稳'
   if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
@@ -57,30 +99,72 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
+  const planOpenRequestId = useRef(0)
+  const planOpenAbort = useRef<AbortController | null>(null)
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
   const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
 
-  async function openPlan(plan: LearningPlanDay, previewRound?: number) {
+  useEffect(() => () => {
+    planOpenRequestId.current += 1
+    planOpenAbort.current?.abort()
+  }, [])
+
+  async function openPlan(plan: LearningPlanDay, previewRound?: number): Promise<boolean> {
+    if (busy) return false
+    const request = { plan, ...(previewRound ? { previewRound } : {}) }
+    const requestId = ++planOpenRequestId.current
+    const controller = new AbortController()
+    planOpenAbort.current = controller
+    const startedAt = Date.now()
     setBusy(true)
     setError('')
+    setPlanOpenState({ status: 'loading', request, elapsedSeconds: 0 })
+    const progressTimer = window.setInterval(() => {
+      if (requestId !== planOpenRequestId.current) return
+      const elapsedSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000))
+      setPlanOpenState((current) => current?.status === 'loading' && current.request.plan.id === plan.id ? { ...current, elapsedSeconds } : current)
+    }, 1_000)
+    let rejectForTimeout: ((reason: Error) => void) | undefined
+    let timedOut = false
+    const timeoutError = new Error('plan-open-timeout')
+    const timeoutPromise = new Promise<never>((_resolve, reject) => { rejectForTimeout = reject })
+    const timeoutTimer = window.setTimeout(() => {
+      timedOut = true
+      rejectForTimeout?.(timeoutError)
+      controller.abort()
+    }, PLAN_OPEN_TIMEOUT_MS)
     try {
-      const result = previewMode
-        ? await teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) })
-        : await accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) })
+      const planRequest = previewMode
+        ? teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
+        : accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) }, { signal: controller.signal })
+      const result = await Promise.race([planRequest, timeoutPromise])
+      if (requestId !== planOpenRequestId.current) return false
+      setPlanOpenState(null)
       setActivePlan(result.payload)
+      return true
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '学习内容暂时无法打开。')
+      if (requestId !== planOpenRequestId.current) return false
+      const message = timedOut || reason === timeoutError
+        ? '连接复习服务已超过15秒，系统已安全停止等待。请检查网络后再试。'
+        : reason instanceof Error && reason.message ? reason.message : '学习内容暂时无法打开。'
+      setPlanOpenState({ status: 'error', request, elapsedSeconds: Math.max(0, Math.floor((Date.now() - startedAt) / 1000)), error: message })
+      return false
     } finally {
-      setBusy(false)
+      window.clearInterval(progressTimer)
+      window.clearTimeout(timeoutTimer)
+      if (requestId === planOpenRequestId.current) {
+        planOpenAbort.current = null
+        setBusy(false)
+      }
     }
   }
 
   async function continuePlan(nextDashboard: StudentDashboardData, planId: string, nextRound: number) {
     setDashboard(nextDashboard)
     onDashboard(nextDashboard)
-    setActivePlan(null)
     const nextPlan = nextDashboard.plans.find((plan) => plan.id === planId)
     if (nextPlan) await openPlan(nextPlan, previewMode || nextDashboard.profile.isDemo ? nextRound : undefined)
   }
@@ -101,9 +185,16 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     }
   }
 
-  if (activePlan) {
-    return <LearningRound session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+  const retryPlanOpen = () => {
+    if (!planOpenState || planOpenState.status === 'loading') return
+    void openPlan(planOpenState.request.plan, planOpenState.request.previewRound)
   }
+
+  if (activePlan) {
+    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+  }
+
+  const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
 
   return (
     <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}<div className="role-layout student-theme">
@@ -124,8 +215,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
             <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>每轮 {todayPlan.questionCount} 题 · 共 {todayPlan.roundLimit} 轮 · 当天把问题接稳</span></div></div>
-            <button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : openPlan(todayPlan)} disabled={busy}>{busy ? '正在准备…' : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>
+            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
+          {planOpenState && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
           <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={(plan) => plan.isComplete && !previewMode && !dashboard.profile.isDemo ? setView('growth') : openPlan(plan)} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
@@ -246,7 +338,7 @@ function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDas
   return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience={previewMode ? 'teacher' : 'student'} />
 }
 
-export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
+export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, planOpenState = null, onRetryPlanOpen, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; planOpenState?: PlanOpenState | null; onRetryPlanOpen?: () => void; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
   const roundNumber = payload.roundNumber || payload.attemptSequence + 1
   const roundLimit = payload.roundLimit || payload.plan.roundLimit || 5
   const initialServerFeedback = Object.fromEntries((payload.lockedFeedback ?? []).map((item) => [item.questionId, item]))
@@ -402,7 +494,9 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const unresolved = answers.filter((answer) => !answer.correct || answer.uncertain).length
   const nextPlan = nextDashboard?.plans.find((plan) => plan.id === payload.plan.id)
   const hasNextRound = roundNumber < roundLimit && (practiceMode || (nextPlan ? !nextPlan.isResolved : true))
-  return <section className="learning-stage result-stage">{roundTrack}<div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : `今天第 ${roundNumber} 轮完成`}</span><h1>{unresolved === 0 ? '这一轮全部答对，下一轮可以提高难度。' : `还有 ${unresolved} 个知识点需要换一道原题确认。`}</h1><p>本轮答对 {correct}/{answers.length}，其中 {answers.filter((answer) => answer.uncertain).length} 题标记为不确定。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : hasNextRound ? unresolved === 0 ? '下一轮每个知识点都会换成更高难度的原题。' : '下一轮会换同知识点的另一道原题；答对且确定的知识点提高难度。' : '今天的记录已交给系统整理，甘老师可在后台查看并安排后续讲解。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成原题</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>复习模块</span></div><div><b>{unresolved}</b><span>仍需确认</span></div></div><div className="result-actions">{hasNextRound && <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={!nextDashboard || busy} onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>{busy ? '正在准备…' : `进入第 ${roundNumber + 1} 轮`}<ChevronRight size={18} /></button>}<button ref={hasNextRound ? undefined : primaryActionRef} className={hasNextRound ? 'secondary-button' : 'primary-button'} aria-keyshortcuts={hasNextRound ? undefined : 'Enter'} disabled={!nextDashboard} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button></div></section>
+  const nextRoundOpenState = planOpenState?.request.plan.id === payload.plan.id ? planOpenState : null
+  const nextRoundLoading = nextRoundOpenState?.status === 'loading'
+  return <section className="learning-stage result-stage">{roundTrack}<div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : `今天第 ${roundNumber} 轮完成`}</span><h1>{unresolved === 0 ? '这一轮全部答对，下一轮可以提高难度。' : `还有 ${unresolved} 个知识点需要换一道原题确认。`}</h1><p>本轮答对 {correct}/{answers.length}，其中 {answers.filter((answer) => answer.uncertain).length} 题标记为不确定。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : hasNextRound ? unresolved === 0 ? '下一轮每个知识点都会换成更高难度的原题。' : '下一轮会换同知识点的另一道原题；答对且确定的知识点提高难度。' : '今天的记录已交给系统整理，甘老师可在后台查看并安排后续讲解。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成原题</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>复习模块</span></div><div><b>{unresolved}</b><span>仍需确认</span></div></div>{nextRoundOpenState && onRetryPlanOpen && <PlanOpenNotice state={nextRoundOpenState} onRetry={onRetryPlanOpen} retryLabel={`重试进入第 ${roundNumber + 1} 轮`} />}<div className="result-actions">{hasNextRound && <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={!nextDashboard || busy || nextRoundLoading} onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>{nextRoundLoading ? `正在读取 · ${nextRoundOpenState.elapsedSeconds}秒` : nextRoundOpenState?.status === 'error' ? `重试进入第 ${roundNumber + 1} 轮` : `进入第 ${roundNumber + 1} 轮`}<ChevronRight size={18} /></button>}<button ref={hasNextRound ? undefined : primaryActionRef} className={hasNextRound ? 'secondary-button' : 'primary-button'} aria-keyshortcuts={hasNextRound ? undefined : 'Enter'} disabled={!nextDashboard || nextRoundLoading} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button></div></section>
 }
 
 function KnowledgeBranch({ node, depth = 0 }: { node: KnowledgeTreeNode; depth?: number }) {

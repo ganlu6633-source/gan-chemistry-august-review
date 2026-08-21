@@ -26,7 +26,11 @@ export async function recoverAccessCode(name: string, recoverySecret: string, ne
   return parseResponse<{ ok: true; message: string }>(response)
 }
 
-export async function accessApi<T>(session: SessionIdentity, action: string, data?: unknown): Promise<T> {
+export interface ApiRequestOptions {
+  signal?: AbortSignal
+}
+
+export async function accessApi<T>(session: SessionIdentity, action: string, data?: unknown, options?: ApiRequestOptions): Promise<T> {
   const response = await fetch(functionUrl(ACCESS_FUNCTION), {
     method: 'POST',
     headers: {
@@ -35,6 +39,7 @@ export async function accessApi<T>(session: SessionIdentity, action: string, dat
       'x-app-session': session.token,
     },
     body: JSON.stringify({ action, data }),
+    signal: options?.signal,
   })
   return parseResponse<T>(response)
 }
@@ -97,7 +102,7 @@ export async function previewQuestionFeedback(input: QuestionFeedbackInput) {
   return teacherApi<{ feedback: QuestionFeedback; simulated: true }>('question_feedback', input)
 }
 
-export async function teacherApi<T>(action: string, data?: unknown): Promise<T> {
+export async function teacherApi<T>(action: string, data?: unknown, options?: ApiRequestOptions): Promise<T> {
   const session = readAccessSession()
   if (!session?.token || session.role !== 'teacher') throw new Error('教师登录已失效，请重新输入姓名和登录码。')
   const response = await fetch(functionUrl(TEACHER_FUNCTION), {
@@ -108,6 +113,7 @@ export async function teacherApi<T>(action: string, data?: unknown): Promise<T> 
       'x-app-session': session.token,
     },
     body: JSON.stringify({ action, data }),
+    signal: options?.signal,
   })
   return parseResponse<T>(response)
 }

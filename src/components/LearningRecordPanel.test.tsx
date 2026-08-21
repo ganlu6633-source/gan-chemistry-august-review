@@ -81,8 +81,13 @@ describe('LearningRecordPanel', () => {
 
     fireEvent.click(within(skillCard).getByText(/真实作答 1/).closest('summary')!)
     expect(within(skillCard).getAllByText('下列物质属于纯净物的是').length).toBeGreaterThan(0)
-    expect(within(skillCard).getByText('A. 空气')).toBeInTheDocument()
-    expect(within(skillCard).getByText('B. 液氯')).toBeInTheDocument()
+    const optionRows = [...skillCard.querySelectorAll<HTMLElement>('.record-option-list li')]
+    const airOption = optionRows.find((row) => row.textContent?.includes('空气'))
+    const chlorineOption = optionRows.find((row) => row.textContent?.includes('液氯'))
+    expect(airOption).toBeDefined()
+    expect(chlorineOption).toBeDefined()
+    expect(within(airOption!).getByText('A')).toBeInTheDocument()
+    expect(within(chlorineOption!).getByText('B')).toBeInTheDocument()
     expect(within(skillCard).getByText('液氯只含Cl₂一种物质，属于纯净物。')).toBeInTheDocument()
     expect(within(skillCard).getByText(/本题作答时标记了“不确定”/)).toBeInTheDocument()
     expect(within(skillCard).getByText(/这道历史题已退出当前使用版本/)).toBeInTheDocument()
@@ -102,8 +107,8 @@ describe('LearningRecordPanel', () => {
     fireEvent.click(within(skillCard).getByText('物质的分类').closest('summary')!)
     fireEvent.click(within(skillCard).getByText(/真实作答 1/).closest('summary')!)
     expect(within(skillCard).getAllByLabelText('NO2')[0].querySelector('sub')?.textContent).toBe('2')
-    expect(within(skillCard).getByLabelText('Fe2+').querySelector('sup')?.textContent).toBe('2+')
-    expect(within(skillCard).getByLabelText('NH4+').querySelector('sub')?.textContent).toBe('4')
+    expect(within(skillCard).getAllByLabelText('Fe2+')[0].querySelector('sup')?.textContent).toBe('2+')
+    expect(within(skillCard).getAllByLabelText('NH4+')[0].querySelector('sub')?.textContent).toBe('4')
     expect(within(skillCard).getByLabelText('SO4^2-').querySelector('sup')?.textContent).toBe('2-')
   })
 
