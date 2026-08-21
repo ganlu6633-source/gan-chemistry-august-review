@@ -22,6 +22,7 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
   const [dashboard, setDashboard] = useState<TeacherDashboardData | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [dismissedPoolBlockerKey, setDismissedPoolBlockerKey] = useState('')
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -42,6 +43,9 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     }
   }, [refresh])
 
+  const poolBlockers = dashboard?.sourcePoolWarnings || []
+  const poolBlockerKey = poolBlockers.map((warning) => `${warning.id}:${warning.severity}:${warning.conceptCount}:${warning.minimumQuestionsPerConcept}:${warning.minimumDifficultyLevelsPerConcept}:${warning.requiredForCrossDateNoRepeat}`).join('|')
+
   return <div className="teacher-workspace"><aside className="teacher-sidebar"><div className="teacher-brand"><Shield /><div><b>甘老师工作台</b><span>证据驱动教学</span></div></div><nav>
     <button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}><LayoutDashboard />今日总览</button>
     <button className={view === 'observation' ? 'active' : ''} onClick={() => setView('observation')}><ClipboardPen />课堂记录</button>
@@ -61,15 +65,20 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     {view === 'plans' && <PlanEditor dashboard={dashboard} />}
     {view === 'questions' && <QuestionAudit dashboard={dashboard} />}
     {view === 'settings' && <AccessSettings dashboard={dashboard} />}
-  </>}</main></div>
+  </>}</main>{poolBlockers.length > 0 && dismissedPoolBlockerKey !== poolBlockerKey && <div className="source-pool-modal-backdrop"><section className="source-pool-modal" role="dialog" aria-modal="true" aria-labelledby="source-pool-modal-title"><AlertCircle /><div><span className="eyebrow">原题准备度未达标</span><h2 id="source-pool-modal-title">未来14天有题量、难度或无重复容量不足</h2><p>请按下面的年级与知识点补足原题、解析或难度标注。未通过来源、难度、知识点和显示审核的题，不会拿来凑数。</p><SourcePoolWarnings warnings={poolBlockers} compact /></div><button className="secondary-button" onClick={() => setDismissedPoolBlockerKey(poolBlockerKey)}>我知道了</button></section></div>}</div>
 }
 
 function TeacherOverview({ dashboard, onRefresh }: { dashboard: TeacherDashboardData; onRefresh: () => void }) {
   return <><div className="teacher-page-head"><div><span className="eyebrow">小测完成后自动更新（约10秒）</span><h1>今天最值得看的事</h1></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={17} />刷新证据</button></div>
     <div className="teacher-metrics"><article><Users /><b>{dashboard.students.length}</b><span>统一学生档案</span></article><article><CheckCircle2 /><b>{dashboard.dailySummary.classQuizCount}</b><span>即时小测轮次</span></article><article><RefreshCw /><b>{dashboard.dailySummary.reviewCount}</b><span>长期复习完成</span></article><article><AlertCircle /><b>{dashboard.dailySummary.interventionCount}</b><span>建议教师介入</span></article></div>
+    {(dashboard.sourcePoolWarnings || []).length > 0 && <section className="teacher-panel source-pool-panel"><div className="panel-head"><h2>未来14天原题容量</h2><span>按细知识点逐项核算，不拿题目总数凑数</span></div><SourcePoolWarnings warnings={dashboard.sourcePoolWarnings || []} /></section>}
     <section className="teacher-panel"><div className="panel-head"><h2>今日即时小测</h2><span>{dashboard.dailySummary.quizCompletedStudentCount}/{dashboard.dailySummary.quizRosterCount} 名学生已完成 · 共 {dashboard.dailySummary.classQuizCount} 轮</span></div><div className="audit-list">{dashboard.recentQuizSessions.map((session) => <article key={session.id}><div><b>{session.studentName} · 第{session.round}轮</b><p><ChemText>{session.trainingTheme}</ChemText> · {new Date(session.completedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}{session.wrongTags.length ? <> · 需巩固：<ChemText>{session.wrongTags.join('、')}</ChemText></> : ' · 本轮无错题'}{session.slowTags.length ? <> · 偏慢：<ChemText>{session.slowTags.join('、')}</ChemText></> : ''}</p></div><div className="quiz-session-score"><b>{session.correctCount}/{session.totalCount}</b><span>{formatDuration(session.totalSec)}</span></div></article>)}{!dashboard.recentQuizSessions.length && <div className="empty-state"><RefreshCw /><p>今天还没有学生完成即时小测。</p></div>}</div></section>
     <section className="teacher-panel"><div className="panel-head"><h2>优先提醒</h2><span>只显示3—5件最值得看的事</span></div><div className="alert-list">{dashboard.alerts.slice(0,5).map((alert) => { const student = dashboard.students.find((item) => item.id === alert.studentId); return <article key={alert.id} className={alert.severity}><AlertCircle /><div><b>{student?.displayName ?? '学生'} · <ChemText>{alert.title}</ChemText></b><p><ChemText>{alert.reason}</ChemText></p></div></article> })}{!dashboard.alerts.length && <div className="empty-state"><CheckCircle2 /><p>当前没有需要立即处理的提醒。</p></div>}</div></section>
   </>
+}
+
+export function SourcePoolWarnings({ warnings, compact = false }: { warnings: NonNullable<TeacherDashboardData['sourcePoolWarnings']>; compact?: boolean }) {
+  return <div className={compact ? 'source-pool-warning-list compact' : 'source-pool-warning-list'}>{warnings.map((warning) => <article key={warning.id} className={warning.severity}><div><b><ChemText>{`${warning.gradeBand} · ${warning.skillTitle}`}</ChemText></b><span>{warning.severity === 'blocking' ? '当天五轮会阻断' : warning.severity === 'progression' ? '答对后无法升级' : '跨日不重复容量不足'}</span></div><p><ChemText>{warning.message}</ChemText></p><small>{warning.plannedStudentCount}名学生 · {warning.plannedDateCount}个计划日 · 当前{warning.conceptCount}/{warning.expectedConceptCount}个细知识点</small></article>)}</div>
 }
 
 function formatDuration(totalSec: number) {

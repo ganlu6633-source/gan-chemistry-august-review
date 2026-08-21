@@ -170,24 +170,37 @@ function shanghaiDayRange() {
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const date = `${value.year}-${value.month}-${value.day}`;
   const start = new Date(`${date}T00:00:00+08:00`);
-  return { start: start.toISOString(), end: new Date(start.getTime() + 86400000).toISOString() };
+  const dateKey = (offsetDays: number) => new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(start.getTime() + offsetDays * 86400000));
+  return {
+    date,
+    readinessEndDate: dateKey(13),
+    start: start.toISOString(),
+    end: new Date(start.getTime() + 86400000).toISOString(),
+  };
 }
 
 async function dashboard() {
-  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks, videoRecommendations] = await Promise.all([
+  const dayRange = shanghaiDayRange();
+  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks, videoRecommendations] = await Promise.all([
     admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata").order("grade_band").order("display_name"),
     admin.from("chem_teacher_alerts").select("id,student_id,severity,title,reason").is("resolved_at", null).order("created_at", { ascending: false }).limit(20),
     admin.from("chem_daily_reports").select("*").order("report_date", { ascending: false }).limit(1).maybeSingle(),
     admin.from("chem_course_nodes").select("id", { count: "exact", head: true }).eq("teacher_approved", false),
     admin.from("chem_questions").select("id", { count: "exact", head: true }).in("review_status", ["draft", "needs_review"]),
     admin.rpc("chem_list_guardian_contacts"),
-    admin.from("chem_learning_plans").select("student_id").gte("plan_date", "2026-08-13").lte("plan_date", "2026-09-09"),
+    admin.from("chem_learning_plans").select("student_id").eq("mode", "REVIEW").gte("plan_date", "2026-08-17"),
+    admin.from("chem_learning_plans")
+      .select("student_id,plan_date,skill_ids,question_count,round_limit")
+      .eq("mode", "REVIEW")
+      .gte("plan_date", dayRange.date)
+      .lte("plan_date", dayRange.readinessEndDate),
     admin.from("students").select("id,display_name").eq("active", true).order("display_name"),
     admin.from("chem_quiz_student_links").select("quiz_student_id,chem_student_id"),
     listVideoRecommendations(null, true),
   ]);
-  for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, quizStudents, quizLinks]) if (result.error) throw result.error;
-  const dayRange = shanghaiDayRange();
+  for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks]) if (result.error) throw result.error;
   const activeQuizIds = (quizStudents.data || []).map((student) => student.id);
   const quizSessions = activeQuizIds.length
     ? await admin.from("quiz_sessions")
@@ -208,6 +221,111 @@ async function dashboard() {
   const liveQuizRows = quizSessions.data || [];
   const quizCompletedStudentCount = new Set(liveQuizRows.map((session) => session.student_id)).size;
   const pendingVideoCount = videoRecommendations.filter((item) => item.status === "draft").length;
+  const activeFormalHighSchoolIds = new Set((students.data || []).flatMap((student) =>
+    student.record_status === "active"
+      && ["高一", "高二", "高三"].includes(String(student.grade_band))
+      && student.metadata?.demo !== true
+      ? [String(student.id)]
+      : []));
+  const readinessRows = (readinessPlans.data || []).filter((plan) => activeFormalHighSchoolIds.has(String(plan.student_id)));
+  const plannedSkillIds = [...new Set(readinessRows.flatMap((plan) =>
+    Array.isArray(plan.skill_ids) ? plan.skill_ids.map((skillId) => String(skillId)).filter(Boolean) : []))];
+  const [readinessSkills, readinessQuestions] = plannedSkillIds.length
+    ? await Promise.all([
+      admin.from("chem_skills").select("id,title,grade_band").in("id", plannedSkillIds),
+      admin.from("chem_questions")
+        .select("skill_id,concept_key,source_item_key,mother_id,level")
+        .in("skill_id", plannedSkillIds)
+        .eq("review_status", "approved")
+        .eq("scope_status", "IN")
+        .eq("usable_for_review", true)
+        .eq("source_kind", "licensed_local")
+        .eq("render_mode", "image_primary")
+        .limit(5000),
+    ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  if (readinessSkills.error || readinessQuestions.error) throw readinessSkills.error || readinessQuestions.error;
+  const skillInfo = new Map((readinessSkills.data || []).map((skill) => [String(skill.id), skill]));
+  const conceptPools = new Map<string, Map<string, { sources: Set<string>; levels: Set<number> }>>();
+  for (const question of readinessQuestions.data || []) {
+    const skillId = String(question.skill_id || "");
+    const conceptKey = String(question.concept_key || "");
+    const sourceKey = String(question.source_item_key || question.mother_id || "");
+    if (!skillId || !conceptKey || !sourceKey) continue;
+    const byConcept = conceptPools.get(skillId) || new Map<string, { sources: Set<string>; levels: Set<number> }>();
+    const pool = byConcept.get(conceptKey) || { sources: new Set<string>(), levels: new Set<number>() };
+    pool.sources.add(sourceKey);
+    if (Number.isFinite(Number(question.level))) pool.levels.add(Number(question.level));
+    byConcept.set(conceptKey, pool);
+    conceptPools.set(skillId, byConcept);
+  }
+  const plannedSkillStats = new Map<string, {
+    students: Set<string>;
+    dates: Set<string>;
+    visitsByStudent: Map<string, number>;
+    expectedConceptCount: number;
+    roundLimit: number;
+  }>();
+  for (const plan of readinessRows) {
+    const studentId = String(plan.student_id);
+    const skillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map((skillId) => String(skillId)).filter(Boolean) : [];
+    for (const skillId of skillIds) {
+      const stat = plannedSkillStats.get(skillId) || {
+        students: new Set<string>(), dates: new Set<string>(), visitsByStudent: new Map<string, number>(),
+        expectedConceptCount: 5, roundLimit: 5,
+      };
+      stat.students.add(studentId);
+      stat.dates.add(String(plan.plan_date));
+      stat.visitsByStudent.set(studentId, (stat.visitsByStudent.get(studentId) || 0) + 1);
+      stat.expectedConceptCount = Math.max(stat.expectedConceptCount, Number(plan.question_count) || 5);
+      stat.roundLimit = Math.max(stat.roundLimit, Number(plan.round_limit) || 5);
+      plannedSkillStats.set(skillId, stat);
+    }
+  }
+  const sourcePoolWarnings = [...plannedSkillStats.entries()].flatMap(([skillId, stat]) => {
+    const pools = [...(conceptPools.get(skillId)?.values() || [])];
+    const counts = pools.map((pool) => pool.sources.size);
+    const difficultyLevelCounts = pools.map((pool) => pool.levels.size);
+    const conceptCount = counts.length;
+    const minimumQuestionsPerConcept = counts.length ? Math.min(...counts) : 0;
+    const minimumDifficultyLevelsPerConcept = difficultyLevelCounts.length ? Math.min(...difficultyLevelCounts) : 0;
+    const maxVisitsPerStudent = Math.max(0, ...stat.visitsByStudent.values());
+    const requiredForFiveRounds = stat.roundLimit;
+    const requiredForCrossDateNoRepeat = stat.roundLimit * maxVisitsPerStudent;
+    const isBlocking = conceptCount !== stat.expectedConceptCount || minimumQuestionsPerConcept < requiredForFiveRounds;
+    const lacksDifficultyProgression = conceptCount === stat.expectedConceptCount && minimumDifficultyLevelsPerConcept < 2;
+    const lacksCrossDateCapacity = minimumQuestionsPerConcept < requiredForCrossDateNoRepeat;
+    if (!isBlocking && !lacksDifficultyProgression && !lacksCrossDateCapacity) return [];
+    const info = skillInfo.get(skillId);
+    const skillTitle = String(info?.title || skillId);
+    const gradeBand = String(info?.grade_band || "高一");
+    return [{
+      id: `${gradeBand}:${skillId}`,
+      gradeBand,
+      skillId,
+      skillTitle,
+      severity: isBlocking ? "blocking" : lacksDifficultyProgression ? "progression" : "capacity",
+      plannedStudentCount: stat.students.size,
+      plannedDateCount: stat.dates.size,
+      maxVisitsPerStudent,
+      conceptCount,
+      expectedConceptCount: stat.expectedConceptCount,
+      minimumQuestionsPerConcept,
+      minimumDifficultyLevelsPerConcept,
+      requiredForFiveRounds,
+      requiredForCrossDateNoRepeat,
+      message: isBlocking
+        ? `未来14天计划会用到“${skillTitle}”，当前有${conceptCount}个细知识点（应为${stat.expectedConceptCount}个），每个细知识点最少${minimumQuestionsPerConcept}道原题（当天五轮至少${requiredForFiveRounds}道）。未补足前系统必须停止下发。`
+        : lacksDifficultyProgression
+        ? `“${skillTitle}”当前至少有一个细知识点的原题全部处在同一难度，答对后无法真正升级。请补充或重新核定该细点的基础题与提高题。`
+        : `未来14天同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；若跨日也完全不重复，每个细知识点需${requiredForCrossDateNoRepeat}道原题，当前最少${minimumQuestionsPerConcept}道，还差${Math.max(0, requiredForCrossDateNoRepeat - minimumQuestionsPerConcept)}道。`,
+    }];
+  }).sort((a, b) => {
+    const rank = (value: string) => value === "blocking" ? 0 : value === "progression" ? 1 : 2;
+    return rank(a.severity) === rank(b.severity)
+      ? a.gradeBand.localeCompare(b.gradeBand)
+      : rank(a.severity) - rank(b.severity);
+  });
   return {
     students: (students.data || []).map((s) => ({
       id: s.id,
@@ -245,6 +363,7 @@ async function dashboard() {
     })),
     pendingCourseNodes: courseCount.count || 0, pendingQuestions: questionCount.count || 0,
     recentVideoRecommendations: videoRecommendations.slice(0, 20),
+    sourcePoolWarnings,
   };
 }
 

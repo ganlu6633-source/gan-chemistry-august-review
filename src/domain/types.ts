@@ -526,4 +526,21 @@ export interface TeacherDashboardData {
   }>
   pendingCourseNodes: number
   pendingQuestions: number
+  sourcePoolWarnings?: Array<{
+    id: string
+    gradeBand: GradeBand
+    skillId: string
+    skillTitle: string
+    severity: 'blocking' | 'progression' | 'capacity'
+    plannedStudentCount: number
+    plannedDateCount: number
+    maxVisitsPerStudent: number
+    conceptCount: number
+    expectedConceptCount: number
+    minimumQuestionsPerConcept: number
+    minimumDifficultyLevelsPerConcept: number
+    requiredForFiveRounds: number
+    requiredForCrossDateNoRepeat: number
+    message: string
+  }>
 }

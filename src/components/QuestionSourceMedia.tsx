@@ -71,11 +71,18 @@ function sourceDetails(source: QuestionSourceInfo) {
 }
 
 export function QuestionSourceMedia({ question, enabled, session, nativeContent, deferLoad = false, readOnly = false, showSource = true, feedback = false, accessContext, onPrimaryReadyChange, onZoomClose }: QuestionSourceMediaProps) {
-  const refs = useMemo(() => question.assetRefs ?? [], [question.assetRefs])
+  const incomingRefs = question.assetRefs ?? []
+  const refsKey = incomingRefs.map((ref) => `${ref.assetId}:${ref.kind}:${ref.sha256}:${ref.width}:${ref.height}:${ref.alt}`).join('|')
+  const refsSnapshot = useRef<{ key: string; refs: SourceAssetRef[] }>({ key: refsKey, refs: incomingRefs })
+  if (refsSnapshot.current.key !== refsKey) refsSnapshot.current = { key: refsKey, refs: incomingRefs }
+  const refs = refsSnapshot.current.refs
+  const sourceVersionKey = `${question.id}|${refsKey}|${deferLoad ? 'deferred' : 'eager'}`
+  const sourceVersionRef = useRef(sourceVersionKey)
   const problemRefs = useMemo(() => refs.filter((ref) => ref.kind !== 'analysis_image'), [refs])
   const analysisRefs = useMemo(() => refs.filter((ref) => ref.kind === 'analysis_image'), [refs])
-  const refsKey = refs.map((ref) => `${ref.assetId}:${ref.sha256}`).join('|')
-  const [assetStates, setAssetStates] = useState<Record<string, AssetLoadState>>({})
+  const [assetStates, setAssetStates] = useState<Record<string, AssetLoadState>>(
+    () => Object.fromEntries(refs.map((ref) => [ref.assetId, emptyState()])),
+  )
   const [loadRequested, setLoadRequested] = useState(!deferLoad)
   const [zoomedAssetId, setZoomedAssetId] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -83,11 +90,15 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
   const renderMode = question.renderMode ?? 'native'
 
   useEffect(() => {
+    // Parent dashboard refreshes often recreate the question/ref objects.  Keep a
+    // successfully requested image when the immutable source version is unchanged.
+    if (sourceVersionRef.current === sourceVersionKey) return
+    sourceVersionRef.current = sourceVersionKey
     setAssetStates(Object.fromEntries(refs.map((ref) => [ref.assetId, emptyState()])))
     setLoadRequested(!deferLoad)
     setZoomedAssetId(null)
     zoomTriggerRef.current = null
-  }, [question.id, refsKey, deferLoad, refs])
+  }, [deferLoad, refs, sourceVersionKey])
 
   const closeZoom = useCallback(() => setZoomedAssetId(null), [])
 

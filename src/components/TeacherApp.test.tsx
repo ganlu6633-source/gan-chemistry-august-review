@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TeacherDashboardData } from '../domain/types'
-import { StudentTable } from './TeacherApp'
+import { SourcePoolWarnings, StudentTable } from './TeacherApp'
 
 const dashboard: TeacherDashboardData = {
   students: [
@@ -38,5 +38,30 @@ describe('Teacher student directory', () => {
 
     expect(onPreview).toHaveBeenCalledOnce()
     expect(onPreview).toHaveBeenCalledWith('h3-student')
+  })
+
+  it('states the exact concept-level shortage instead of asking for a vague new question bank', () => {
+    render(<SourcePoolWarnings warnings={[{
+      id: '高一:H1_REACTION_CLASSIFICATION',
+      gradeBand: '高一',
+      skillId: 'H1_REACTION_CLASSIFICATION',
+      skillTitle: '物质转化与化学反应分类',
+      severity: 'blocking',
+      plannedStudentCount: 10,
+      plannedDateCount: 2,
+      maxVisitsPerStudent: 2,
+      conceptCount: 4,
+      expectedConceptCount: 5,
+      minimumQuestionsPerConcept: 3,
+      minimumDifficultyLevelsPerConcept: 2,
+      requiredForFiveRounds: 5,
+      requiredForCrossDateNoRepeat: 10,
+      message: '当前有4个细知识点（应为5个），每个细知识点最少3道原题（当天五轮至少5道）。',
+    }]} />)
+
+    expect(screen.getByText('高一 · 物质转化与化学反应分类')).toBeInTheDocument()
+    expect(screen.getByText('当天五轮会阻断')).toBeInTheDocument()
+    expect(screen.getByText(/每个细知识点最少3道原题/)).toBeInTheDocument()
+    expect(screen.getByText(/10名学生 · 2个计划日/)).toBeInTheDocument()
   })
 })

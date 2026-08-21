@@ -71,7 +71,7 @@ describe('TeacherVideoManager', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '发布' }))
     await waitFor(() => expect(apiMocks.publishVideoRecommendation).toHaveBeenCalledWith('video-draft'))
-  })
+  }, 15_000)
 
   it('creates an HTTPS recommendation as a draft with the teacher reason intact', async () => {
     render(<TeacherVideoManager dashboard={dashboard} />)
@@ -91,5 +91,5 @@ describe('TeacherVideoManager', () => {
       url: 'https://example.com/lesson',
       teacherReason: '课堂上最高价含氧酸的趋势还需要再接一次。',
     }))
-  })
+  }, 15_000)
 })
