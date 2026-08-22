@@ -25,7 +25,7 @@ describe('mixed REVIEW fine-concept targets', () => {
     expect(accessSource).toContain('conceptKey.startsWith(`${skillId}__`)')
     expect(accessSource).toContain('expectedConceptKeys.some((conceptKey) => !conceptCounts.has(conceptKey))')
     expect(accessSource).toContain('some((count) => count < roundLimit)')
-    expect(accessSource).toContain('some((levels) => levels.size < 3)')
+    expect(accessSource).not.toContain('some((levels) => levels.size < 3)')
     expect(accessSource).not.toContain('some((count) => count !== roundLimit)')
     expect(accessSource).toContain('.in("concept_key", targetConceptKeys)')
     expect(accessSource).toContain('当天必须配置 ${questionCount} 个互不重复的细知识点')
@@ -33,11 +33,11 @@ describe('mixed REVIEW fine-concept targets', () => {
 
   it('uses the same exact target filter when issuing and submitting', () => {
     expect(accessSource.match(/\.in\("concept_key", targetConceptKeys\)/g)).toHaveLength(2)
-    expect(accessSource).toContain('.select("id,student_id,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level")')
+    expect(accessSource).toContain('.select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level")')
   })
 
   it('computes teacher capacity by repeated fine concept instead of whole mixed skill days', () => {
-    expect(teacherSource).toContain('student_id,plan_date,skill_ids,target_concept_keys,question_count,round_limit')
+    expect(teacherSource).toContain('id,student_id,plan_date,skill_ids,target_concept_keys,knowledge_summaries,question_count,round_limit')
     expect(teacherSource).toContain('visitsByStudentConcept')
     expect(teacherSource).toContain('targetConcepts')
     expect(teacherSource).toContain('conceptKey.startsWith(`${skillId}__`)')

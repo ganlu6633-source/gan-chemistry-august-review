@@ -1,9 +1,10 @@
 import { Fragment, type ReactNode } from 'react'
 
-const NAMED_SUBSCRIPT_TOKEN = /(N_A|V_m|K_?(?:sp|c|p|a|b|w))/g
-const UNIT_EXPONENT = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\^?([-−]\d+)$/
-const POWER_TOKEN = /^(10|c\([A-D]\))\^([-−]?\d+|[a-d])$/
-const SPECIAL_TOKEN = /(?:\b(?:10|c\([A-D]\))\^(?:[-−]?\d+|[a-d]))|(?:\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\^?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+(?:\d+)?(?:\^\d*[+-]|[+-])?)/g
+const LOWERCASE_AVOGADRO_OCR_TOKEN = `N${String.fromCodePoint(0x2090)}`
+const NAMED_SUBSCRIPT_TOKEN = new RegExp(`(N_A|N_a|${LOWERCASE_AVOGADRO_OCR_TOKEN}|V_m|K_?(?:sp|c|p|a|b|w))`, 'g')
+const UNIT_EXPONENT = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\s*\^?\s*([-−－])\s*(\d+)$/
+const POWER_TOKEN = /^(10|c\([A-D]\))\s*\^\s*([-−－]?\s*\d+|[a-d])$/
+const SPECIAL_TOKEN = /(?:\b(?:10|c\([A-D]\))\s*\^\s*(?:[-−－]?\s*\d+|[a-d]))|(?:\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\s*\^?\s*[-−－]\s*\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+(?:\d+)?(?:\^\d*[+-]|[+-])?)/g
 
 function isFormulaToken(value: string) {
   return /\d|[+-]/.test(value)
@@ -69,13 +70,13 @@ function renderFormulaToken(value: string, key: string) {
 function renderUnitToken(value: string, key: string) {
   const match = value.match(UNIT_EXPONENT)
   if (!match) return value
-  return <span className="chem-symbol" key={key} aria-label={value}>{match[1]}<sup>{match[2].replace('-', '−')}</sup></span>
+  return <span className="chem-symbol" key={key} aria-label={value}>{match[1]}<sup>{`${match[2].replace(/[−－-]/, '−')}${match[3]}`}</sup></span>
 }
 
 function renderPowerToken(value: string, key: string) {
   const match = value.match(POWER_TOKEN)
   if (!match) return value
-  return <span className="chem-symbol" key={key} aria-label={value}>{match[1]}<sup>{match[2].replace('-', '−')}</sup></span>
+  return <span className="chem-symbol" key={key} aria-label={value}>{match[1]}<sup>{match[2].replace(/\s/g, '').replace(/[−－-]/, '−')}</sup></span>
 }
 
 function renderChemistryText(value: string) {
@@ -121,7 +122,7 @@ function renderChemistryText(value: string) {
 export function ChemText({ children }: { children: string }) {
   const parts = children.split(NAMED_SUBSCRIPT_TOKEN)
   return <>{parts.map((part, index) => <Fragment key={`${index}-${part}`}>
-    {part === 'N_A'
+    {part === 'N_A' || part === 'N_a' || part === LOWERCASE_AVOGADRO_OCR_TOKEN
       ? <span className="chem-symbol chem-avogadro" aria-label="N 下标 A"><span aria-hidden="true">N</span><sub aria-hidden="true">A</sub></span>
       : part === 'V_m'
       ? <span className="chem-symbol chem-molar-volume" aria-label="V 下标 m"><span aria-hidden="true">V</span><sub aria-hidden="true">m</sub></span>

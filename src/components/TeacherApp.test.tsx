@@ -55,7 +55,7 @@ describe('Teacher student directory', () => {
       minimumQuestionsPerConcept: 3,
       minimumDifficultyLevelsPerConcept: 2,
       maximumPreviouslyUsedPerConcept: 2,
-      requiredForFiveRounds: 5,
+      requiredForDailyPackage: 1,
       requiredForCrossDateNoRepeat: 10,
       conceptDetails: [{
         conceptKey: 'H1_REACTION_CLASSIFICATION__C03',
@@ -65,12 +65,12 @@ describe('Teacher student directory', () => {
         missingQuestions: 7,
         difficultyLevels: 2,
       }],
-      message: '当前有4个细知识点（应为5个），每个细知识点最少3道原题（当天五轮至少5道）。',
+      message: '当前题组缺少可用原题，未补足前系统必须停止下发。',
     }]} />)
 
     expect(screen.getByText('高一 · 物质转化与化学反应分类')).toBeInTheDocument()
-    expect(screen.getByText('当天五轮会阻断')).toBeInTheDocument()
-    expect(screen.getByText(/每个细知识点最少3道原题/)).toBeInTheDocument()
+    expect(screen.getByText('今日题组会阻断')).toBeInTheDocument()
+    expect(screen.getByText(/未补足前系统必须停止下发/)).toBeInTheDocument()
     expect(screen.getByText('化合、分解、置换、复分解反应')).toBeInTheDocument()
     expect(screen.getByText(/现有 3 题 · 需要 10 题 · 还差 7 题/)).toBeInTheDocument()
     expect(screen.getByText(/10名学生 · 2个计划日/)).toBeInTheDocument()

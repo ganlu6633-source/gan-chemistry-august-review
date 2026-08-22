@@ -45,6 +45,16 @@ describe('adaptive original-question selector', () => {
     expect(selected.find((item) => item.concept_key === 'A__C01')?.level).toBe(2)
   })
 
+  it('fails closed instead of pretending to upgrade when no harder original remains', () => {
+    const selected = selectAdaptiveQuestions(fiveConceptPool, [], [{
+      question_id: 'q-0-3', mother_id: 'm-0-3', skill_id: 'A', concept_key: 'A__C01',
+      question_level: 3, attempt_sequence: 4, correct: true, uncertain: false,
+    }], 5, 5, new Date(), true)
+
+    expect(selected).toHaveLength(4)
+    expect(selected.some((item) => item.concept_key === 'A__C01')).toBe(false)
+  })
+
   it('uses the next unseen original from the same concept after an error or uncertainty', () => {
     const selected = selectAdaptiveQuestions(fiveConceptPool, [], [{
       question_id: 'q-0-0', mother_id: 'm-0-0', skill_id: 'A', concept_key: 'A__C01',
@@ -53,6 +63,22 @@ describe('adaptive original-question selector', () => {
     const followUp = selected.find((item) => item.concept_key === 'A__C01')
     expect(followUp?.level).toBe(1)
     expect(followUp?.mother_id).not.toBe('m-0-0')
+  })
+
+  it('does not raise difficulty after an error when only harder originals remain', () => {
+    const oneConcept = fiveConceptPool.filter((item) => item.concept_key === 'A__C01')
+    const selected = selectAdaptiveQuestions(oneConcept, [], [
+      {
+        question_id: 'q-0-0', mother_id: 'm-0-0', skill_id: 'A', concept_key: 'A__C01',
+        question_level: 1, attempt_sequence: 0, correct: false, uncertain: true,
+      },
+      {
+        question_id: 'q-0-1', mother_id: 'm-0-1', skill_id: 'A', concept_key: 'A__C01',
+        question_level: 1, attempt_sequence: 1, correct: false, uncertain: true,
+      },
+    ], 2, 1, new Date(), true)
+
+    expect(selected).toHaveLength(0)
   })
 
   it('keeps the latest evidence for each concept across different review dates', () => {

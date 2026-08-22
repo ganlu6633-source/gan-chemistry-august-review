@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ChemText } from './ChemText'
 
@@ -31,6 +31,16 @@ describe('ChemText', () => {
     expect(screen.getByLabelText('min-1')).toBeInTheDocument()
     expect(container.textContent).toContain('0.1 mol·L')
     expect(container.textContent).toContain('CO +')
+  })
+
+  it('repairs full-width or spaced OCR exponents and lowercase Avogadro subscripts', () => {
+    const lowercaseAvogadroOcrToken = `N${String.fromCodePoint(0x2090)}`
+    const { container } = render(<p><ChemText>{`N=n${lowercaseAvogadroOcrToken}，c=0.1 mol·L － 1，v=2 mol·L − 1·s －1`}</ChemText></p>)
+
+    expect(within(container).getByLabelText('N 下标 A').querySelector('sub')?.textContent).toBe('A')
+    expect([...container.querySelectorAll('sup')].map((node) => node.textContent)).toEqual(['−1', '−1', '−1'])
+    expect(container.textContent).not.toContain(lowercaseAvogadroOcrToken)
+    expect(container.textContent).not.toMatch(/L [−－-] 1|s [−－-]\s*1/)
   })
 
   it('renders teacher-source caret powers and molar-volume notation without showing carets', () => {

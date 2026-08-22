@@ -23,6 +23,23 @@ async function sha256(value: string) {
 function validUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
+function validReviewSourceAssetRef(value: unknown, kind: "question_image" | "analysis_image") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const ref = value as Record<string, unknown>;
+  return ref.kind === kind
+    && /^[a-zA-Z0-9/_-]{16,200}$/.test(String(ref.path || ""))
+    && String(ref.alt || "").trim().length > 0
+    && /^[0-9a-f]{64}$/.test(String(ref.sha256 || ""))
+    && Number.isInteger(Number(ref.width))
+    && Number(ref.width) > 0
+    && Number.isInteger(Number(ref.height))
+    && Number(ref.height) > 0;
+}
+function hasRequiredReviewSourceAssets(value: unknown) {
+  if (!Array.isArray(value)) return false;
+  return value.some((ref) => validReviewSourceAssetRef(ref, "question_image"))
+    && value.some((ref) => validReviewSourceAssetRef(ref, "analysis_image"));
+}
 function recordValue(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -175,8 +192,9 @@ function shanghaiDayRange() {
   }).format(new Date(start.getTime() + offsetDays * 86400000));
   return {
     date,
-    // Inclusive 39-day schedule window: today plus the following 38 dates.
-    readinessEndDate: dateKey(38),
+    // The funded calendar ends on 2026-09-29; the audited window shrinks as
+    // dates pass instead of drifting beyond the capacity-funded horizon.
+    readinessEndDate: date < "2026-09-29" ? "2026-09-29" : dateKey(0),
     start: start.toISOString(),
     end: new Date(start.getTime() + 86400000).toISOString(),
   };
@@ -184,7 +202,14 @@ function shanghaiDayRange() {
 
 async function dashboard() {
   const dayRange = shanghaiDayRange();
-  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks, videoRecommendations] = await Promise.all([
+  // Reconcile the narrow finalize→enqueue gap first. Safe compensation is
+  // rate-limited inside the retry RPC; persistent capacity/scope failures stay
+  // visible below instead of being retried every ten seconds.
+  const reconcilePersonalization = await admin.rpc("chem_reconcile_missing_review_personalization_jobs");
+  if (reconcilePersonalization.error) console.error("REVIEW personalization reconciliation failed", reconcilePersonalization.error);
+  const retryPersonalization = await admin.rpc("chem_retry_pending_review_personalization", { p_limit: 5 });
+  if (retryPersonalization.error) console.error("REVIEW personalization retry failed", retryPersonalization.error);
+  const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks, videoRecommendations, conceptCatalog, personalizationJobs, capacityShortages] = await Promise.all([
     admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata").order("grade_band").order("display_name"),
     admin.from("chem_teacher_alerts").select("id,student_id,severity,title,reason").is("resolved_at", null).order("created_at", { ascending: false }).limit(20),
     admin.from("chem_daily_reports").select("*").order("report_date", { ascending: false }).limit(1).maybeSingle(),
@@ -193,15 +218,31 @@ async function dashboard() {
     admin.rpc("chem_list_guardian_contacts"),
     admin.from("chem_learning_plans").select("student_id").eq("mode", "REVIEW").gte("plan_date", "2026-08-17"),
     admin.from("chem_learning_plans")
-      .select("student_id,plan_date,skill_ids,target_concept_keys,question_count,round_limit")
+      .select("id,student_id,plan_date,skill_ids,target_concept_keys,knowledge_summaries,question_count,round_limit")
       .eq("mode", "REVIEW")
       .gte("plan_date", dayRange.date)
       .lte("plan_date", dayRange.readinessEndDate),
     admin.from("students").select("id,display_name").eq("active", true).order("display_name"),
     admin.from("chem_quiz_student_links").select("quiz_student_id,chem_student_id"),
     listVideoRecommendations(null, true),
+    admin.rpc("chem_review_concept_catalog_rows"),
+    admin.rpc("chem_review_personalization_job_rows"),
+    admin.rpc("chem_review_capacity_shortage_rows"),
   ]);
-  for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks]) if (result.error) throw result.error;
+  for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks, conceptCatalog, personalizationJobs, capacityShortages]) if (result.error) throw result.error;
+  const activeVerifiedSourceReleases = await admin.rpc("chem_active_verified_source_releases");
+  if (activeVerifiedSourceReleases.error) throw activeVerifiedSourceReleases.error;
+  const activeReleaseByGrade = new Map<string, string>();
+  for (const gradeBand of ["高一", "高二", "高三"]) {
+    const matching = (activeVerifiedSourceReleases.data || []).filter((row) =>
+      String(row.grade_band) === gradeBand && validUuid(String(row.source_release_id || ""))
+    );
+    if (matching.length !== 1) {
+      throw new Error(`${gradeBand}当前必须且只能有一个已完成全量图像核验的正式原题版本。`);
+    }
+    activeReleaseByGrade.set(gradeBand, String(matching[0].source_release_id));
+  }
+  const activeVerifiedReleaseIds = [...activeReleaseByGrade.values()];
   const activeQuizIds = (quizStudents.data || []).map((student) => student.id);
   const quizSessions = activeQuizIds.length
     ? await admin.from("quiz_sessions")
@@ -222,34 +263,113 @@ async function dashboard() {
   const liveQuizRows = quizSessions.data || [];
   const quizCompletedStudentCount = new Set(liveQuizRows.map((session) => session.student_id)).size;
   const pendingVideoCount = videoRecommendations.filter((item) => item.status === "draft").length;
+  const studentNameById = new Map((students.data || []).map((student) => [String(student.id), String(student.display_name)]));
+  const capacityReasonText = (reasonCode: string) => {
+    if (reasonCode === "no_upgrade_original") return "答对后没有更高难度、且未做过的同知识点原题";
+    if (reasonCode === "no_non_escalating_original") return "错题或不确定题缺少同级或更低难度的新原题";
+    if (reasonCode === "source_original_exhausted") return "该知识点可用且未做过的原题已经用完";
+    if (reasonCode === "high1_confirmed_scope_missing") return "高一已学范围尚未确认";
+    if (reasonCode.includes("scope")) return "计划知识点超出该学生已确认的学习范围";
+    return "未来计划的无重复原题容量或映射尚未通过核验";
+  };
+  const planningAlerts = [
+    ...(personalizationJobs.data || []).flatMap((job) => {
+      if (job.status !== "pending" && job.status !== "blocked") return [];
+      return [{
+        id: `personalization:${String(job.completed_plan_id)}`,
+        kind: "personalization",
+        studentName: studentNameById.get(String(job.student_id)) || "正式学生",
+        planDate: job.next_plan_date ? String(job.next_plan_date) : null,
+        message: job.status === "blocked"
+          ? "后续某日题组已经被提前打开，系统为保护已下发原题没有重排；请甘老师核对日期与学生路径后人工处理。"
+          : "个性化计划尚未安全生成；原计划已保留，系统会限次重试，仍失败时请核对原题容量与已学范围。",
+        createdAt: String(job.updated_at),
+      }];
+    }),
+    ...(capacityShortages.data || []).map((shortage) => {
+      const detail = shortage.detail && typeof shortage.detail === "object"
+        ? shortage.detail as Record<string, unknown>
+        : {};
+      const conceptLabel = String(detail.conceptLabel || "").trim();
+      return {
+        id: `capacity:${String(shortage.student_id)}:${String(shortage.anchor_date)}:${String(shortage.reason_code)}`,
+        kind: "capacity",
+        studentName: studentNameById.get(String(shortage.student_id)) || "正式学生",
+        planDate: shortage.anchor_date ? String(shortage.anchor_date) : null,
+        message: `${capacityReasonText(String(shortage.reason_code))}${conceptLabel ? `：${conceptLabel}` : ""}。系统没有改写该学生计划，请补充材料或调整范围后重试。`,
+        createdAt: String(shortage.created_at),
+      };
+    }),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const activeFormalHighSchoolIds = new Set((students.data || []).flatMap((student) =>
     student.record_status === "active"
       && ["高一", "高二", "高三"].includes(String(student.grade_band))
       && student.metadata?.demo !== true
       ? [String(student.id)]
       : []));
+  const formalGradeByStudent = new Map((students.data || []).flatMap((student) =>
+    activeFormalHighSchoolIds.has(String(student.id))
+      ? [[String(student.id), String(student.grade_band)] as const]
+      : []));
+  const catalogByConcept = new Map((conceptCatalog.data || []).map((row) => [String(row.concept_key), {
+    gradeBand: String(row.grade_band),
+    skillId: String(row.skill_id),
+    title: String(row.concept_title),
+    sequenceNo: Number(row.sequence_no),
+  }]));
+  const catalogCountBySkill = new Map<string, number>();
+  for (const row of conceptCatalog.data || []) {
+    const skillId = String(row.skill_id);
+    catalogCountBySkill.set(skillId, (catalogCountBySkill.get(skillId) || 0) + 1);
+  }
+  const allowedSkillsByStudent = new Map<string, Set<string>>();
+  for (const student of students.data || []) {
+    const studentId = String(student.id);
+    if (!activeFormalHighSchoolIds.has(studentId)) continue;
+    const gradeBand = String(student.grade_band);
+    if (gradeBand === "高一") {
+      const raw = student.metadata?.confirmedLearnedSkillIds;
+      allowedSkillsByStudent.set(studentId, new Set(Array.isArray(raw) ? raw.map(String).filter(Boolean) : []));
+    } else {
+      allowedSkillsByStudent.set(studentId, new Set((conceptCatalog.data || [])
+        .filter((row) => String(row.grade_band) === gradeBand)
+        .map((row) => String(row.skill_id))));
+    }
+  }
   const readinessRows = (readinessPlans.data || []).filter((plan) => activeFormalHighSchoolIds.has(String(plan.student_id)));
+  for (const plan of readinessRows) {
+    const skillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map(String).filter(Boolean) : [];
+    if (skillIds.length) continue;
+    planningAlerts.push({
+      id: `readiness-empty-skill:${String(plan.id)}`,
+      kind: "capacity",
+      studentName: studentNameById.get(String(plan.student_id)) || "正式学生",
+      planDate: String(plan.plan_date),
+      message: "计划没有配置可对应的学习模块，系统会停止下发；请先完成知识点、模块和原题的一一映射。",
+      createdAt: `${String(plan.plan_date)}T00:00:00+08:00`,
+    });
+  }
   const plannedSkillIds = [...new Set(readinessRows.flatMap((plan) =>
     Array.isArray(plan.skill_ids) ? plan.skill_ids.map((skillId) => String(skillId)).filter(Boolean) : []))];
   const [readinessSkills, readinessQuestions] = plannedSkillIds.length
     ? await Promise.all([
       admin.from("chem_skills").select("id,title,grade_band").in("id", plannedSkillIds),
       admin.from("chem_questions")
-        .select("skill_id,concept_key,source_item_key,content_fingerprint,mother_id,level,source_info")
+        .select("skill_id,concept_key,source_item_key,content_fingerprint,mother_id,level,grade_band,source_release_id,asset_refs")
         .in("skill_id", plannedSkillIds)
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
         .eq("usable_for_review", true)
         .eq("source_kind", "licensed_local")
         .eq("render_mode", "image_primary")
-        .not("source_release_id", "is", null)
+        .in("source_release_id", activeVerifiedReleaseIds)
         .limit(5000),
     ])
     : [{ data: [], error: null }, { data: [], error: null }];
   if (readinessSkills.error || readinessQuestions.error) throw readinessSkills.error || readinessQuestions.error;
   const skillInfo = new Map((readinessSkills.data || []).map((skill) => [String(skill.id), skill]));
   const sourceUsage = activeFormalHighSchoolIds.size
-    ? await admin.rpc("chem_review_source_usage_counts", { p_student_ids: [...activeFormalHighSchoolIds] })
+    ? await admin.rpc("chem_review_active_source_usage_counts", { p_student_ids: [...activeFormalHighSchoolIds] })
     : { data: [], error: null };
   if (sourceUsage.error) throw sourceUsage.error;
   const usedCountByStudentConcept = new Map((sourceUsage.data || []).map((row) => [
@@ -264,14 +384,17 @@ async function dashboard() {
     const sourceKey = String(question.source_item_key || "");
     const fingerprint = String(question.content_fingerprint || "");
     const motherId = String(question.mother_id || "");
-    if (!skillId || !conceptKey || !sourceKey || !fingerprint || !motherId) continue;
+    const expectedReleaseId = activeReleaseByGrade.get(String(question.grade_band || ""));
+    if (
+      !skillId || !conceptKey || !sourceKey || !fingerprint || !motherId
+      || String(question.source_release_id || "") !== expectedReleaseId
+      || !hasRequiredReviewSourceAssets(question.asset_refs)
+    ) continue;
     const byConcept = conceptPools.get(skillId) || new Map<string, ConceptPool>();
-    const sourceInfo = question.source_info && typeof question.source_info === "object"
-      ? question.source_info as Record<string, unknown>
-      : {};
+    const catalogEntry = catalogByConcept.get(conceptKey);
     const pool = byConcept.get(conceptKey) || {
       sources: new Set<string>(), fingerprints: new Set<string>(), mothers: new Set<string>(), levels: new Set<number>(),
-      title: String(sourceInfo.conceptLabel || conceptKey),
+      title: catalogEntry?.title || conceptKey,
     };
     pool.sources.add(sourceKey);
     pool.fingerprints.add(fingerprint);
@@ -286,23 +409,53 @@ async function dashboard() {
     visitsByStudentConcept: Map<string, number>;
     targetConcepts: Set<string>;
     expectedConceptCount: number;
-    roundLimit: number;
+    invalidDailyPackageCount: number;
   }>();
   for (const plan of readinessRows) {
     const studentId = String(plan.student_id);
+    const studentGradeBand = formalGradeByStudent.get(studentId) || "";
+    const studentAllowedSkills = allowedSkillsByStudent.get(studentId) || new Set<string>();
     const skillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map((skillId) => String(skillId)).filter(Boolean) : [];
     const explicitTargets = Array.isArray(plan.target_concept_keys)
       ? plan.target_concept_keys.map((conceptKey) => String(conceptKey)).filter(Boolean)
       : [];
-    for (const skillId of skillIds) {
+    const knowledgeSummaries = Array.isArray(plan.knowledge_summaries)
+      ? plan.knowledge_summaries.map((summary) => String(summary).trim()).filter(Boolean)
+      : [];
+    for (const skillId of [...new Set(skillIds)]) {
       const stat = plannedSkillStats.get(skillId) || {
         students: new Set<string>(), dates: new Set<string>(), visitsByStudentConcept: new Map<string, number>(),
         targetConcepts: new Set<string>(),
-        expectedConceptCount: 5, roundLimit: 5,
+        expectedConceptCount: catalogCountBySkill.get(skillId) || 0, invalidDailyPackageCount: 0,
       };
       stat.students.add(studentId);
       stat.dates.add(String(plan.plan_date));
       const skillTargets = explicitTargets.filter((conceptKey) => conceptKey.startsWith(`${skillId}__`));
+      const uniqueTargets = new Set(explicitTargets);
+      const targetsOwnedByPlan = explicitTargets.every((conceptKey) => {
+        const catalogEntry = catalogByConcept.get(conceptKey);
+        return Boolean(catalogEntry
+          && catalogEntry.gradeBand === studentGradeBand
+          && skillIds.includes(catalogEntry.skillId)
+          && studentAllowedSkills.has(catalogEntry.skillId));
+      });
+      const everySkillHasTarget = skillIds.every((listedSkill) => explicitTargets.some((conceptKey) =>
+        catalogByConcept.get(conceptKey)?.skillId === listedSkill));
+      const summariesMatchCatalog = knowledgeSummaries.length === explicitTargets.length
+        && explicitTargets.every((conceptKey, index) => catalogByConcept.get(conceptKey)?.title === knowledgeSummaries[index]);
+      const invalidDailyPackage = (
+        Number(plan.round_limit) !== 1
+        || Number(plan.question_count) < 1
+        || Number(plan.question_count) > 8
+        || skillIds.length < 1
+        || new Set(skillIds).size !== skillIds.length
+        || explicitTargets.length !== Number(plan.question_count)
+        || uniqueTargets.size !== explicitTargets.length
+        || !targetsOwnedByPlan
+        || !everySkillHasTarget
+        || !summariesMatchCatalog
+      );
+      if (invalidDailyPackage) stat.invalidDailyPackageCount += 1;
       if (explicitTargets.length) {
         for (const conceptKey of skillTargets) {
           stat.targetConcepts.add(conceptKey);
@@ -312,9 +465,7 @@ async function dashboard() {
       } else {
         const visitKey = `${studentId}:*`;
         stat.visitsByStudentConcept.set(visitKey, (stat.visitsByStudentConcept.get(visitKey) || 0) + 1);
-        stat.expectedConceptCount = Math.max(stat.expectedConceptCount, Number(plan.question_count) || 5);
       }
-      stat.roundLimit = Math.max(stat.roundLimit, Number(plan.round_limit) || 5);
       plannedSkillStats.set(skillId, stat);
     }
   }
@@ -328,7 +479,7 @@ async function dashboard() {
     const minimumQuestionsPerConcept = allCounts.length ? Math.min(...allCounts) : 0;
     const minimumDifficultyLevelsPerConcept = allDifficultyLevelCounts.length ? Math.min(...allDifficultyLevelCounts) : 0;
     const maxVisitsPerStudent = Math.max(0, ...stat.visitsByStudentConcept.values());
-    const requiredForFiveRounds = stat.roundLimit;
+    const requiredForDailyPackage = 1;
     const relevantConceptKeys = stat.targetConcepts.size ? [...stat.targetConcepts] : [...byConcept.keys()];
     let maximumPreviouslyUsedPerConcept = 0;
     let requiredForCrossDateNoRepeat = 0;
@@ -340,14 +491,14 @@ async function dashboard() {
           ?? 0;
         const previouslyUsed = usedCountByStudentConcept.get(`${studentId}:${conceptKey}`) || 0;
         maximumPreviouslyUsedPerConcept = Math.max(maximumPreviouslyUsedPerConcept, previouslyUsed);
-        const required = previouslyUsed + stat.roundLimit * visits;
+        const required = previouslyUsed + visits;
         requiredByConcept.set(conceptKey, Math.max(requiredByConcept.get(conceptKey) || 0, required));
         requiredForCrossDateNoRepeat = Math.max(requiredForCrossDateNoRepeat, required);
       }
     }
     const conceptDetails = relevantConceptKeys.map((conceptKey) => {
       const pool = byConcept.get(conceptKey) || { sources: new Set<string>(), fingerprints: new Set<string>(), mothers: new Set<string>(), levels: new Set<number>(), title: conceptKey };
-      const requiredQuestions = requiredByConcept.get(conceptKey) || requiredForFiveRounds;
+      const requiredQuestions = requiredByConcept.get(conceptKey) || requiredForDailyPackage;
       const availableQuestions = availableCount(pool);
       return {
         conceptKey,
@@ -358,8 +509,9 @@ async function dashboard() {
         difficultyLevels: pool.levels.size,
       };
     });
-    const isBlocking = conceptCount !== stat.expectedConceptCount || minimumQuestionsPerConcept < requiredForFiveRounds;
-    const lacksDifficultyProgression = conceptCount === stat.expectedConceptCount && minimumDifficultyLevelsPerConcept < 3;
+    const isBlocking = stat.invalidDailyPackageCount > 0
+      || relevantConceptKeys.some((conceptKey) => (byConcept.get(conceptKey) ? availableCount(byConcept.get(conceptKey)!) : 0) < requiredForDailyPackage);
+    const lacksDifficultyProgression = relevantConceptKeys.some((conceptKey) => (byConcept.get(conceptKey)?.levels.size || 0) < 2);
     const lacksCrossDateCapacity = conceptDetails.some((detail) => detail.missingQuestions > 0);
     const info = skillInfo.get(skillId);
     const skillTitle = String(info?.title || skillId);
@@ -374,7 +526,7 @@ async function dashboard() {
       minimumQuestionsPerConcept,
       minimumDifficultyLevelsPerConcept,
       maximumPreviouslyUsedPerConcept,
-      requiredForFiveRounds,
+      requiredForDailyPackage,
       requiredForCrossDateNoRepeat,
       conceptDetails,
     };
@@ -383,19 +535,19 @@ async function dashboard() {
       ...shared,
       id: `${gradeBand}:${skillId}:blocking`,
       severity: "blocking",
-      message: `未来40天计划会用到“${skillTitle}”，当前有${conceptCount}个细知识点（应为${stat.expectedConceptCount}个），每个细知识点最少${minimumQuestionsPerConcept}道原题（当天五轮至少${requiredForFiveRounds}道）。未补足前系统必须停止下发。`,
+      message: `截至9月29日的计划会用到“${skillTitle}”。其中${stat.invalidDailyPackageCount}个计划未满足“每天一个题组、1—8道、知识点与题目一一对应”；已排知识点每次至少需要${requiredForDailyPackage}道未做过的原题。未补足前系统必须停止下发。`,
     });
     if (lacksCrossDateCapacity) warnings.push({
       ...shared,
       id: `${gradeBand}:${skillId}:capacity`,
       severity: "capacity",
-      message: `未来40天同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；已做原题也计入占用。按跨日完全不重复口径，缺口细知识点最多需${requiredForCrossDateNoRepeat}道原题（已有学生最多用过${maximumPreviouslyUsedPerConcept}道）。下面逐项列出实际缺口。`,
+      message: `截至9月29日，同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；已做原题也计入占用。按跨日完全不重复口径，缺口细知识点最多需${requiredForCrossDateNoRepeat}道原题（已有学生最多用过${maximumPreviouslyUsedPerConcept}道）。下面逐项列出实际缺口。`,
     });
     if (lacksDifficultyProgression) warnings.push({
       ...shared,
       id: `${gradeBand}:${skillId}:progression`,
       severity: "progression",
-      message: `“${skillTitle}”当前至少有一个细知识点不足基础、提高、综合三个难度层级，答对后无法稳定升级。请补充或重新核定该细点的分层原题。`,
+      message: `“${skillTitle}”当前至少有一个已排细知识点只有一个难度层级，答对后没有更难原题可升级。请补充或重新核定该细点的分层原题。`,
     });
     return warnings;
   }).sort((a, b) => {
@@ -404,6 +556,7 @@ async function dashboard() {
       ? a.gradeBand.localeCompare(b.gradeBand)
       : rank(a.severity) - rank(b.severity);
   });
+  planningAlerts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return {
     students: (students.data || []).map((s) => ({
       id: s.id,
@@ -442,6 +595,7 @@ async function dashboard() {
     pendingCourseNodes: courseCount.count || 0, pendingQuestions: questionCount.count || 0,
     recentVideoRecommendations: videoRecommendations.slice(0, 20),
     sourcePoolWarnings,
+    planningAlerts,
   };
 }
 
