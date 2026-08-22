@@ -20,7 +20,7 @@ export interface StudentProfile {
   status: RecordStatus
   enrollmentStartDate: string
   schoolClass?: string | null
-  textbookVersion: '苏教版' | '人教版' | '通用' | '待确认'
+  textbookVersion: '科粤版' | '苏教版' | '人教版' | '通用' | '待确认'
   confirmedLearnedSkillIds: string[]
   aliases: string[]
   needsInitialDiagnostic: boolean
@@ -255,11 +255,42 @@ export interface LearningPlanDay {
   roundLimit: number
   /** Optional teaching-scope difficulty ceiling fixed by the teacher. */
   maxQuestionLevel: number | null
+  /** `junior_adaptive` is an independent, one-question-at-a-time delivery path. */
+  deliveryMode?: 'legacy_round' | 'junior_adaptive'
+  juniorSessionStatus?: 'not_started' | 'active' | 'completed' | 'blocked' | 'abandoned' | null
+  hardQuestionCap?: number | null
   /** The latest complete round has no wrong or uncertain answer. */
   isResolved: boolean
   /** Resolved early or the configured round limit has been reached. */
   isComplete: boolean
   roundsRemaining: number
+}
+
+export interface JuniorAdaptiveSessionSummary {
+  id: string
+  status: 'active' | 'completed' | 'blocked' | 'abandoned'
+  initialQuestionTarget: 12
+  hardQuestionCap: 15
+  issuedCount: number
+  answeredCount: number
+  correctCount: number
+}
+
+export type IssuedJuniorQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold' | 'sourceInfo'> & {
+  correctOption?: never
+  explanation?: never
+  scaffold?: never
+  sourceInfo?: null
+}
+
+export interface JuniorAdaptivePayload {
+  deliveryMode: 'junior_adaptive'
+  plan: LearningPlanDay
+  cards: KnowledgeCard[]
+  session: JuniorAdaptiveSessionSummary
+  currentStepId?: string
+  currentQuestion: IssuedJuniorQuestion | null
+  completed: boolean
 }
 
 export interface QuestionCandidate {

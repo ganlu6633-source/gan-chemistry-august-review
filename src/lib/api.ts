@@ -1,4 +1,4 @@
-import type { CreateVideoRecommendationInput, GuardianDashboardData, LearningAttempt, LearningRecordData, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
+import type { CreateVideoRecommendationInput, GuardianDashboardData, JuniorAdaptivePayload, LearningAttempt, LearningRecordData, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
 import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
@@ -95,6 +95,25 @@ export interface QuestionFeedbackInput {
 /** Lock a real student's first High-3 source answer before revealing feedback. */
 export async function loadQuestionFeedback(session: SessionIdentity, input: QuestionFeedbackInput) {
   return accessApi<{ feedback: QuestionFeedback; simulated: boolean }>(session, 'question_feedback', input)
+}
+
+/** Open or resume a 科粤版初中 daily session. The server issues just one original at a time. */
+export async function openJuniorAdaptiveSession(session: SessionIdentity, planId: string) {
+  return accessApi<{ payload: JuniorAdaptivePayload }>(session, 'junior_open_session', { planId })
+}
+
+export interface JuniorStepAnswerInput {
+  planId: string
+  stepId: string
+  selectedOption: number
+  uncertain: boolean
+  durationSec: number
+  revisionToken?: string | null
+}
+
+/** Persist one immutable first answer and receive the server-selected next original. */
+export async function submitJuniorAdaptiveStep(session: SessionIdentity, input: JuniorStepAnswerInput) {
+  return accessApi<{ feedback: QuestionFeedback; payload: JuniorAdaptivePayload; dashboard?: StudentDashboardData }>(session, 'junior_submit_step', input)
 }
 
 /** Read-only teacher simulation; no real attempt or answer lock is written. */

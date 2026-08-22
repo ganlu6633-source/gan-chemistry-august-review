@@ -1,14 +1,15 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
-import type { KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
+import type { JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
-import { accessApi, loadLearningRecord, loadQuestionFeedback, previewQuestionFeedback, submitAttempt, teacherApi } from '../lib/api'
+import { accessApi, loadLearningRecord, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, submitAttempt, teacherApi } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { ChemText } from './ChemText'
 import { EquilibriumConstantFormulaVisual } from './EquilibriumConstantFormulaVisual'
 import { LearningRecordPanel } from './LearningRecordPanel'
+import { JuniorAdaptiveSession } from './JuniorAdaptiveSession'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
@@ -74,12 +75,14 @@ function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开本轮', sho
 }
 
 const nextRoundLabel = (plan: LearningPlanDay) => {
+  if (plan.deliveryMode === 'junior_adaptive') return plan.isComplete ? '今天已完成' : plan.juniorSessionStatus === 'active' ? '继续今日学习' : '开始今日学习'
   if (plan.isResolved) return '今日问题已接稳'
   if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
   return plan.attemptCount === 0 ? '开始第一轮' : `继续第 ${plan.attemptCount + 1} 轮`
 }
 
 const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
+  if (plan.deliveryMode === 'junior_adaptive' && plan.isComplete) return '今日自适应学习已完成'
   if (plan.date < enrollment) return '加入前｜可补学'
   if (plan.attemptCount > 0) {
     if (plan.isResolved) return `第 ${plan.attemptCount} 轮已接稳`
@@ -98,6 +101,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [view, setView] = useState<StudentView>('today')
   const [dashboard, setDashboard] = useState(initialDashboard)
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
+  const [activeJuniorPlan, setActiveJuniorPlan] = useState<JuniorAdaptivePayload | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
@@ -138,13 +142,16 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       controller.abort()
     }, PLAN_OPEN_TIMEOUT_MS)
     try {
-      const planRequest = previewMode
-        ? teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
-        : accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) }, { signal: controller.signal })
+      const planRequest = plan.deliveryMode === 'junior_adaptive'
+        ? openJuniorAdaptiveSession(session, plan.id)
+        : previewMode
+          ? teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
+          : accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) }, { signal: controller.signal })
       const result = await Promise.race([planRequest, timeoutPromise])
       if (requestId !== planOpenRequestId.current) return false
       setPlanOpenState(null)
-      setActivePlan(result.payload)
+      if (plan.deliveryMode === 'junior_adaptive') setActiveJuniorPlan((result as { payload: JuniorAdaptivePayload }).payload)
+      else setActivePlan((result as { payload: PlanPayload }).payload)
       return true
     } catch (reason) {
       if (requestId !== planOpenRequestId.current) return false
@@ -191,6 +198,10 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     void openPlan(planOpenState.request.plan, planOpenState.request.previewRound)
   }
 
+  if (activeJuniorPlan) {
+    return <JuniorAdaptiveSession session={session} initialPayload={activeJuniorPlan} onExit={() => setActiveJuniorPlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActiveJuniorPlan(null); setView('growth') }} />
+  }
+
   if (activePlan) {
     return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
   }
@@ -210,12 +221,12 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {view === 'today' && <>
           <section className="welcome-banner">
             <div><span className="eyebrow">今天也只走一小步</span><h1>{dashboard.profile.displayName}，今天先把最值得的几件事稳住。</h1><p>{dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了第一轮。'}</p></div>
-            <div className="daily-orb"><b>{dashboard.todayQuestionCount || todayPlan?.questionCount || 5}</b><span>每轮题目</span></div>
+            <div className="daily-orb"><b>{dashboard.todayQuestionCount || todayPlan?.questionCount || 5}</b><span>{todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : '每轮题目'}</span></div>
           </section>
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>这里只检查知识卡与学习路线</h2><p>公开演示不再提供无材料来源的模拟题；正式原题请由甘老师从教师后台选择真实学生并只读预览。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>每轮 {todayPlan.questionCount} 题 · 共 {todayPlan.roundLimit} 轮 · 当天把问题接稳</span></div></div>
+            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlan.deliveryMode === 'junior_adaptive' ? '今日 12 道原题起步 · 基础未稳最多 15 道 · 每题作答后动态选下一题' : `每轮 ${todayPlan.questionCount} 题 · 共 ${todayPlan.roundLimit} 轮 · 当天把问题接稳`}</span></div></div>
             <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {planOpenState && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
