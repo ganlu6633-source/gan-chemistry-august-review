@@ -51,26 +51,32 @@ export function selectAdaptiveQuestions<T extends AdaptiveQuestion>(
 
   for (const conceptKey of concepts) {
     if (selected.length >= limit) break
-    const candidates = unseen.filter((question) => question.concept_key === conceptKey)
-    if (!candidates.length) continue
+    const unseenForConcept = unseen.filter((question) => question.concept_key === conceptKey)
+    if (!unseenForConcept.length) continue
     const previous = latestByConcept.get(conceptKey)
     const previousLevel = Number(previous?.question_level ?? 0)
     const mastered = previous?.correct === true && previous.uncertain !== true
+    // Difficulty direction is evidence, not a soft sorting preference. After
+    // a confident correct answer, using the same or an easier question would
+    // falsely look like an upgrade. After an error/uncertainty, silently
+    // raising difficulty adds a new burden before the original concept is
+    // secure. If no compatible source original remains, omit this concept so
+    // the REVIEW caller fails closed and the teacher shortage is visible.
+    const candidates = !previous
+      ? unseenForConcept
+      : mastered
+        ? unseenForConcept.filter((question) => question.level > previousLevel)
+        : unseenForConcept.filter((question) => question.level <= previousLevel)
+    if (!candidates.length) continue
 
     candidates.sort((a, b) => {
       if (!previous) return a.level - b.level || a.id.localeCompare(b.id)
       if (mastered) {
-        const aHarder = a.level > previousLevel ? 0 : 1
-        const bHarder = b.level > previousLevel ? 0 : 1
-        return aHarder - bHarder
-          || Math.abs(a.level - previousLevel) - Math.abs(b.level - previousLevel)
+        return Math.abs(a.level - previousLevel) - Math.abs(b.level - previousLevel)
           || a.level - b.level
           || a.id.localeCompare(b.id)
       }
-      const aNotHarder = a.level <= previousLevel ? 0 : 1
-      const bNotHarder = b.level <= previousLevel ? 0 : 1
-      return aNotHarder - bNotHarder
-        || Math.abs(a.level - previousLevel) - Math.abs(b.level - previousLevel)
+      return Math.abs(a.level - previousLevel) - Math.abs(b.level - previousLevel)
         || a.level - b.level
         || a.id.localeCompare(b.id)
     })

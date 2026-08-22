@@ -575,7 +575,7 @@ export interface TeacherDashboardData {
     minimumQuestionsPerConcept: number
     minimumDifficultyLevelsPerConcept: number
     maximumPreviouslyUsedPerConcept: number
-    requiredForFiveRounds: number
+    requiredForDailyPackage: number
     requiredForCrossDateNoRepeat: number
     conceptDetails: Array<{
       conceptKey: string
@@ -586,5 +586,13 @@ export interface TeacherDashboardData {
       difficultyLevels: number
     }>
     message: string
+  }>
+  planningAlerts?: Array<{
+    id: string
+    kind: string
+    studentName: string
+    planDate: string | null
+    message: string
+    createdAt: string
   }>
 }

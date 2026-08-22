@@ -22,7 +22,7 @@ const dashboard: StudentDashboardData = {
 const assetRef = (assetId: string, kind: string, alt: string) => ({ assetId, kind, alt, sha256: `${assetId}-sha`, width: 800, height: 500 }) as unknown as QuestionAssetRef
 const sourceQuestion: PlanPayload['questions'][number] = {
   id: 'licensed-h3-q1', motherId: 'licensed-h3-m1', skillId: 'H3_STOICH', level: 3, gradeBand: '高三',
-  stem: '原题逐字转写题干', options: ['原题选项甲', '原题选项乙', '原题选项丙', '原题选项丁'],
+  stem: '原题逐字转写题干', options: ['1 mol·L-1 OCR原文', '原题选项乙', '原题选项丙', '原题选项丁'],
   reviewStatus: 'approved', scopeStatus: 'IN', sourceKind: 'licensed_local', renderMode: 'image_primary', revisionToken: 'sha256-question-revision',
   sourceInfo: { title: '高考真题分类汇编', exam: '2025年福建省质检', year: 2025, questionNo: '第8题', locator: '第3页' },
   assetRefs: [assetRef('problem-image', 'question_image', '第8题原题题面')],
@@ -59,8 +59,9 @@ describe('LearningRound licensed source question', () => {
     expect(loadQuestionAsset).toHaveBeenCalledWith(session, 'licensed-h3-q1', 'problem-image', 'question', context)
     expect(loadQuestionAsset).not.toHaveBeenCalledWith(session, 'licensed-h3-q1', 'analysis-image', 'analysis', context)
     const options = screen.getByRole('article').querySelector<HTMLElement>('.option-list')!
-    const answerA = within(options).getByRole('button', { name: 'A. 原题选项甲' })
+    const answerA = within(options).getByRole('button', { name: 'A 选项，内容见原题图' })
     expect(answerA).toHaveTextContent(/^A$/)
+    expect(answerA).not.toHaveAccessibleName(/mol|OCR|原题选项/)
 
     fireEvent.click(answerA)
     fireEvent.click(screen.getByRole('button', { name: '放大查看本题原题题面图' }))
@@ -83,7 +84,7 @@ describe('LearningRound licensed source question', () => {
     render(<LearningRound session={session} payload={{ ...payload, lockedFeedback: [answerFeedback] }} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
     expect(await screen.findByText(/判断正确/)).toBeInTheDocument()
-    const answerA = screen.getByRole('button', { name: 'A. 原题选项甲' })
+    const answerA = screen.getByRole('button', { name: 'A 选项，内容见原题图' })
     expect(answerA).toBeDisabled()
     expect(loadQuestionFeedback).not.toHaveBeenCalled()
     expect(screen.queryByAltText('第8题原题解析')).not.toBeInTheDocument()
@@ -93,5 +94,29 @@ describe('LearningRound licensed source question', () => {
     expect(vi.mocked(submitAttempt).mock.calls[0][1].answers).toEqual([
       expect.objectContaining({ questionId: 'licensed-h3-q1', selectedOption: 0, correct: true }),
     ])
+  })
+
+  it('presents a formal one-package day as today, not as another same-day round', async () => {
+    const dailyPayload: PlanPayload = {
+      ...payload,
+      plan: { ...payload.plan, attemptCount: 0, roundLimit: 1, roundsRemaining: 1 },
+      attemptSequence: 0,
+      roundNumber: 1,
+      roundLimit: 1,
+      roundsRemaining: 1,
+    }
+    render(<LearningRound session={session} payload={dailyPayload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /我理解了，开始练习/ }))
+    expect(await screen.findByAltText('本题原题题面图')).toBeInTheDocument()
+    expect(screen.getByLabelText('今日复习题组')).toBeInTheDocument()
+    expect(screen.getByText(/今日题组 · 1\/1/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'A 选项，内容见原题图' }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    expect(await screen.findByText('判断正确，下次复习可提高难度')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '完成今日题组' }))
+
+    expect(await screen.findByRole('heading', { name: '今天全部答对；下次复习可以提高难度。' })).toBeInTheDocument()
+    expect(screen.queryByText(/进入第 2 轮/)).not.toBeInTheDocument()
   })
 })

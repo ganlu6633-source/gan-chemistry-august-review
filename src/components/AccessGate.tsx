@@ -73,9 +73,9 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
         <h1>把逻辑真正接起来，<br /><span>让理解自然迁移。</span></h1>
         <p>课堂刚学的、快要遗忘的、下一节要用的，系统会在合适的时候用新题带你重新找回来。</p>
         <div className="hero-proof">
-          <div><b>首轮 5 题</b><span>小步定位真正卡点</span></div>
-          <div><b>最多 5 轮</b><span>当天举一反三接稳</span></div>
-          <div><b>能力地图</b><span>看见知识之间怎样连接</span></div>
+          <div><b>每日 1 个题组</b><span>只复习真正需要回看的细点</span></div>
+          <div><b>最多 8 道原题</b><span>每道题与知识点一一对应</span></div>
+          <div><b>次日个性化</b><span>错题换原题，答对再升级</span></div>
         </div>
       </div>
       <div className="login-card">
