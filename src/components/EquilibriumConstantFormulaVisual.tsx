@@ -9,14 +9,14 @@ export function EquilibriumConstantFormulaVisual() {
       <b aria-hidden="true">＝</b>
       <span className="equilibrium-fraction">
         <span className="equilibrium-numerator" aria-label="分子：生成物浓度的化学计量数次方相乘">
-          <span className="equilibrium-term"><i>c</i><sup>c</sup>(C)</span>
+          <span className="equilibrium-term"><i>c</i>(C)<sup>c</sup></span>
           <span aria-hidden="true">·</span>
-          <span className="equilibrium-term"><i>c</i><sup>d</sup>(D)</span>
+          <span className="equilibrium-term"><i>c</i>(D)<sup>d</sup></span>
         </span>
         <span className="equilibrium-denominator" aria-label="分母：反应物浓度的化学计量数次方相乘">
-          <span className="equilibrium-term"><i>c</i><sup>a</sup>(A)</span>
+          <span className="equilibrium-term"><i>c</i>(A)<sup>a</sup></span>
           <span aria-hidden="true">·</span>
-          <span className="equilibrium-term"><i>c</i><sup>b</sup>(B)</span>
+          <span className="equilibrium-term"><i>c</i>(B)<sup>b</sup></span>
         </span>
       </span>
     </div>

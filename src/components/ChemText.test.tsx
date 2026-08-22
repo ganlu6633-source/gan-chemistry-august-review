@@ -33,6 +33,19 @@ describe('ChemText', () => {
     expect(container.textContent).toContain('CO +')
   })
 
+  it('renders teacher-source caret powers and molar-volume notation without showing carets', () => {
+    const { container } = render(<p><ChemText>V_m=22.4 L·mol^-1，V×10^-3 L；Kc=c(C)^c·c(D)^d/[c(A)^a·c(B)^b]</ChemText></p>)
+
+    expect(screen.getByLabelText('V 下标 m')).toBeInTheDocument()
+    expect(screen.getByLabelText('mol^-1').querySelector('sup')?.textContent).toBe('−1')
+    expect(screen.getByLabelText('10^-3').querySelector('sup')?.textContent).toBe('−3')
+    expect(screen.getByLabelText('c(C)^c').querySelector('sup')?.textContent).toBe('c')
+    expect(screen.getByLabelText('c(B)^b').querySelector('sup')?.textContent).toBe('b')
+    expect(screen.getByLabelText('K 下标 c').querySelector('sub')?.textContent).toBe('c')
+    expect(container.textContent).not.toContain('^')
+    expect(container.textContent).not.toContain('V_m')
+  })
+
   it('keeps ionic charges distinct from formula subscripts', () => {
     const { container } = render(<p><ChemText>Fe2+、NH4+、SO4^2-、Ca(OH)2和12 g·L-1。</ChemText></p>)
 

@@ -3,21 +3,21 @@ import {
   issuedSolutionFields,
   issuedAssetRefs,
   matchingSourceAssetRef,
-  shouldHideLicensedHigh3Solution,
+  shouldHideLicensedHighSchoolSolution,
   sourceAssetPhaseStatus,
   sourceQuestionPhaseStatus,
 } from '../../supabase/functions/chemistry-access/source-security'
 
-describe('High-3 licensed answer-delivery security', () => {
-  it('omits answer and explanation fields from the initial REVIEW question payload', () => {
+describe('high-school licensed answer-delivery security', () => {
+  it.each(['高一', '高二', '高三'])('omits answer and explanation fields from the initial %s REVIEW question payload', (gradeBand) => {
     const row = {
-      grade_band: '高三',
+      grade_band: gradeBand,
       source_kind: 'licensed_local',
       correct_option: 2,
       explanation: '原题解析',
       scaffold: '提示',
     }
-    const hide = shouldHideLicensedHigh3Solution(row, true)
+    const hide = shouldHideLicensedHighSchoolSolution(row, true)
     const initialPayload = JSON.parse(JSON.stringify({ id: 'q1', ...issuedSolutionFields(row, hide) })) as Record<string, unknown>
     expect(Object.keys(initialPayload)).toEqual(['id'])
     expect(initialPayload).not.toHaveProperty('correctOption')
@@ -30,11 +30,11 @@ describe('High-3 licensed answer-delivery security', () => {
     expect(initialAssetRefs).toEqual([{ kind: 'question_image', assetId: 'question' }])
   })
 
-  it('denies an analysis asset before a completed answer and allows it afterwards', () => {
+  it('keeps original analysis assets teacher-only at every learner phase', () => {
     expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'student', hasCompletedAnswer: false })).toBe(403)
-    expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'student', hasCompletedAnswer: false, hasLockedAnswer: true })).toBe(200)
-    expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'student', hasCompletedAnswer: true })).toBe(200)
-    expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'guardian', hasCompletedAnswer: true })).toBe(200)
+    expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'student', hasCompletedAnswer: false, hasLockedAnswer: true })).toBe(403)
+    expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'student', hasCompletedAnswer: true })).toBe(403)
+    expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'guardian', hasCompletedAnswer: true })).toBe(403)
     expect(sourceAssetPhaseStatus({ phase: 'analysis', assetKind: 'analysis_image', role: 'teacher', hasCompletedAnswer: false })).toBe(200)
   })
 

@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { selectAdaptiveQuestions } from "./adaptive.ts";
-import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHigh3Solution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
+import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -106,7 +106,8 @@ const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<strin
   const isComplete = isResolved || attempts.length >= roundLimit;
   return {
     id: row.id, studentId: row.student_id, date: row.plan_date, mode: row.mode, title: row.title,
-    skillIds: row.skill_ids || [], knowledgeSummaries: row.knowledge_summaries || [],
+    skillIds: row.skill_ids || [], targetConceptKeys: planTargetConceptKeys(row),
+    knowledgeSummaries: row.knowledge_summaries || [],
     estimatedMinutes: row.estimated_minutes, source: row.source, isScheduled: row.is_scheduled,
     questionCount, roundLimit, maxQuestionLevel: maximumLevel,
     attemptCount: attempts.length, firstScore: first?.first_score ?? null,
@@ -114,6 +115,11 @@ const planShape = (row: Record<string, unknown>, attemptRows: Array<Record<strin
     isResolved, isComplete, roundsRemaining: isComplete ? 0 : Math.max(0, roundLimit - attempts.length),
   };
 };
+
+function planTargetConceptKeys(row: Record<string, unknown>) {
+  if (!Array.isArray(row.target_concept_keys)) return [];
+  return (row.target_concept_keys as unknown[]).map((value) => String(value).trim()).filter(Boolean);
+}
 
 function questionSourceInfo(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -248,18 +254,18 @@ function sourceDistinctQuestionPool<T extends Record<string, unknown>>(
   });
 }
 
-function isLicensedHigh3Question(row: Record<string, unknown>) {
+function isLicensedHighSchoolQuestion(row: Record<string, unknown>) {
   return ["高一", "高二", "高三"].includes(String(row.grade_band)) && row.source_kind === "licensed_local";
 }
 
-const questionShape = (row: Record<string, unknown>, secureLicensedHigh3Review = false) => {
-  const hideSolution = shouldHideLicensedHigh3Solution(row, secureLicensedHigh3Review);
+const questionShape = (row: Record<string, unknown>, secureLicensedHighSchoolReview = false) => {
+  const hideSolution = shouldHideLicensedHighSchoolSolution(row, secureLicensedHighSchoolReview);
   return {
     id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key, level: row.level,
     gradeBand: row.grade_band, stem: row.stem, options: row.options,
     ...issuedSolutionFields(row, hideSolution),
     reviewStatus: row.review_status, scopeStatus: row.scope_status, sourceKind: row.source_kind,
-    imageUrl: row.image_url, sourceInfo: questionSourceInfo(row.source_info),
+    imageUrl: row.image_url, sourceInfo: hideSolution ? null : questionSourceInfo(row.source_info),
     // Answer-bearing analysis references are issued only by question_feedback
     // after the server has atomically locked the student's first selection.
     assetRefs: issuedAssetRefs(questionAssetRefs(row.asset_refs, true), hideSolution),
@@ -283,11 +289,100 @@ function questionFeedbackShape(
     correctOption,
     explanation: String(row.explanation || ""),
     scaffold: row.scaffold ? String(row.scaffold) : null,
-    analysisAssetRefs: questionAssetRefs(row.asset_refs, true)
-      .filter((asset) => asset.kind === "analysis_image"),
+    // Students receive the teacher-written, option-by-option explanation only.
+    // Original answer-sheet images remain available in the teacher audit view
+    // and are never issued to student or guardian payloads.
+    analysisAssetRefs: [],
     revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
   };
 }
+
+const KNOWLEDGE_VISUAL_KINDS = new Set(["tree", "flow", "cycle", "compare", "network", "balance"]);
+
+function nonEmptyKnowledgeString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function validKnowledgeTreeNode(value: unknown, depth = 0): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 8) return false;
+  const node = value as Record<string, unknown>;
+  if (!nonEmptyKnowledgeString(node.label) || !nonEmptyKnowledgeString(node.rule)) return false;
+  for (const key of ["examples", "visualSteps"] as const) {
+    if (node[key] !== undefined
+      && (!Array.isArray(node[key]) || !(node[key] as unknown[]).every(nonEmptyKnowledgeString))) return false;
+  }
+  if (node.caution !== undefined && !nonEmptyKnowledgeString(node.caution)) return false;
+  if (node.children !== undefined
+    && (!Array.isArray(node.children)
+      || !(node.children as unknown[]).every((child) => validKnowledgeTreeNode(child, depth + 1)))) return false;
+  return true;
+}
+
+function validKnowledgeVisual(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const visual = value as Record<string, unknown>;
+  const kind = String(visual.kind || "");
+  if (!KNOWLEDGE_VISUAL_KINDS.has(kind) || !nonEmptyKnowledgeString(visual.title)) return false;
+  if (kind === "tree") {
+    const validTree = (node: unknown, depth = 0): boolean => {
+      if (!node || typeof node !== "object" || Array.isArray(node) || depth > 8) return false;
+      const branch = node as Record<string, unknown>;
+      return nonEmptyKnowledgeString(branch.label)
+        && (branch.children === undefined
+          || (Array.isArray(branch.children)
+            && (branch.children as unknown[]).every((child) => validTree(child, depth + 1))));
+    };
+    if (!validTree(visual.tree)) return false;
+  }
+  if (["flow", "cycle"].includes(kind)) {
+    if (!Array.isArray(visual.steps) || !visual.steps.length
+      || !(visual.steps as unknown[]).every((step) => step && typeof step === "object"
+        && !Array.isArray(step) && nonEmptyKnowledgeString((step as Record<string, unknown>).label))) return false;
+  }
+  if (["compare", "network", "balance"].includes(kind)) {
+    if (!Array.isArray(visual.groups) || !visual.groups.length
+      || !(visual.groups as unknown[]).every((group) => {
+        if (!group || typeof group !== "object" || Array.isArray(group)) return false;
+        const row = group as Record<string, unknown>;
+        return nonEmptyKnowledgeString(row.label)
+          && Array.isArray(row.items) && row.items.length > 0
+          && (row.items as unknown[]).every(nonEmptyKnowledgeString);
+      })) return false;
+  }
+  return true;
+}
+
+function validStructuredKnowledgeContent(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const content = value as Record<string, unknown>;
+  if (!Number.isInteger(Number(content.version)) || Number(content.version) < 1) return false;
+  if (!nonEmptyKnowledgeString(content.intro)) return false;
+  if (!Array.isArray(content.sections) || !content.sections.length) return false;
+  if (!(content.sections as unknown[]).every((section) => {
+    if (!section || typeof section !== "object" || Array.isArray(section)) return false;
+    const row = section as Record<string, unknown>;
+    return nonEmptyKnowledgeString(row.title)
+      && Array.isArray(row.items) && row.items.length > 0
+      && (row.items as unknown[]).every((item) => validKnowledgeTreeNode(item));
+  })) return false;
+  if (content.rootTree !== undefined && !validKnowledgeTreeNode(content.rootTree)) return false;
+  if (content.visualSummary !== undefined && !validKnowledgeVisual(content.visualSummary)) return false;
+  if (content.overview !== undefined
+    && (!Array.isArray(content.overview) || !(content.overview as unknown[]).every(nonEmptyKnowledgeString))) return false;
+  if (content.checkpoints !== undefined
+    && (!Array.isArray(content.checkpoints) || !(content.checkpoints as unknown[]).every(nonEmptyKnowledgeString))) return false;
+  if (content.workedExamples !== undefined
+    && (!Array.isArray(content.workedExamples)
+      || !(content.workedExamples as unknown[]).every((example) => {
+        if (!example || typeof example !== "object" || Array.isArray(example)) return false;
+        const row = example as Record<string, unknown>;
+        return nonEmptyKnowledgeString(row.substance)
+          && nonEmptyKnowledgeString(row.path)
+          && Array.isArray(row.labels) && (row.labels as unknown[]).every(nonEmptyKnowledgeString);
+      }))) return false;
+  return true;
+}
+
 const cardShape = (row: Record<string, unknown>) => ({
   id: row.id, skillId: row.skill_id, title: row.title, core: row.core, detail: row.detail,
   steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
@@ -487,10 +582,11 @@ function historicalQuestion(
     explanation: String(source.explanation || "本次作答的解析暂不可显示。"),
     imageUrl: source.imageUrl || source.image_url ? String(source.imageUrl || source.image_url) : null,
     sourceKind: source.sourceKind || source.source_kind ? String(source.sourceKind || source.source_kind) : null,
-    sourceInfo: questionSourceInfo(source.sourceInfo || source.source_info),
-    // A historical answer is already submitted evidence, so its complete
-    // source-backed record may include the worked-solution image.
-    assetRefs: questionAssetRefs(source.assetRefs || source.asset_refs, true),
+    // Source citations and original worked-solution scans remain server-side
+    // teacher-audit evidence. A learner history record keeps only the cleaned
+    // question image plus the system's option-by-option text explanation.
+    sourceInfo: null,
+    assetRefs: questionAssetRefs(source.assetRefs || source.asset_refs, false),
     renderMode: ["native", "image_assist", "image_primary"].includes(String(source.renderMode || source.render_mode))
       ? String(source.renderMode || source.render_mode)
       : "native",
@@ -656,16 +752,36 @@ async function studentLearningRecord(studentId: string) {
 }
 
 async function studentDashboard(studentId: string) {
-  const profileResult = await supabase.from("chem_students_v2").select("*").eq("id", studentId).single();
-  if (profileResult.error) throw profileResult.error;
-  const [planResult, stateResult, skillResult, attemptResult, videoRecommendations] = await Promise.all([
-    supabase.from("chem_learning_plans").select("*").eq("student_id", studentId).order("plan_date"),
-    supabase.from("chem_student_skill_state").select("*,chem_skills(max_level)").eq("student_id", studentId),
-    supabase.from("chem_skills").select("*").eq("active", true).eq("grade_band", profileResult.data.grade_band).order("module_id"),
-    supabase.from("chem_learning_attempts").select("id,plan_day_id,attempt_kind,sequence,first_score,completed_at,chem_attempt_answers(correct,uncertain,question_snapshot)").eq("student_id", studentId).order("completed_at"),
+  // The profile used to be awaited before every other dashboard request,
+  // adding a full network round trip to every login and refresh. Only the
+  // grade-scoped skill catalogue depends on it; all other reads can start at
+  // once without weakening row scoping or the student-id checks.
+  const [profileResult, planResult, stateResult, attemptResult, videoRecommendations] = await Promise.all([
+    supabase.from("chem_students_v2")
+      .select("id,display_name,grade_band,enrollment_start_date,needs_initial_diagnostic,metadata")
+      .eq("id", studentId)
+      .single(),
+    supabase.from("chem_learning_plans")
+      .select("id,student_id,plan_date,mode,title,skill_ids,knowledge_summaries,estimated_minutes,source,is_scheduled,question_count,round_limit,max_question_level")
+      .eq("student_id", studentId)
+      .order("plan_date"),
+    supabase.from("chem_student_skill_state")
+      .select("*,chem_skills(max_level)")
+      .eq("student_id", studentId),
+    supabase.from("chem_learning_attempts")
+      .select("id,plan_day_id,attempt_kind,sequence,first_score,completed_at,chem_attempt_answers(correct,uncertain,question_snapshot)")
+      .eq("student_id", studentId)
+      .order("completed_at"),
     loadVideoRecommendations(studentId),
   ]);
-  for (const result of [planResult, stateResult, skillResult, attemptResult]) if (result.error) throw result.error;
+  if (profileResult.error) throw profileResult.error;
+  for (const result of [planResult, stateResult, attemptResult]) if (result.error) throw result.error;
+  const skillResult = await supabase.from("chem_skills")
+    .select("id,title,module_id,grade_band,max_level,exam_importance,exam_depth,prerequisites,level_criteria")
+    .eq("active", true)
+    .eq("grade_band", profileResult.data.grade_band)
+    .order("module_id");
+  if (skillResult.error) throw skillResult.error;
   const rawStates = stateResult.data || [];
   const states = rawStates.map((r) => stateShape(r as never));
   const skillTitleById = new Map((skillResult.data || []).map((skill) => [String(skill.id), String(skill.title)]));
@@ -801,14 +917,17 @@ type StartPlanOptions = {
 };
 
 async function startPlanPayload(studentId: string, planId: string, options: StartPlanOptions = {}) {
-  const { data: plan, error: planError } = await supabase
-    .from("chem_learning_plans")
-    .select("*")
-    .eq("id", planId)
-    .eq("student_id", studentId)
-    .single();
+  const [planResult, gradeResult] = await Promise.all([
+    supabase
+      .from("chem_learning_plans")
+      .select("*")
+      .eq("id", planId)
+      .eq("student_id", studentId)
+      .single(),
+    supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single(),
+  ]);
+  const { data: plan, error: planError } = planResult;
   if (planError) throw planError;
-  const gradeResult = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single();
   if (gradeResult.error) throw gradeResult.error;
   const demoProfile = (gradeResult.data.metadata as Record<string, unknown> | null)?.demo === true;
   const skillIds: string[] = Array.isArray(plan.skill_ids)
@@ -818,6 +937,18 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const questionCount = planQuestionCount(plan);
   const roundLimit = planRoundLimit(plan);
   const maxQuestionLevel = planMaxQuestionLevel(plan);
+  const targetConceptKeys = planTargetConceptKeys(plan);
+  if (plan.mode === "REVIEW" && targetConceptKeys.length) {
+    if (targetConceptKeys.length !== questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length) {
+      throw new RequestError(422, `当天必须配置 ${questionCount} 个互不重复的细知识点，请联系甘老师。`);
+    }
+    if (targetConceptKeys.some((conceptKey) => !skillIds.some((skillId) => conceptKey.startsWith(`${skillId}__`)))) {
+      throw new RequestError(422, "当天细知识点与学习模块没有一一对应，已停止下发并通知甘老师。");
+    }
+    if (skillIds.some((skillId) => !targetConceptKeys.some((conceptKey) => conceptKey.startsWith(`${skillId}__`)))) {
+      throw new RequestError(422, "当天学习模块包含没有对应细知识点的项目，已停止下发并通知甘老师。");
+    }
+  }
   if (options.previewRound !== undefined && (!Number.isInteger(options.previewRound) || options.previewRound < 1 || options.previewRound > roundLimit)) {
     throw new RequestError(400, `预览轮次必须在 1—${roundLimit} 之间。`);
   }
@@ -835,6 +966,9 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     .eq("scope_status", "IN")
     .not("mother_id", "is", null);
   if (plan.mode === "REVIEW") eligibleQuestions = eligibleQuestions.not("concept_key", "is", null);
+  if (plan.mode === "REVIEW" && targetConceptKeys.length) {
+    eligibleQuestions = eligibleQuestions.in("concept_key", targetConceptKeys);
+  }
   const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
   if (demoHighSchoolReview) {
     // Public demo identities never enumerate copyrighted local originals or
@@ -861,33 +995,82 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   // tie-breaker. Ordering by the immutable question id keeps the five issued
   // questions reproducible when the server verifies them again on submit.
   eligibleQuestions = eligibleQuestions.order("id");
-  const [cards, questions, planAttempts, states] = await Promise.all([
+  const [cards, questions, planAttempts, states, reviewHistory] = await Promise.all([
     supabase.from("chem_knowledge_cards").select("*").in("skill_id", skillIds).eq("review_status", "approved"),
     eligibleQuestions,
     supabase.from("chem_learning_attempts").select("id,attempt_kind,sequence,first_score,completed_at").eq("student_id", studentId).eq("plan_day_id", plan.id).order("sequence"),
     supabase.from("chem_student_skill_state").select("skill_id,verified_level,consecutive_errors,next_review_at").eq("student_id", studentId).in("skill_id", skillIds),
+    plan.mode === "REVIEW"
+      ? supabase.rpc("chem_review_answer_history", { p_student_id: studentId })
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  if (cards.error || questions.error || planAttempts.error || states.error) {
-    throw cards.error || questions.error || planAttempts.error || states.error;
+  if (cards.error || questions.error || planAttempts.error || states.error || reviewHistory.error) {
+    throw cards.error || questions.error || planAttempts.error || states.error || reviewHistory.error;
+  }
+  if (plan.mode === "REVIEW") {
+    const cardRows = (cards.data || []) as Array<Record<string, unknown>>;
+    const cardsBySkill = new Map<string, Array<Record<string, unknown>>>();
+    for (const card of cardRows) {
+      const skillId = String(card.skill_id || "");
+      const rows = cardsBySkill.get(skillId) || [];
+      rows.push(card);
+      cardsBySkill.set(skillId, rows);
+    }
+    const highSchoolReview = ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
+    if (highSchoolReview && skillIds.some((skillId) => (cardsBySkill.get(skillId) || []).length !== 1)) {
+      throw new RequestError(422, "当天知识卡没有与学习模块一一对应，已停止下发并通知甘老师。");
+    }
+    for (const card of cardRows) {
+      const structured = card.structured_content;
+      const hasStructured = structured && typeof structured === "object" && !Array.isArray(structured)
+        && Object.keys(structured as Record<string, unknown>).length > 0;
+      if (hasStructured && !validStructuredKnowledgeContent(structured)) {
+        throw new RequestError(422, `“${String(card.title || "当天知识卡")}”的展开内容结构不完整，已停止下发并通知甘老师。`);
+      }
+    }
   }
   const attempts = planAttempts.data || [];
   const actualAttemptCount = attempts.length;
-  // Questions may reappear on a later spaced-review date, but never during
-  // another round of the same plan day.
-  const attemptIds = attempts.map((attempt) => String(attempt.id));
-  const history = attemptIds.length
-    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,concept_key,correct,uncertain,question_snapshot").in("attempt_id", attemptIds).in("skill_id", skillIds)
+  // Source originals never repeat for the same student, including on a later
+  // review date. The teacher readiness report must therefore fund every
+  // planned revisit with a fresh source item instead of silently recycling it.
+  const selectionAttemptIds = attempts.map((attempt) => String(attempt.id));
+  const history = plan.mode === "REVIEW"
+    ? {
+      data: ((reviewHistory.data || []) as Array<Record<string, unknown>>)
+        .filter((answer) => skillIds.includes(String(answer.skill_id))),
+      error: null,
+    }
+    : selectionAttemptIds.length
+    ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,concept_key,correct,uncertain,question_snapshot").in("attempt_id", selectionAttemptIds).in("skill_id", skillIds)
     : { data: [], error: null };
   if (history.error) throw history.error;
-  const historyQuestionIds = [...new Set((history.data || []).map((answer) => String(answer.question_id)).filter(Boolean))];
-  const historyQuestionMetadata = historyQuestionIds.length
-    ? await supabase.from("chem_questions").select("id,level,concept_key,source_item_key,content_fingerprint").in("id", historyQuestionIds)
+  // Current snapshots already carry level, concept and stable source identity.
+  // Read the question table only for legacy rows that are actually missing
+  // one of those fields; otherwise this was an unnecessary extra request on
+  // every plan open.
+  const historyQuestionIdsNeedingMetadata = [...new Set((history.data || []).flatMap((answer) => {
+    const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
+    const hasIdentity = Boolean(snapshot?.sourceItemKey || snapshot?.contentFingerprint);
+    const hasLevel = Number(snapshot?.level || 0) > 0;
+    const hasConcept = Boolean(answer.concept_key || snapshot?.conceptKey);
+    return hasIdentity && hasLevel && hasConcept ? [] : [String(answer.question_id)].filter(Boolean);
+  }))];
+  const historyQuestionMetadata = historyQuestionIdsNeedingMetadata.length
+    ? await supabase.from("chem_questions").select("id,level,concept_key,source_item_key,content_fingerprint").in("id", historyQuestionIdsNeedingMetadata)
     : { data: [], error: null };
   if (historyQuestionMetadata.error) throw historyQuestionMetadata.error;
   const historicalIdentityByQuestionId = new Map(
     (historyQuestionMetadata.data || []).map((question) => [String(question.id), sourceIdentity(question)]),
   );
-  const sequenceByAttemptId = new Map(attempts.map((attempt) => [String(attempt.id), Number(attempt.sequence)]));
+  const sequenceByAttemptId = new Map<string, number>();
+  if (plan.mode === "REVIEW") {
+    for (const answer of (history.data || [])) {
+      sequenceByAttemptId.set(String(answer.attempt_id), Number(answer.history_order));
+    }
+  } else {
+    attempts.forEach((attempt, index) => sequenceByAttemptId.set(String(attempt.id), index));
+  }
   const historyRows: SourceAdaptiveHistory[] = (history.data || []).map((answer) => {
     const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
     const currentIdentity = historicalIdentityByQuestionId.get(String(answer.question_id));
@@ -920,16 +1103,23 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     // difficulty labels. High-1/High-2 use the audited three-step ladder:
     // two L1 originals, one L2 original and two L3 originals per concept.
     const expectedLevels = [1, 2, 3];
+    const expectedConceptKeys = targetConceptKeys.length
+      ? targetConceptKeys
+      : [...conceptCounts.keys()];
     if (
-      skillIds.length !== 1
+      (!targetConceptKeys.length && skillIds.length !== 1)
+      || (targetConceptKeys.length > 0 && skillIds.length > questionCount)
       || conceptCounts.size !== questionCount
-      || [...conceptCounts.values()].some((count) => count !== roundLimit)
+      || expectedConceptKeys.length !== questionCount
+      || expectedConceptKeys.some((conceptKey) => !conceptCounts.has(conceptKey))
+      || [...conceptCounts.values()].some((count) => count < roundLimit)
+      || [...conceptLevels.values()].some((levels) => levels.size < 3)
       || (["高一", "高二"].includes(String(gradeResult.data.grade_band))
         && [...conceptLevels.values()].some((levels) => expectedLevels.some((level) => !levels.has(level))))
     ) {
       throw new RequestError(
         422,
-        `当天第一轮必须覆盖 ${questionCount} 个细知识点，且每个知识点要有 ${roundLimit} 道不重复原题；当前计划或原题池尚未达到要求，已停止下发。`,
+        `当天第一轮必须覆盖 ${questionCount} 个细知识点，且每个知识点要有 ${roundLimit} 道不重复、分成三个难度层级的原题；当前计划或原题池尚未达到要求，已停止下发。`,
       );
     }
   }
@@ -957,7 +1147,12 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     // Preview/demo answers are intentionally not stored. Reconstruct every
     // preceding preview round as virtual unresolved evidence so rounds 2-5
     // still contain completely different questions and mother questions.
-    selectionHistory = [];
+    // Earlier review dates remain in the history so a preview cannot make a
+    // previously used source original appear new again.
+    const currentAttemptIds = new Set(attempts.map((attempt) => String(attempt.id)));
+    selectionHistory = historyRows.filter((answer) => !currentAttemptIds.has(String(answer.attempt_id)));
+    const previousSequence = selectionHistory.reduce((latest, answer) =>
+      Math.max(latest, Number.isInteger(answer.attempt_sequence) ? Number(answer.attempt_sequence) : -1), -1);
     for (let previewIndex = 0; previewIndex <= selectionSequence; previewIndex += 1) {
       adaptiveQuestions = selectAdaptiveQuestions(
         sourceDistinctQuestionPool(questionPool, selectionHistory),
@@ -965,6 +1160,8 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
         selectionHistory,
         previewIndex,
         questionCount,
+        new Date(),
+        plan.mode === "REVIEW",
       );
       if (adaptiveQuestions.length !== questionCount) break;
       if (previewIndex < selectionSequence) {
@@ -979,7 +1176,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
             question_level: Number(question.level) || null,
             source_item_key: question.source_item_key ? String(question.source_item_key) : null,
             content_fingerprint: question.content_fingerprint ? String(question.content_fingerprint) : null,
-            attempt_sequence: previewIndex,
+            attempt_sequence: previousSequence + previewIndex + 1,
             correct: false,
             uncertain: true,
           })),
@@ -993,6 +1190,8 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       selectionHistory,
       selectionSequence,
       questionCount,
+      new Date(),
+      plan.mode === "REVIEW",
     );
   }
   if (adaptiveQuestions.length !== questionCount) {
@@ -1004,7 +1203,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   let lockedFeedback: Array<Record<string, unknown>> = [];
   if (options.includeAnswerLocks && plan.mode === "REVIEW") {
     const securedIds = adaptiveQuestions
-      .filter((question) => isLicensedHigh3Question(question))
+      .filter((question) => isLicensedHighSchoolQuestion(question))
       .map((question) => String(question.id));
     if (securedIds.length) {
       const lockResult = await supabase.rpc("chem_get_question_answer_locks", {
@@ -1123,7 +1322,7 @@ Deno.serve(async (req: Request) => {
 
       // Students and guardians are restricted to their bound profile. Demo
       // sessions may target only another demo profile through resolveDemoTarget.
-      // Teacher sessions may inspect every High-3 source question.
+      // Teacher sessions may inspect every licensed high-school source question.
       let assetStudentId = identity.studentId;
       if (identity.role !== "teacher") {
         if (!identity.studentId) return reply(req, { error: "无权读取该原题图片。" }, 403);
@@ -1247,7 +1446,7 @@ Deno.serve(async (req: Request) => {
           hasLockedAnswer,
         });
         if (phaseAccessStatus === 403) {
-          return reply(req, { error: "先提交这道题的第一次选择，才能查看原题解析图。" }, 403);
+          return reply(req, { error: isAnalysis ? "原题解析图仅供教师核对。" : "无权读取该原题图片。" }, 403);
         }
         if (!isAnalysis && !hasCompletedAnswer) {
           if (!currentAssetEligible) {
@@ -1581,7 +1780,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: plan, error: planError } = await supabase
         .from("chem_learning_plans")
-        .select("id,student_id,mode,skill_ids,question_count,round_limit,max_question_level")
+        .select("id,student_id,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level")
         .eq("id", String(attempt.planDayId))
         .eq("student_id", targetId)
         .maybeSingle();
@@ -1601,6 +1800,11 @@ Deno.serve(async (req: Request) => {
       }
       const planSkillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map(String) : [];
       if (!planSkillIds.length) return reply(req, { error: "当前学习计划没有可提交的题目。" }, 400);
+      const targetConceptKeys = planTargetConceptKeys(plan);
+      if (plan.mode === "REVIEW" && targetConceptKeys.length
+        && (targetConceptKeys.length !== questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length)) {
+        return reply(req, { error: "当前学习计划的细知识点配置不完整，请重新打开或联系甘老师。" }, 400);
+      }
       const questionUsageColumn = plan.mode === "CLASS_QUIZ"
         ? "usable_for_class_quiz"
         : plan.mode === "EXAM_SPRINT"
@@ -1617,6 +1821,9 @@ Deno.serve(async (req: Request) => {
         .not("mother_id", "is", null)
         .eq(questionUsageColumn, true);
       if (plan.mode === "REVIEW") questionQuery = questionQuery.not("concept_key", "is", null);
+      if (plan.mode === "REVIEW" && targetConceptKeys.length) {
+        questionQuery = questionQuery.in("concept_key", targetConceptKeys);
+      }
       if (plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(targetProfile.data.grade_band))) {
         questionQuery = questionQuery
           .eq("source_kind", "licensed_local")
@@ -1638,7 +1845,7 @@ Deno.serve(async (req: Request) => {
         return reply(req, { error: "本轮包含未审核、超出范围或高于当前难度上限的题目，请重新打开练习。" }, 400);
       }
       const securedQuestionIds = (questionResult.data || [])
-        .filter((question) => plan.mode === "REVIEW" && isLicensedHigh3Question(question))
+        .filter((question) => plan.mode === "REVIEW" && isLicensedHighSchoolQuestion(question))
         .map((question) => String(question.id));
       const lockedAnswerByQuestionId = new Map<string, Record<string, unknown>>();
       if (securedQuestionIds.length) {

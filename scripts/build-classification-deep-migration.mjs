@@ -15,6 +15,8 @@ const requiredLabels = [
   '一元碱', '二元碱', '三元碱与两性边界', '强碱', '弱碱', '易溶碱', '微溶碱', '难溶碱',
   '酸性氧化物', '碱性氧化物', '两性氧化物', '不成盐氧化物', '正盐', '酸式盐', '碱式盐',
   '电解质的五类常见来源', '非电解质', '强电解质', '弱电解质',
+  'HCl、HBr、HI、HNO₃、H₂SO₄、HClO₄', 'HF是弱酸',
+  '可溶盐在离子方程式中拆写，难溶盐保留化学式',
 ]
 
 const sql = `-- Replace the H1 classification card with the fully audited, deeply expandable tree.
@@ -63,8 +65,9 @@ begin
   if content::text like '%氧化还原%' then raise exception 'H1_CLASSIFY leaked untaught redox content'; end if;
   if content::text like '%所有金属氧化物都是%' then raise exception 'H1_CLASSIFY contains an absolute metal-oxide error'; end if;
   if content::text like '%能导电的物质都是电解质%' then raise exception 'H1_CLASSIFY contains a conductivity shortcut error'; end if;
+  if content::text like '%HF是强酸%' then raise exception 'H1_CLASSIFY incorrectly classifies HF as a strong acid'; end if;
 end $$;
 `
 
-writeFileSync(resolve(output), `\uFEFF${sql}`, 'utf8')
+writeFileSync(resolve(output), sql, 'utf8')
 console.log(JSON.stringify({ output: resolve(output), version: content.version, sections: content.sections.length, requiredLabels: requiredLabels.length }, null, 2))

@@ -18,6 +18,25 @@ describe('adaptive original-question selector', () => {
     expect(selected.every((item) => item.level === 1)).toBe(true)
   })
 
+  it('covers an exact five-concept day even when one target comes from a second skill', () => {
+    const mixedPool = fiveConceptPool
+      .filter((question) => question.concept_key !== 'A__C05')
+      .concat([1, 1, 2, 3, 3].map((level, variantIndex) => ({
+        id: `redox-${variantIndex}`,
+        mother_id: `redox-mother-${variantIndex}`,
+        skill_id: 'H1_REDOX',
+        concept_key: 'H1_REDOX__C01',
+        level,
+      })))
+    const selected = selectAdaptiveQuestions(mixedPool, [], [], 0, 5)
+
+    expect(selected).toHaveLength(5)
+    expect(new Set(selected.map((item) => item.concept_key))).toEqual(new Set([
+      'A__C01', 'A__C02', 'A__C03', 'A__C04', 'H1_REDOX__C01',
+    ]))
+    expect(selected.every((item) => item.level === 1)).toBe(true)
+  })
+
   it('raises difficulty after a correct and confident answer', () => {
     const selected = selectAdaptiveQuestions(fiveConceptPool, [], [{
       question_id: 'q-0-0', mother_id: 'm-0-0', skill_id: 'A', concept_key: 'A__C01',
@@ -34,6 +53,23 @@ describe('adaptive original-question selector', () => {
     const followUp = selected.find((item) => item.concept_key === 'A__C01')
     expect(followUp?.level).toBe(1)
     expect(followUp?.mother_id).not.toBe('m-0-0')
+  })
+
+  it('keeps the latest evidence for each concept across different review dates', () => {
+    const selected = selectAdaptiveQuestions(fiveConceptPool, [], [
+      {
+        question_id: 'q-0-0', mother_id: 'm-0-0', skill_id: 'A', concept_key: 'A__C01',
+        question_level: 1, attempt_sequence: 3, correct: true, uncertain: false,
+      },
+      {
+        question_id: 'q-1-0', mother_id: 'm-1-0', skill_id: 'A', concept_key: 'A__C02',
+        question_level: 1, attempt_sequence: 4, correct: false, uncertain: true,
+      },
+    ], 5, 5)
+
+    expect(selected.find((item) => item.concept_key === 'A__C01')?.level).toBe(2)
+    expect(selected.some((item) => item.id === 'q-0-0')).toBe(false)
+    expect(selected.some((item) => item.id === 'q-1-0')).toBe(false)
   })
 
   it('never repeats a question or mother across five unresolved rounds', () => {
@@ -64,5 +100,26 @@ describe('adaptive original-question selector', () => {
       correct: false, uncertain: true,
     })), 1, 1)
     expect(selected).toHaveLength(0)
+  })
+
+  it('fails closed instead of filling an exhausted REVIEW concept from another concept', () => {
+    const exhaustedConcept = fiveConceptPool.filter((item) => item.concept_key === 'A__C01')
+    const history = exhaustedConcept.map((question, attemptSequence) => ({
+      question_id: question.id,
+      mother_id: question.mother_id,
+      skill_id: question.skill_id,
+      concept_key: question.concept_key,
+      question_level: question.level,
+      attempt_sequence: attemptSequence,
+      correct: false,
+      uncertain: true,
+    }))
+
+    const selected = selectAdaptiveQuestions(fiveConceptPool, [], history, 5, 5, new Date(), true)
+
+    expect(selected).toHaveLength(4)
+    expect(new Set(selected.map((item) => item.concept_key))).toEqual(new Set([
+      'A__C02', 'A__C03', 'A__C04', 'A__C05',
+    ]))
   })
 })

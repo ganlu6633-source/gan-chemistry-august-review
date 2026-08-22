@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { BookOpenCheck, CheckCircle2, ChevronDown, CircleDashed, CircleDot, Clock3, RotateCcw } from 'lucide-react'
 import { ABILITY_MAP_BLUEPRINTS } from '../data/abilityMap'
+import { splitAnswerExplanation } from '../domain/answerExplanation'
 import type { GradeBand, LearningRecordData, LearningRecordQuestionEvidence, LearningRecordSkill } from '../domain/types'
 import { ChemText } from './ChemText'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
@@ -163,6 +164,7 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
 function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
   const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
   const nativeStem = <p className="record-question-stem"><ChemText>{question.stem}</ChemText></p>
+  const explanationParagraphs = splitAnswerExplanation(question.explanation || '')
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">
     <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p><ChemText>{question.stem}</ChemText></p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
     <div className="record-question-body">
@@ -170,7 +172,7 @@ function QuestionEvidence({ question, index, gradeBand }: { question: LearningRe
       {showsLicensedReviewSource ? <QuestionSourceMedia question={{ id: question.questionId, stem: question.stem, options: question.options, sourceInfo: question.sourceInfo, assetRefs: (question.assetRefs ?? []).filter((asset) => asset.kind !== 'analysis_image'), renderMode: question.renderMode }} enabled deferLoad readOnly showSource={false} nativeContent={nativeStem} /> : <>{question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}{nativeStem}</>}
       {question.options.length > 0 && <ol className="record-option-list">{question.options.map((option, optionIndex) => <li key={`${optionIndex}-${option}`} className={`${optionIndex === question.selectedOption ? 'selected' : ''} ${optionIndex === question.correctOption ? 'correct' : ''}`}><span>{String.fromCharCode(65 + optionIndex)}</span><p><ChemText>{option}</ChemText></p>{optionIndex === question.selectedOption && <small>学生选择</small>}{optionIndex === question.correctOption && <small>正确答案</small>}</li>)}</ol>}
       <div className="record-answer-row"><div><span>学生选择</span><b><AnswerText question={question} optionIndex={question.selectedOption} /></b></div><div><span>正确答案</span><b><AnswerText question={question} optionIndex={question.correctOption} /></b></div><div><span>作答状态</span><b>{question.correct ? '答对，继续保持' : '回看思路，再做同类题'}</b></div></div>
-      <div className="record-explanation"><b>解析与订正</b><p><ChemText>{question.explanation || '这道题的解析正在校对，校对完成后会在这里补齐。'}</ChemText></p></div>
+      <div className="record-explanation"><b>解析与订正</b><div className="answer-explanation">{explanationParagraphs.length > 0 ? explanationParagraphs.map((item, paragraphIndex) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${paragraphIndex}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>) : <p className="is-unlabeled">这道题的解析正在校对，校对完成后会在这里补齐。</p>}</div></div>
       <p className="record-answer-meta">难度 L{question.level} · 用时 {question.durationSec} 秒{question.uncertain ? ' · 本题作答时标记了“不确定”' : ''}</p>
     </div>
   </details>

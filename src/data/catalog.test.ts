@@ -17,7 +17,7 @@ describe('catalog quality gate', () => {
   })
   it('contains no out-of-scope or unreviewed question in the student catalog', () => {
     expect(QUESTIONS.every((item) => item.scopeStatus !== 'OUT' && item.reviewStatus === 'approved')).toBe(true)
-    expect(QUESTIONS.every((item) => item.options.length === 4 && item.correctOption >= 0 && item.correctOption < 4)).toBe(true)
+    expect(QUESTIONS.every((item) => item.options.length === 4 && typeof item.correctOption === 'number' && item.correctOption >= 0 && item.correctOption < 4)).toBe(true)
   })
   it('covers every grade band with at least two independent mother questions', () => {
     for (const grade of ['初三','高一','高二','高三'] as const) {

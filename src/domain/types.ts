@@ -117,8 +117,10 @@ export interface Question {
   gradeBand: GradeBand
   stem: string
   options: string[]
-  correctOption: number
-  explanation: string
+  /** Omitted from issued licensed REVIEW questions until the first choice is locked. */
+  correctOption?: number
+  /** Omitted from issued licensed REVIEW questions until the first choice is locked. */
+  explanation?: string
   scaffold?: string
   reviewStatus: QuestionReviewStatus
   scopeStatus: 'IN' | 'CTX-IN' | 'POSTPONE' | 'OUT'
@@ -131,7 +133,7 @@ export interface Question {
   revisionToken?: string | null
 }
 
-/** Server-issued only after a High-3 licensed question's first answer is locked. */
+/** Server-issued only after a high-school licensed question's first answer is locked. */
 export interface QuestionFeedback {
   questionId: string
   selectedOption: number
@@ -237,6 +239,8 @@ export interface LearningPlanDay {
   mode: LearningMode
   title: string
   skillIds: string[]
+  /** Exact five fine-grained REVIEW targets; empty/omitted keeps legacy single-skill selection. */
+  targetConceptKeys?: string[]
   knowledgeSummaries: string[]
   estimatedMinutes: number
   source: 'course' | 'exam' | 'memory' | 'mastery' | 'mixed'
@@ -539,8 +543,17 @@ export interface TeacherDashboardData {
     expectedConceptCount: number
     minimumQuestionsPerConcept: number
     minimumDifficultyLevelsPerConcept: number
+    maximumPreviouslyUsedPerConcept: number
     requiredForFiveRounds: number
     requiredForCrossDateNoRepeat: number
+    conceptDetails: Array<{
+      conceptKey: string
+      conceptTitle: string
+      availableQuestions: number
+      requiredQuestions: number
+      missingQuestions: number
+      difficultyLevels: number
+    }>
     message: string
   }>
 }

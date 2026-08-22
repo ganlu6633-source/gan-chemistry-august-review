@@ -18,8 +18,8 @@ export type AdaptiveAnswer = {
  * exactly once. In later rounds, a correct and confident answer moves to the
  * nearest strictly harder unseen original; a wrong or uncertain answer stays
  * at the same level when another original exists, otherwise it uses the
- * nearest easier unseen original. Question and mother IDs never repeat during
- * the same plan day.
+ * nearest easier unseen original. The caller supplies the student's complete
+ * REVIEW history, so question and mother IDs never repeat on a later date.
  */
 export function selectAdaptiveQuestions<T extends AdaptiveQuestion>(
   questions: T[],
@@ -28,17 +28,19 @@ export function selectAdaptiveQuestions<T extends AdaptiveQuestion>(
   attemptSequence: number,
   limit = 5,
   _now = new Date(),
+  requireExactConceptCoverage = false,
 ): T[] {
   void _now
   const usedQuestionIds = new Set(history.map((answer) => answer.question_id))
   const usedMotherIds = new Set(history.flatMap((answer) => answer.mother_id ? [answer.mother_id] : []))
-  const latestSequence = history.reduce((latest, answer) =>
-    Math.max(latest, Number.isInteger(answer.attempt_sequence) ? Number(answer.attempt_sequence) : -1), -1)
-  const latestRound = latestSequence >= 0
-    ? history.filter((answer) => Number(answer.attempt_sequence) === latestSequence)
-    : []
-  const latestByConcept = new Map(latestRound.flatMap((answer) =>
-    answer.concept_key ? [[answer.concept_key, answer] as const] : []))
+  const latestByConcept = new Map<string, AdaptiveAnswer>()
+  for (const answer of history) {
+    if (!answer.concept_key) continue
+    const previous = latestByConcept.get(answer.concept_key)
+    const answerSequence = Number.isInteger(answer.attempt_sequence) ? Number(answer.attempt_sequence) : -1
+    const previousSequence = Number.isInteger(previous?.attempt_sequence) ? Number(previous?.attempt_sequence) : -1
+    if (!previous || answerSequence >= previousSequence) latestByConcept.set(answer.concept_key, answer)
+  }
 
   const unseen = questions.filter((question) =>
     Boolean(question.mother_id)
@@ -74,6 +76,11 @@ export function selectAdaptiveQuestions<T extends AdaptiveQuestion>(
     })
     selected.push(candidates[0])
   }
+
+  // A REVIEW day must never disguise an exhausted fine concept by taking a
+  // second question from another concept. Returning fewer than `limit` lets
+  // the caller fail closed and tell the teacher exactly which pool is short.
+  if (requireExactConceptCoverage && concepts.length > 0) return selected
 
   // Non-REVIEW callers or legacy pools may not have concept keys. Preserve a
   // deterministic unseen fill without weakening the no-repeat rule.

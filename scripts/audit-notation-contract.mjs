@@ -73,10 +73,10 @@ const equilibriumVisualText = readFileSync(equilibriumVisualPath, 'utf8')
 for (const required of [
   'equilibrium-numerator',
   'equilibrium-denominator',
-  '<i>c</i><sup>c</sup>(C)',
-  '<i>c</i><sup>d</sup>(D)',
-  '<i>c</i><sup>a</sup>(A)',
-  '<i>c</i><sup>b</sup>(B)',
+  '<i>c</i>(C)<sup>c</sup>',
+  '<i>c</i>(D)<sup>d</sup>',
+  '<i>c</i>(A)<sup>a</sup>',
+  '<i>c</i>(B)<sup>b</sup>',
 ]) {
   if (!equilibriumVisualText.includes(required)) errors.push(`Kc教材式分式图缺项：${required}`)
 }

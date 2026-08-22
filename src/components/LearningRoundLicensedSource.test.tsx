@@ -51,7 +51,7 @@ describe('LearningRound licensed source question', () => {
   it('uses the exact source image without student-facing source or analysis artwork, and submits the revision token', async () => {
     render(<LearningRound session={session} payload={payload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
-    expect(await screen.findByAltText('第8题原题题面')).toBeInTheDocument()
+    expect(await screen.findByAltText('本题原题题面图')).toBeInTheDocument()
     expect(screen.queryByLabelText('原题来源')).not.toBeInTheDocument()
     expect(sourceQuestion).not.toHaveProperty('correctOption')
     expect(sourceQuestion).not.toHaveProperty('explanation')
@@ -63,7 +63,7 @@ describe('LearningRound licensed source question', () => {
     expect(answerA).toHaveTextContent(/^A$/)
 
     fireEvent.click(answerA)
-    fireEvent.click(screen.getByRole('button', { name: '放大查看第8题原题题面' }))
+    fireEvent.click(screen.getByRole('button', { name: '放大查看本题原题题面图' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭原题大图' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '提交答案' })).toHaveFocus())
     fireEvent.keyDown(window, { key: 'Enter' })

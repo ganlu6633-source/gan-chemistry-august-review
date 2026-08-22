@@ -21,7 +21,7 @@ export interface SourceBackedQuestionView {
 
 interface QuestionSourceMediaProps {
   question: SourceBackedQuestionView
-  /** The parent is responsible for limiting this to High-3 REVIEW licensed originals. */
+  /** The parent is responsible for limiting this to high-school REVIEW licensed originals. */
   enabled: boolean
   session?: SessionIdentity
   nativeContent?: ReactNode
@@ -172,9 +172,10 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
   const assetGallery = (galleryRefs: SourceAssetRef[], analysis = false) => galleryRefs.length > 0 ? <div className={`source-asset-gallery ${analysis ? 'source-analysis-gallery' : ''}`} aria-live="polite">
     {galleryRefs.map((ref, index) => {
       const state = assetStates[ref.assetId] ?? emptyState()
+      const visibleAlt = showSource ? ref.alt : analysis ? '教师审核用原题解析图' : '本题原题题面图'
       if (state.status === 'ready' && state.asset) return <figure className="source-question-image" key={ref.assetId}>
-        <button type="button" className="source-image-zoom" data-question-media-control onClick={(event) => { zoomTriggerRef.current = event.currentTarget; setZoomedAssetId(ref.assetId) }} aria-label={`放大查看${ref.alt}`}>
-          <CompactQuestionImage dataUrl={state.asset.dataUrl} alt={ref.alt} width={ref.width} height={ref.height} />
+        <button type="button" className="source-image-zoom" data-question-media-control onClick={(event) => { zoomTriggerRef.current = event.currentTarget; setZoomedAssetId(ref.assetId) }} aria-label={`放大查看${visibleAlt}`}>
+          <CompactQuestionImage dataUrl={state.asset.dataUrl} alt={visibleAlt} width={ref.width} height={ref.height} />
           <span><ZoomIn />点击放大</span>
         </button>
         {galleryRefs.length > 1 && <figcaption>{analysis ? '原题解析图' : '原题图'} {index + 1}/{galleryRefs.length}</figcaption>}
@@ -198,17 +199,17 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
 
     {renderMode === 'image_assist' ? <>{nativeContent}{loadRequested && assetGallery(problemRefs)}</> : null}
     {renderMode === 'native' ? <>{nativeContent}{loadRequested && problemRefs.length > 0 ? assetGallery(problemRefs) : null}</> : null}
-    {renderMode === 'image_primary' ? <>{loadRequested && assetGallery(problemRefs)}<details className="source-transcription">
+    {renderMode === 'image_primary' ? <>{loadRequested && assetGallery(problemRefs)}{showSource && <details className="source-transcription">
       <summary data-question-media-control>查看文字辅助稿（公式、图示以原题图为准）</summary>
       <div><p><ChemText>{stripLeadingQuestionSource(question.stem)}</ChemText></p>{question.options.length > 0 && <ol>{question.options.map((option, index) => <li key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}.</b><ChemText>{option}</ChemText></li>)}</ol>}</div>
-    </details></> : null}
+    </details>}</> : null}
 
     {feedback && analysisRefs.length > 0 && (!deferLoad || loadRequested) ? <section className="source-analysis-media" aria-label="原题解析图"><h3>原题解析图</h3>{assetGallery(analysisRefs, true)}</section> : null}
 
     <dialog ref={dialogRef} className="source-image-dialog" data-question-media-dialog aria-label="放大查看原题图" onCancel={(event) => { event.preventDefault(); closeZoom() }} onClick={(event) => { if (event.target === event.currentTarget) closeZoom() }}>
       <div role="document">
         <header><b>原题大图</b><button type="button" data-question-media-control onClick={closeZoom} aria-label="关闭原题大图"><X /></button></header>
-        {zoomedAsset && zoomedRef && <CompactQuestionImage dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${zoomedRef.alt}`} width={zoomedRef.width} height={zoomedRef.height} />}
+        {zoomedAsset && zoomedRef && <CompactQuestionImage dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${showSource ? zoomedRef.alt : zoomedRef.kind === 'analysis_image' ? '教师审核用原题解析图' : '本题原题题面图'}`} width={zoomedRef.width} height={zoomedRef.height} />}
       </div>
     </dialog>
   </section>

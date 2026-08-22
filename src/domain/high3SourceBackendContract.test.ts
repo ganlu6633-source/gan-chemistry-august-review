@@ -27,12 +27,14 @@ describe('high-school source-backed REVIEW backend contract', () => {
   it('never ships a licensed High-3 solution in start_plan and locks first-answer feedback on the server', () => {
     expect(accessFunction).toContain('issuedSolutionFields(row, hideSolution)')
     expect(accessFunction).toContain('issuedAssetRefs(questionAssetRefs(row.asset_refs, true), hideSolution)')
+    expect(accessFunction).toContain('sourceInfo: hideSolution ? null : questionSourceInfo(row.source_info)')
     expect(accessFunction).toContain('body.action === "question_feedback"')
     expect(accessFunction).toContain('chem_lock_question_answer')
     expect(accessFunction).toContain('这道题已经按第一次提交的选项锁定')
     expect(accessFunction).toContain('chem_get_question_answer_locks')
     expect(accessFunction).toContain('本轮答案必须与服务器锁定的第一次选择一致')
     expect(accessFunction).toContain('lockedFeedback')
+    expect(accessFunction).toContain('analysisAssetRefs: []')
   })
 
   it('keeps public high-school demos on a separate teacher-authored pool with no licensed asset or feedback access', () => {
@@ -73,8 +75,10 @@ describe('high-school source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('同一来源原题')
   })
 
-  it('keeps full source evidence available in the completed learning record', () => {
+  it('keeps source citations and original analysis scans out of learner history records', () => {
     expect(accessFunction).toContain('sourceKind: historical.sourceKind')
+    expect(accessFunction).toContain('sourceInfo: null')
+    expect(accessFunction).toContain('assetRefs: questionAssetRefs(source.assetRefs || source.asset_refs, false)')
     expect(accessFunction).toContain('assetRefs: historical.assetRefs')
     expect(accessFunction).toContain('renderMode: historical.renderMode')
     expect(accessFunction).toContain('mode: String(attemptById.get(String(answer.attempt_id))?.mode || "REVIEW")')

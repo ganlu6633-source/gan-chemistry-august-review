@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, Eye, Film, GraduationCap, KeyRound, LayoutDashboard, LogIn, MessageSquareText, MonitorPlay, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
+import { splitAnswerExplanation } from '../domain/answerExplanation'
 import type { GradeBand, QuestionAssetRef, QuestionSourceInfo, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
 import { loadTeacherDashboard, saveTeacherObservation, teacherApi } from '../lib/api'
 import { clearAccessSession, readAccessSession } from '../lib/session'
@@ -44,7 +45,13 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
   }, [refresh])
 
   const poolBlockers = dashboard?.sourcePoolWarnings || []
-  const poolBlockerKey = poolBlockers.map((warning) => `${warning.id}:${warning.severity}:${warning.conceptCount}:${warning.minimumQuestionsPerConcept}:${warning.minimumDifficultyLevelsPerConcept}:${warning.requiredForCrossDateNoRepeat}`).join('|')
+  const poolBlockerKey = poolBlockers.map((warning) => {
+    const conceptKey = (warning.conceptDetails || [])
+      .map((detail) => `${detail.conceptKey}:${detail.availableQuestions}:${detail.requiredQuestions}:${detail.missingQuestions}:${detail.difficultyLevels}`)
+      .sort()
+      .join(',')
+    return `${warning.id}:${warning.severity}:${warning.conceptCount}:${warning.minimumQuestionsPerConcept}:${warning.minimumDifficultyLevelsPerConcept}:${warning.requiredForCrossDateNoRepeat}:${conceptKey}`
+  }).join('|')
 
   return <div className="teacher-workspace"><aside className="teacher-sidebar"><div className="teacher-brand"><Shield /><div><b>甘老师工作台</b><span>证据驱动教学</span></div></div><nav>
     <button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}><LayoutDashboard />今日总览</button>
@@ -65,20 +72,27 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     {view === 'plans' && <PlanEditor dashboard={dashboard} />}
     {view === 'questions' && <QuestionAudit dashboard={dashboard} />}
     {view === 'settings' && <AccessSettings dashboard={dashboard} />}
-  </>}</main>{poolBlockers.length > 0 && dismissedPoolBlockerKey !== poolBlockerKey && <div className="source-pool-modal-backdrop"><section className="source-pool-modal" role="dialog" aria-modal="true" aria-labelledby="source-pool-modal-title"><AlertCircle /><div><span className="eyebrow">原题准备度未达标</span><h2 id="source-pool-modal-title">未来14天有题量、难度或无重复容量不足</h2><p>请按下面的年级与知识点补足原题、解析或难度标注。未通过来源、难度、知识点和显示审核的题，不会拿来凑数。</p><SourcePoolWarnings warnings={poolBlockers} compact /></div><button className="secondary-button" onClick={() => setDismissedPoolBlockerKey(poolBlockerKey)}>我知道了</button></section></div>}</div>
+  </>}</main>{poolBlockers.length > 0 && dismissedPoolBlockerKey !== poolBlockerKey && <div className="source-pool-modal-backdrop"><section className="source-pool-modal" role="dialog" aria-modal="true" aria-labelledby="source-pool-modal-title"><AlertCircle /><div><span className="eyebrow">原题准备度未达标</span><h2 id="source-pool-modal-title">当前39天排程有题量、难度或无重复容量不足</h2><p>请按下面的年级与知识点补足原题、解析或难度标注。未通过来源、难度、知识点和显示审核的题，不会拿来凑数。</p><SourcePoolWarnings warnings={poolBlockers} compact /></div><button className="secondary-button" onClick={() => setDismissedPoolBlockerKey(poolBlockerKey)}>我知道了</button></section></div>}</div>
 }
 
 function TeacherOverview({ dashboard, onRefresh }: { dashboard: TeacherDashboardData; onRefresh: () => void }) {
   return <><div className="teacher-page-head"><div><span className="eyebrow">小测完成后自动更新（约10秒）</span><h1>今天最值得看的事</h1></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={17} />刷新证据</button></div>
     <div className="teacher-metrics"><article><Users /><b>{dashboard.students.length}</b><span>统一学生档案</span></article><article><CheckCircle2 /><b>{dashboard.dailySummary.classQuizCount}</b><span>即时小测轮次</span></article><article><RefreshCw /><b>{dashboard.dailySummary.reviewCount}</b><span>长期复习完成</span></article><article><AlertCircle /><b>{dashboard.dailySummary.interventionCount}</b><span>建议教师介入</span></article></div>
-    {(dashboard.sourcePoolWarnings || []).length > 0 && <section className="teacher-panel source-pool-panel"><div className="panel-head"><h2>未来14天原题容量</h2><span>按细知识点逐项核算，不拿题目总数凑数</span></div><SourcePoolWarnings warnings={dashboard.sourcePoolWarnings || []} /></section>}
+    {(dashboard.sourcePoolWarnings || []).length > 0 && <section className="teacher-panel source-pool-panel"><div className="panel-head"><h2>当前39天排程原题容量</h2><span>按细知识点逐项核算，不拿题目总数凑数</span></div><SourcePoolWarnings warnings={dashboard.sourcePoolWarnings || []} /></section>}
     <section className="teacher-panel"><div className="panel-head"><h2>今日即时小测</h2><span>{dashboard.dailySummary.quizCompletedStudentCount}/{dashboard.dailySummary.quizRosterCount} 名学生已完成 · 共 {dashboard.dailySummary.classQuizCount} 轮</span></div><div className="audit-list">{dashboard.recentQuizSessions.map((session) => <article key={session.id}><div><b>{session.studentName} · 第{session.round}轮</b><p><ChemText>{session.trainingTheme}</ChemText> · {new Date(session.completedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}{session.wrongTags.length ? <> · 需巩固：<ChemText>{session.wrongTags.join('、')}</ChemText></> : ' · 本轮无错题'}{session.slowTags.length ? <> · 偏慢：<ChemText>{session.slowTags.join('、')}</ChemText></> : ''}</p></div><div className="quiz-session-score"><b>{session.correctCount}/{session.totalCount}</b><span>{formatDuration(session.totalSec)}</span></div></article>)}{!dashboard.recentQuizSessions.length && <div className="empty-state"><RefreshCw /><p>今天还没有学生完成即时小测。</p></div>}</div></section>
     <section className="teacher-panel"><div className="panel-head"><h2>优先提醒</h2><span>只显示3—5件最值得看的事</span></div><div className="alert-list">{dashboard.alerts.slice(0,5).map((alert) => { const student = dashboard.students.find((item) => item.id === alert.studentId); return <article key={alert.id} className={alert.severity}><AlertCircle /><div><b>{student?.displayName ?? '学生'} · <ChemText>{alert.title}</ChemText></b><p><ChemText>{alert.reason}</ChemText></p></div></article> })}{!dashboard.alerts.length && <div className="empty-state"><CheckCircle2 /><p>当前没有需要立即处理的提醒。</p></div>}</div></section>
   </>
 }
 
 export function SourcePoolWarnings({ warnings, compact = false }: { warnings: NonNullable<TeacherDashboardData['sourcePoolWarnings']>; compact?: boolean }) {
-  return <div className={compact ? 'source-pool-warning-list compact' : 'source-pool-warning-list'}>{warnings.map((warning) => <article key={warning.id} className={warning.severity}><div><b><ChemText>{`${warning.gradeBand} · ${warning.skillTitle}`}</ChemText></b><span>{warning.severity === 'blocking' ? '当天五轮会阻断' : warning.severity === 'progression' ? '答对后无法升级' : '跨日不重复容量不足'}</span></div><p><ChemText>{warning.message}</ChemText></p><small>{warning.plannedStudentCount}名学生 · {warning.plannedDateCount}个计划日 · 当前{warning.conceptCount}/{warning.expectedConceptCount}个细知识点</small></article>)}</div>
+  return <div className={compact ? 'source-pool-warning-list compact' : 'source-pool-warning-list'}>{warnings.map((warning) => {
+    const details = (warning.conceptDetails || []).filter((detail) => warning.severity === 'progression'
+      ? detail.difficultyLevels < 3
+      : warning.severity === 'blocking'
+      ? detail.availableQuestions < warning.requiredForFiveRounds
+      : detail.missingQuestions > 0)
+    return <article key={warning.id} className={warning.severity}><div><b><ChemText>{`${warning.gradeBand} · ${warning.skillTitle}`}</ChemText></b><span>{warning.severity === 'blocking' ? '当天五轮会阻断' : warning.severity === 'progression' ? '答对后无法升级' : '跨日不重复容量不足'}</span></div><p><ChemText>{warning.message}</ChemText></p>{details.length > 0 && <ul className="source-pool-concept-details">{details.map((detail) => <li key={detail.conceptKey}><b><ChemText>{detail.conceptTitle}</ChemText></b><span>现有 {detail.availableQuestions} 题 · 需要 {detail.requiredQuestions} 题 · 还差 {detail.missingQuestions} 题 · {detail.difficultyLevels} 个难度层级</span></li>)}</ul>}<small>{warning.plannedStudentCount}名学生 · {warning.plannedDateCount}个计划日 · 当前{warning.conceptCount}/{warning.expectedConceptCount}个细知识点</small></article>
+  })}</div>
 }
 
 function formatDuration(totalSec: number) {
@@ -279,7 +293,7 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
   return <>
     <div className="teacher-page-head"><div><span className="eyebrow">原题题面、答案、原解析与出处逐项核对</span><h1>题库审核</h1></div></div>
     <section className="teacher-panel">
-      <div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>只有题面完整、答案唯一、原解析匹配、福建范围正确且原图校验通过，才允许进入高三复习。</p></div></div>
+      <div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>只有题面完整、答案唯一、原解析匹配、福建范围正确且原图校验通过，才允许进入高中复习。</p></div></div>
       <div className="question-audit-filters" aria-label="题库筛选">
         <label>年级<select value={gradeBand} onChange={(event) => { setGradeBand(event.target.value as '' | GradeBand); setPage(1) }}><option value="">全部</option><option value="高一">高一</option><option value="高二">高二</option><option value="高三">高三</option></select></label>
         <label>来源<select value={sourceKind} onChange={(event) => { setSourceKind(event.target.value as '' | QuestionAuditRow['source_kind']); setPage(1) }}><option value="">全部</option><option value="licensed_local">本地资料原题</option><option value="teacher_original">教师原创</option><option value="original_variant">原创变式</option></select></label>
@@ -292,14 +306,15 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
           const refs = (question.asset_refs ?? []).map((ref) => ({ ...ref, assetId: ref.assetId || ref.path || '' })).filter((ref) => ref.assetId)
           const sourceQuestion = { id: question.id, stem: question.stem, options: question.options, sourceInfo: question.source_info, assetRefs: refs, renderMode: question.render_mode }
           const releaseManaged = Boolean(question.source_release_id)
+          const explanationParagraphs = splitAnswerExplanation(question.explanation)
           return <details className="question-audit-card" key={question.id}>
             <summary><div><span>{question.grade_band} · {question.skill_id} · L{question.level}</span><b><ChemText>{question.stem}</ChemText></b><small>{reviewStatusLabel[question.review_status]} · {question.scope_status} · {question.source_kind === 'licensed_local' ? '原题' : question.source_kind}</small></div><strong>{question.usable_for_review ? '复习中' : '未下发'}</strong></summary>
             <div className="question-audit-detail">
-              {question.source_kind === 'licensed_local' && question.grade_band === '高三'
+              {question.source_kind === 'licensed_local' && ['高一', '高二', '高三'].includes(question.grade_band)
                 ? <QuestionSourceMedia question={sourceQuestion} enabled deferLoad readOnly feedback />
                 : <div className="question-audit-native"><h3>题干</h3><p><ChemText>{question.stem}</ChemText></p></div>}
               <section><h3>文字辅助稿与答案</h3><p className="question-audit-transcript-note">复杂公式、结构式与装置图以原题图为准。</p><ol className="question-audit-options">{question.options.map((option, index) => <li className={index === question.correct_option ? 'is-answer' : ''} key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}</b><ChemText>{option}</ChemText>{index === question.correct_option && <span>正确答案</span>}</li>)}</ol></section>
-              <section className="question-audit-analysis"><h3>文字解析（原解析图为最终依据）</h3><p><ChemText>{question.explanation}</ChemText></p>{question.scaffold && <small>提示：<ChemText>{question.scaffold}</ChemText></small>}</section>
+              <section className="question-audit-analysis"><h3>文字解析（原解析图为最终依据）</h3><div className="answer-explanation">{explanationParagraphs.map((item, paragraphIndex) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${paragraphIndex}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>)}</div>{question.scaffold && <small>提示：<ChemText>{question.scaffold}</ChemText></small>}</section>
               <dl className="question-audit-metadata"><div><dt>母题</dt><dd>{question.mother_id}</dd></div><div><dt>细概念</dt><dd>{question.concept_key || '待标注'}</dd></div><div><dt>内容指纹</dt><dd>{question.content_fingerprint ? `${question.content_fingerprint.slice(0, 12)}…` : '缺失'}</dd></div><div><dt>图片</dt><dd>{refs.filter((ref) => ref.kind !== 'analysis_image').length} 张题面 · {refs.filter((ref) => ref.kind === 'analysis_image').length} 张解析</dd></div></dl>
               {releaseManaged && <p className="question-release-lock">该题属于已锁定的完整原题版本；可在这里逐项检查，但不能单题修改。需调整时应校对并发布整套新版本。</p>}
               <div className="audit-actions"><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'approved')}>批准</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'needs_review')}>待复核</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'retired')}>停用</button></div>

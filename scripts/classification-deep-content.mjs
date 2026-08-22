@@ -73,7 +73,7 @@ export const classificationDeepContent = {
           ]),
           node('酸', '在水溶液中电离时生成的阳离子全部是H⁺；本树先列常见无机酸，再按三条独立轴分类。', ['HCl、H₂SO₄、HNO₃', 'H₂CO₃、H₃PO₄、H₂S'], [
             node('分类1｜按可电离H⁺数', '分为一元酸、二元酸和多元酸；数可电离H，不能机械数化学式中的全部H。', ['HCl、HNO₃是一元酸', 'H₂SO₄、H₂CO₃是二元酸；H₃PO₄是三元酸']),
-            node('分类2｜按电离程度', '分为强酸和弱酸；强弱不等于浓稀。', ['HCl、HNO₃、H₂SO₄是常见强酸', 'H₂CO₃、H₃PO₄、H₂S是弱酸']),
+            node('分类2｜按电离程度', '分为强酸和弱酸；强弱不等于浓稀。', ['常见强酸：HCl、HBr、HI、HNO₃、H₂SO₄、HClO₄', '常见弱酸：HF、H₂CO₃、H₃PO₄、H₂S']),
             node('分类3｜按是否含氧', '分为含氧酸和无氧酸；含氧与否不能推出强弱或元数。', ['HNO₃、H₂SO₄、H₂CO₃是含氧酸', 'HCl、HBr、H₂S是无氧酸']),
           ]),
           node('碱', '在水溶液中电离时生成的阴离子全部是OH⁻；元数、强弱和溶解性必须分别判断。', ['NaOH、KOH、Ba(OH)₂', 'Ca(OH)₂、Cu(OH)₂、Fe(OH)₃'], [
@@ -133,9 +133,9 @@ export const classificationDeepContent = {
     ]),
     section('酸的分类2：按在水中的电离程度', '强弱是酸本身的电离特征，不是某份溶液的浓或稀。', [
       item('强酸', '在水中按高中近似可看作完全电离。', [
-        'HCl、HNO₃是常见一元强酸。',
-        'H₂SO₄在高中常规水溶液问题中按强酸处理。',
-      ]),
+        'HCl、HBr、HI、HNO₃、HClO₄是常见一元强酸。',
+        'H₂SO₄在高中常规水溶液问题中按二元强酸处理；HF属于弱酸。',
+      ], '不要按“卤化氢”整类硬推：HCl、HBr、HI是强酸，HF是弱酸。'),
       item('弱酸', '在水中只部分电离，溶液中分子和离子共存。', [
         'H₂CO₃、H₂S、H₃PO₄是常见无机弱酸。',
         'CH₃COOH是常见有机弱酸。',
@@ -147,8 +147,8 @@ export const classificationDeepContent = {
         'H₂CO₃、H₃PO₄、CH₃COOH是弱含氧酸。',
       ]),
       item('无氧酸', '化学式中不含氧元素的酸。', [
-        'HCl、HBr是强无氧酸。',
-        'H₂S是弱无氧酸。',
+        'HCl、HBr、HI是强无氧酸。',
+        'HF、H₂S是弱无氧酸。',
       ]),
     ]),
     section('碱的分类1：按可产生的OH⁻个数', '元数只看一个化学式单位可对应产生几个OH⁻；两性氢氧化物要单独辨别。', [
@@ -271,17 +271,17 @@ export const classificationDeepContent = {
     ]),
     section('电解质的五类常见来源', '先判断具体化合物是否符合定义，再使用类别经验；不能把类别名称当作无条件结论。', [
       item('1. 酸', '酸进入水中产生H⁺和相应阴离子，属于电解质。', [
-        'HCl、HNO₃、H₂SO₄是强电解质。',
-        'H₂CO₃、H₃PO₄、CH₃COOH是弱电解质。',
+        '常见强酸HCl、HBr、HI、HNO₃、H₂SO₄、HClO₄是强电解质。',
+        'HF、H₂CO₃、H₃PO₄、CH₃COOH是弱酸和弱电解质；HF不能因含卤素而误判为强酸。',
       ]),
       item('2. 碱', '碱在水中产生金属阳离子或NH₄⁺模型中的相应阳离子以及OH⁻，属于电解质。', [
-        'NaOH、KOH、Ba(OH)₂是强电解质。',
+        'NaOH、KOH、Ca(OH)₂、Ba(OH)₂是高中常见强碱，也是强电解质。',
         'NH₃·H₂O、Cu(OH)₂、Fe(OH)₃按弱电解质处理。',
       ]),
-      item('3. 盐', '盐溶于水或熔融时形成离子，属于电解质；难溶不等于非电解质。', [
-        'NaCl、KNO₃、NH₄Cl是可溶盐和强电解质。',
-        'BaSO₄、CaCO₃虽难溶，溶解部分以离子存在，仍是电解质。',
-      ]),
+      item('3. 盐', '高中常规题中，所见盐通常按强电解质处理；难溶不等于非电解质。', [
+        'NaCl、KNO₃、NH₄Cl等可溶盐是强电解质，在水溶液的离子方程式中拆成离子。',
+        'BaSO₄、CaCO₃虽属于强电解质，但在水中难溶；写离子方程式时保留化学式，不能拆成离子。',
+      ], '“是不是强电解质”和“离子方程式中能不能拆”是两个问题：前者看电离或离解程度，后者还必须看该物质在当前水溶液中是否可溶。'),
       item('4. 符合条件的离子型金属氧化物', '常见离子型金属氧化物在熔融状态含可移动离子，可按电解质处理。', [
         '熔融Na₂O、MgO含可移动离子。',
         '工业电解熔融Al₂O₃体系利用其离子导电；具体装置条件以后续课程为准。',
@@ -293,9 +293,9 @@ export const classificationDeepContent = {
     ]),
     section('电解质还可按电离程度分强、弱', '强弱看电离或离解是否近似完全，不看溶液浓度，也不看溶解度大小。', [
       item('强电解质', '在水溶液中或熔融状态下近似完全生成离子。', [
-        'HCl、HNO₃、H₂SO₄和NaOH、KOH是常见强电解质。',
-        'NaCl、KNO₃等可溶盐是强电解质；BaSO₄等难溶盐的已溶部分也完全离解。',
-      ]),
+        '强酸：HCl、HBr、HI、HNO₃、H₂SO₄、HClO₄；强碱：NaOH、KOH、Ca(OH)₂、Ba(OH)₂。',
+        '高中常见盐通常按强电解质处理；可溶盐在离子方程式中拆写，难溶盐保留化学式。',
+      ], 'HF是弱酸、弱电解质，不在强酸清单中。'),
       item('弱电解质', '在水中只部分电离，分子与离子共存并建立动态平衡。', [
         'CH₃COOH、H₂CO₃、H₃PO₄是弱酸和弱电解质。',
         'NH₃·H₂O以及H₂O是弱电解质。',
@@ -373,8 +373,10 @@ export function validateClassificationDeepContent(content = classificationDeepCo
     '酸性氧化物', '碱性氧化物', '两性氧化物', '不成盐氧化物', '过氧化物',
     '正盐', '酸式盐', '碱式盐', '可溶性盐', '难溶性盐',
     '电解质的五类常见来源', '非电解质', '强电解质', '弱电解质',
+    'HCl、HBr、HI、HNO₃、H₂SO₄、HClO₄', 'HF是弱酸',
+    '可溶盐在离子方程式中拆写，难溶盐保留化学式',
   ]) if (!serialized.includes(required)) errors.push(`缺少${required}`)
-  for (const forbidden of ['Al(OH)₃是三元碱', '所有金属氧化物都是电解质', '能导电的物质都是电解质']) {
+  for (const forbidden of ['Al(OH)₃是三元碱', '所有金属氧化物都是电解质', '能导电的物质都是电解质', 'HF是强酸']) {
     if (serialized.includes(forbidden)) errors.push(`含错误绝对化表述：${forbidden}`)
   }
   return errors

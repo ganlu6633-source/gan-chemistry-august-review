@@ -16,8 +16,11 @@ const dashboard: TeacherDashboardData = {
   dailySummary: { generatedAt: null, classQuizCount: 0, quizCompletedStudentCount: 0, quizRosterCount: 0, reviewCount: 0, interventionCount: 0 },
 }
 
+let auditGrade: '高一' | '高二' | '高三' = '高三'
+
 describe('Teacher source-question audit', () => {
   beforeEach(() => {
+    auditGrade = '高三'
     writeAccessSession({ role: 'teacher', token: 'teacher-test-token', displayName: '甘老师', expiresAt: new Date(Date.now() + 60_000).toISOString() })
     apiMocks.teacherApi.mockReset()
     apiMocks.loadQuestionAsset.mockReset()
@@ -27,8 +30,8 @@ describe('Teacher source-question audit', () => {
         page: 1, pageSize: 20, total: 1,
         questions: [{
           id: 'QH3O_SOURCE_1', mother_id: 'MH3O_SOURCE_1', skill_id: 'H3_AQ', concept_key: 'H3_AQ__C01', level: 3,
-          grade_band: '高三', stem: '原题文字辅助稿', options: ['选项甲', '选项乙', '选项丙', '选项丁'], correct_option: 1,
-          explanation: '原解析文字辅助稿', scaffold: null, review_status: 'needs_review', scope_status: 'IN', source_kind: 'licensed_local',
+          grade_band: auditGrade, stem: '原题文字辅助稿', options: ['选项甲', '选项乙', '选项丙', '选项丁'], correct_option: 1,
+          explanation: 'A：选项甲错误；B：选项乙正确；C：选项丙错误；D：选项丁错误。', scaffold: null, review_status: 'needs_review', scope_status: 'IN', source_kind: 'licensed_local',
           source_info: { title: '2025年高考化学真题分类汇编', exam: '2025·福建卷', year: 2025, questionNo: '第3题', locator: '专题10，第2页' },
           asset_refs: [
             { kind: 'question_image', path: 'opaque/source/question', alt: '原题题面', sha256: 'a'.repeat(64), width: 900, height: 500 },
@@ -61,10 +64,25 @@ describe('Teacher source-question audit', () => {
     expect(screen.getByText('文字辅助稿与答案')).toBeInTheDocument()
     expect(screen.getByText('复杂公式、结构式与装置图以原题图为准。')).toBeInTheDocument()
     expect(screen.getByText('正确答案')).toBeInTheDocument()
+    expect(document.querySelectorAll('.question-audit-analysis .answer-explanation>p')).toHaveLength(4)
     expect(screen.getByText(/不能单题修改/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '批准' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '待复核' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '停用' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '加载当时的原题图与解析图' }))
+
+    await waitFor(() => expect(apiMocks.loadQuestionAsset).toHaveBeenCalledTimes(2))
+    expect(apiMocks.loadQuestionAsset.mock.calls.map((call) => call[3])).toEqual(expect.arrayContaining(['question', 'analysis']))
+    expect(await screen.findByAltText('原题题面')).toBeInTheDocument()
+    expect(await screen.findByAltText('原题解析')).toBeInTheDocument()
+  })
+
+  it.each(['高一', '高二'] as const)('also gives the teacher both source images for %s originals', async (grade) => {
+    auditGrade = grade
+    render(<QuestionAudit dashboard={dashboard} />)
+
+    const [stem] = await screen.findAllByText('原题文字辅助稿')
+    fireEvent.click(stem.closest('summary')!)
     fireEvent.click(screen.getByRole('button', { name: '加载当时的原题图与解析图' }))
 
     await waitFor(() => expect(apiMocks.loadQuestionAsset).toHaveBeenCalledTimes(2))

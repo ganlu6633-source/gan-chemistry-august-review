@@ -38,8 +38,9 @@ describe('scientific knowledge diagrams', () => {
 
     const figure = screen.getByRole('figure', { name: '浓度平衡常数怎么写' })
     expect(figure).toHaveTextContent('aA + bB ⇌ cC + dD')
-    expect(figure.querySelector('.equilibrium-numerator')).toHaveTextContent('cc(C)·cd(D)')
-    expect(figure.querySelector('.equilibrium-denominator')).toHaveTextContent('ca(A)·cb(B)')
+    expect(figure.querySelector('.equilibrium-numerator')).toHaveTextContent('c(C)c·c(D)d')
+    expect(figure.querySelector('.equilibrium-denominator')).toHaveTextContent('c(A)a·c(B)b')
+    expect(figure.querySelector('.equilibrium-numerator .equilibrium-term')?.textContent).toBe('c(C)c')
     expect(figure.querySelector('.equilibrium-numerator')).toHaveClass('equilibrium-numerator')
     expect(figure.querySelector('.equilibrium-denominator')).toHaveClass('equilibrium-denominator')
     expect(figure).toHaveTextContent('指数对应化学计量数')

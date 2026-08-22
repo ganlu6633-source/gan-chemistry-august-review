@@ -56,6 +56,17 @@ describe('QuestionSourceMedia', () => {
     await waitFor(() => expect(ready).toHaveBeenLastCalledWith(true))
   })
 
+  it('uses neutral learner-facing image labels when source display is disabled', async () => {
+    render(<QuestionSourceMedia question={{ ...question, assetRefs: [asset('problem-asset', 'question_image', '2025年福建省质检第8题题面原图')] }} enabled session={session} showSource={false} />)
+
+    expect(screen.queryByLabelText('原题来源')).not.toBeInTheDocument()
+    expect(await screen.findByAltText('本题原题题面图')).toBeInTheDocument()
+    expect(screen.queryByAltText('2025年福建省质检第8题题面原图')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '放大查看本题原题题面图' })).toBeInTheDocument()
+    expect(screen.queryByText('查看文字辅助稿（公式、图示以原题图为准）')).not.toBeInTheDocument()
+    expect(screen.queryByText('原题逐字转写')).not.toBeInTheDocument()
+  })
+
   it('defers archived source images, expands transcription, and opens a closable zoom dialog', async () => {
     render(<QuestionSourceMedia question={{ ...question, assetRefs: [asset('problem-asset', 'source_scan', '档案中的原题图')] }} enabled session={session} deferLoad readOnly />)
     expect(loadQuestionAsset).not.toHaveBeenCalled()

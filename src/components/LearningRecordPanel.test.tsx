@@ -112,6 +112,22 @@ describe('LearningRecordPanel', () => {
     expect(within(skillCard).getByLabelText('SO4^2-').querySelector('sup')?.textContent).toBe('2-')
   })
 
+  it('keeps option-by-option explanations separated in the historical record', () => {
+    const segmentedQuestion = {
+      ...record.skills[0].recentQuestions[0],
+      explanation: 'A：空气含多种物质，错误；B：液氯只含Cl₂一种物质，正确；C：盐酸是混合物，错误；D：漂白粉是混合物，错误。',
+    }
+    const segmentedRecord = { ...record, skills: [makeSkill({ recentQuestions: [segmentedQuestion] })] }
+    render(<LearningRecordPanel record={segmentedRecord} gradeBand="高一" audience="guardian" />)
+
+    const skillCard = screen.getByText('物质的分类').closest('details')!
+    fireEvent.click(within(skillCard).getByText('物质的分类').closest('summary')!)
+    fireEvent.click(within(skillCard).getByText(/真实作答 1/).closest('summary')!)
+    const paragraphs = [...skillCard.querySelectorAll<HTMLElement>('.record-explanation .answer-explanation>p')]
+    expect(paragraphs).toHaveLength(4)
+    expect(paragraphs.map((paragraph) => paragraph.querySelector('.answer-option-label')?.textContent)).toEqual(['A', 'B', 'C', 'D'])
+  })
+
   it('shows only the historical question image without exposing source details or analysis artwork', () => {
     const originalEvidence = {
       ...makeSkill({}).recentQuestions[0],

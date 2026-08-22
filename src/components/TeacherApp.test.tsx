@@ -54,14 +54,25 @@ describe('Teacher student directory', () => {
       expectedConceptCount: 5,
       minimumQuestionsPerConcept: 3,
       minimumDifficultyLevelsPerConcept: 2,
+      maximumPreviouslyUsedPerConcept: 2,
       requiredForFiveRounds: 5,
       requiredForCrossDateNoRepeat: 10,
+      conceptDetails: [{
+        conceptKey: 'H1_REACTION_CLASSIFICATION__C03',
+        conceptTitle: '化合、分解、置换、复分解反应',
+        availableQuestions: 3,
+        requiredQuestions: 10,
+        missingQuestions: 7,
+        difficultyLevels: 2,
+      }],
       message: '当前有4个细知识点（应为5个），每个细知识点最少3道原题（当天五轮至少5道）。',
     }]} />)
 
     expect(screen.getByText('高一 · 物质转化与化学反应分类')).toBeInTheDocument()
     expect(screen.getByText('当天五轮会阻断')).toBeInTheDocument()
     expect(screen.getByText(/每个细知识点最少3道原题/)).toBeInTheDocument()
+    expect(screen.getByText('化合、分解、置换、复分解反应')).toBeInTheDocument()
+    expect(screen.getByText(/现有 3 题 · 需要 10 题 · 还差 7 题/)).toBeInTheDocument()
     expect(screen.getByText(/10名学生 · 2个计划日/)).toBeInTheDocument()
   })
 })

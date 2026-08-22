@@ -71,6 +71,19 @@
     else parent.append(value)
   }
 
+  function hasTransformableToken(value) {
+    tokenPattern.lastIndex = 0
+    let match
+    while ((match = tokenPattern.exec(value))) {
+      if (unitPattern.test(match[0]) || /\d|[+-]/.test(match[0])) {
+        tokenPattern.lastIndex = 0
+        return true
+      }
+    }
+    tokenPattern.lastIndex = 0
+    return false
+  }
+
   function formatElement(element) {
     if (element.dataset.chemNotationReady === 'true') return
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
@@ -78,8 +91,7 @@
     let node
     while ((node = walker.nextNode())) {
       if (node.parentElement?.closest('.chem-symbol')) continue
-      if (tokenPattern.test(node.nodeValue || '')) textNodes.push(node)
-      tokenPattern.lastIndex = 0
+      if (hasTransformableToken(node.nodeValue || '')) textNodes.push(node)
     }
 
     textNodes.forEach((textNode) => {

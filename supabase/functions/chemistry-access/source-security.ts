@@ -1,6 +1,6 @@
 export type SourceAssetPhase = 'question' | 'analysis'
 
-export function shouldHideLicensedHigh3Solution(row: Record<string, unknown>, reviewMode: boolean) {
+export function shouldHideLicensedHighSchoolSolution(row: Record<string, unknown>, reviewMode: boolean) {
   return reviewMode
     && ['高一', '高二', '高三'].includes(String(row.grade_band))
     && row.source_kind === 'licensed_local'
@@ -16,7 +16,11 @@ export function issuedSolutionFields(row: Record<string, unknown>, hideSolution:
 }
 
 export function issuedAssetRefs<T extends { kind: string }>(refs: T[], hideSolution: boolean) {
-  return hideSolution ? refs.filter((ref) => ref.kind !== 'analysis_image') : refs
+  // Original worked-solution scans are teacher-audit evidence, never learner
+  // content. Students and guardians receive the option-by-option text written
+  // for this system, so analysis refs are filtered even after submission.
+  void hideSolution
+  return refs.filter((ref) => ref.kind !== 'analysis_image')
 }
 
 export function matchingSourceAssetRef(
@@ -46,12 +50,7 @@ export function sourceAssetPhaseStatus(input: {
   if (input.phase !== 'question' && input.phase !== 'analysis') return 400
   const isAnalysis = input.assetKind === 'analysis_image'
   if ((input.phase === 'question' && isAnalysis) || (input.phase === 'analysis' && !isAnalysis)) return 409
-  if (
-    isAnalysis
-    && input.role !== 'teacher'
-    && !input.hasCompletedAnswer
-    && !(input.role === 'student' && input.hasLockedAnswer)
-  ) return 403
+  if (isAnalysis && input.role !== 'teacher') return 403
   return 200
 }
 

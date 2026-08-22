@@ -1,8 +1,9 @@
 import { Fragment, type ReactNode } from 'react'
 
-const AVOGADRO_TOKEN = 'N_A'
-const UNIT_EXPONENT = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?([-−]\d+)$/
-const SPECIAL_TOKEN = /(?:\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+(?:\d+)?(?:\^\d*[+-]|[+-])?)/g
+const NAMED_SUBSCRIPT_TOKEN = /(N_A|V_m|K_?(?:sp|c|p|a|b|w))/g
+const UNIT_EXPONENT = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\^?([-−]\d+)$/
+const POWER_TOKEN = /^(10|c\([A-D]\))\^([-−]?\d+|[a-d])$/
+const SPECIAL_TOKEN = /(?:\b(?:10|c\([A-D]\))\^(?:[-−]?\d+|[a-d]))|(?:\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\^?[-−]\d+)|(?:\b(?:\d+)?(?:[A-Z][a-z]?|\((?:[A-Z][a-z]?)+\d*\))+(?:\d+)?(?:\^\d*[+-]|[+-])?)/g
 
 function isFormulaToken(value: string) {
   return /\d|[+-]/.test(value)
@@ -71,20 +72,40 @@ function renderUnitToken(value: string, key: string) {
   return <span className="chem-symbol" key={key} aria-label={value}>{match[1]}<sup>{match[2].replace('-', '−')}</sup></span>
 }
 
+function renderPowerToken(value: string, key: string) {
+  const match = value.match(POWER_TOKEN)
+  if (!match) return value
+  return <span className="chem-symbol" key={key} aria-label={value}>{match[1]}<sup>{match[2].replace('-', '−')}</sup></span>
+}
+
 function renderChemistryText(value: string) {
   const children: ReactNode[] = []
   let lastIndex = 0
-  let match: RegExpExecArray | null
   let tokenIndex = 0
 
-  SPECIAL_TOKEN.lastIndex = 0
-  while ((match = SPECIAL_TOKEN.exec(value)) !== null) {
+  // A fresh matcher per ChemText call avoids sharing mutable lastIndex state
+  // across React renders.
+  for (const match of value.matchAll(new RegExp(SPECIAL_TOKEN.source, 'g'))) {
     const token = match[0]
     const unitMatch = UNIT_EXPONENT.exec(token)
-    if (!isFormulaToken(token) && !unitMatch) continue
+    const powerMatch = POWER_TOKEN.exec(token)
+    if (!isFormulaToken(token) && !unitMatch && !powerMatch) {
+      // SPECIAL_TOKEN also sees plain element symbols such as Ca. Consume that
+      // match explicitly instead of leaving it for the trailing slice. This
+      // keeps the renderer deterministic when many ChemText components render
+      // concurrently and guarantees that every regex match advances output.
+      children.push(value.slice(lastIndex, match.index))
+      children.push(token)
+      lastIndex = match.index + token.length
+      continue
+    }
 
     children.push(value.slice(lastIndex, match.index))
-    children.push(unitMatch ? renderUnitToken(token, `unit-${tokenIndex}`) : renderFormulaToken(token, `formula-${tokenIndex}`))
+    children.push(unitMatch
+      ? renderUnitToken(token, `unit-${tokenIndex}`)
+      : powerMatch
+      ? renderPowerToken(token, `power-${tokenIndex}`)
+      : renderFormulaToken(token, `formula-${tokenIndex}`))
     tokenIndex += 1
     lastIndex = match.index + token.length
   }
@@ -98,11 +119,14 @@ function renderChemistryText(value: string) {
  * text loses: formula subscripts, ionic charges, and unit exponents.
  */
 export function ChemText({ children }: { children: string }) {
-  const parts = children.split(AVOGADRO_TOKEN)
-  if (parts.length === 1) return <>{renderChemistryText(children)}</>
-
+  const parts = children.split(NAMED_SUBSCRIPT_TOKEN)
   return <>{parts.map((part, index) => <Fragment key={`${index}-${part}`}>
-    {index > 0 ? <span className="chem-symbol chem-avogadro" aria-label="N 下标 A"><span aria-hidden="true">N</span><sub aria-hidden="true">A</sub></span> : null}
-    {renderChemistryText(part)}
+    {part === 'N_A'
+      ? <span className="chem-symbol chem-avogadro" aria-label="N 下标 A"><span aria-hidden="true">N</span><sub aria-hidden="true">A</sub></span>
+      : part === 'V_m'
+      ? <span className="chem-symbol chem-molar-volume" aria-label="V 下标 m"><span aria-hidden="true">V</span><sub aria-hidden="true">m</sub></span>
+      : /^K_?(?:sp|c|p|a|b|w)$/.test(part)
+      ? <span className="chem-symbol chem-equilibrium-constant" aria-label={`K 下标 ${part.replace(/^K_?/, '')}`}><span aria-hidden="true">K</span><sub aria-hidden="true">{part.replace(/^K_?/, '')}</sub></span>
+      : renderChemistryText(part)}
   </Fragment>)}</>
 }

@@ -175,7 +175,8 @@ function shanghaiDayRange() {
   }).format(new Date(start.getTime() + offsetDays * 86400000));
   return {
     date,
-    readinessEndDate: dateKey(13),
+    // Inclusive 39-day schedule window: today plus the following 38 dates.
+    readinessEndDate: dateKey(38),
     start: start.toISOString(),
     end: new Date(start.getTime() + 86400000).toISOString(),
   };
@@ -192,7 +193,7 @@ async function dashboard() {
     admin.rpc("chem_list_guardian_contacts"),
     admin.from("chem_learning_plans").select("student_id").eq("mode", "REVIEW").gte("plan_date", "2026-08-17"),
     admin.from("chem_learning_plans")
-      .select("student_id,plan_date,skill_ids,question_count,round_limit")
+      .select("student_id,plan_date,skill_ids,target_concept_keys,question_count,round_limit")
       .eq("mode", "REVIEW")
       .gte("plan_date", dayRange.date)
       .lte("plan_date", dayRange.readinessEndDate),
@@ -234,27 +235,47 @@ async function dashboard() {
     ? await Promise.all([
       admin.from("chem_skills").select("id,title,grade_band").in("id", plannedSkillIds),
       admin.from("chem_questions")
-        .select("skill_id,concept_key,source_item_key,mother_id,level")
+        .select("skill_id,concept_key,source_item_key,content_fingerprint,mother_id,level,source_info")
         .in("skill_id", plannedSkillIds)
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
         .eq("usable_for_review", true)
         .eq("source_kind", "licensed_local")
         .eq("render_mode", "image_primary")
+        .not("source_release_id", "is", null)
         .limit(5000),
     ])
     : [{ data: [], error: null }, { data: [], error: null }];
   if (readinessSkills.error || readinessQuestions.error) throw readinessSkills.error || readinessQuestions.error;
   const skillInfo = new Map((readinessSkills.data || []).map((skill) => [String(skill.id), skill]));
-  const conceptPools = new Map<string, Map<string, { sources: Set<string>; levels: Set<number> }>>();
+  const sourceUsage = activeFormalHighSchoolIds.size
+    ? await admin.rpc("chem_review_source_usage_counts", { p_student_ids: [...activeFormalHighSchoolIds] })
+    : { data: [], error: null };
+  if (sourceUsage.error) throw sourceUsage.error;
+  const usedCountByStudentConcept = new Map((sourceUsage.data || []).map((row) => [
+    `${String(row.student_id)}:${String(row.concept_key)}`,
+    Number(row.used_count) || 0,
+  ]));
+  type ConceptPool = { sources: Set<string>; fingerprints: Set<string>; mothers: Set<string>; levels: Set<number>; title: string };
+  const conceptPools = new Map<string, Map<string, ConceptPool>>();
   for (const question of readinessQuestions.data || []) {
     const skillId = String(question.skill_id || "");
     const conceptKey = String(question.concept_key || "");
-    const sourceKey = String(question.source_item_key || question.mother_id || "");
-    if (!skillId || !conceptKey || !sourceKey) continue;
-    const byConcept = conceptPools.get(skillId) || new Map<string, { sources: Set<string>; levels: Set<number> }>();
-    const pool = byConcept.get(conceptKey) || { sources: new Set<string>(), levels: new Set<number>() };
+    const sourceKey = String(question.source_item_key || "");
+    const fingerprint = String(question.content_fingerprint || "");
+    const motherId = String(question.mother_id || "");
+    if (!skillId || !conceptKey || !sourceKey || !fingerprint || !motherId) continue;
+    const byConcept = conceptPools.get(skillId) || new Map<string, ConceptPool>();
+    const sourceInfo = question.source_info && typeof question.source_info === "object"
+      ? question.source_info as Record<string, unknown>
+      : {};
+    const pool = byConcept.get(conceptKey) || {
+      sources: new Set<string>(), fingerprints: new Set<string>(), mothers: new Set<string>(), levels: new Set<number>(),
+      title: String(sourceInfo.conceptLabel || conceptKey),
+    };
     pool.sources.add(sourceKey);
+    pool.fingerprints.add(fingerprint);
+    pool.mothers.add(motherId);
     if (Number.isFinite(Number(question.level))) pool.levels.add(Number(question.level));
     byConcept.set(conceptKey, pool);
     conceptPools.set(skillId, byConcept);
@@ -262,49 +283,89 @@ async function dashboard() {
   const plannedSkillStats = new Map<string, {
     students: Set<string>;
     dates: Set<string>;
-    visitsByStudent: Map<string, number>;
+    visitsByStudentConcept: Map<string, number>;
+    targetConcepts: Set<string>;
     expectedConceptCount: number;
     roundLimit: number;
   }>();
   for (const plan of readinessRows) {
     const studentId = String(plan.student_id);
     const skillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map((skillId) => String(skillId)).filter(Boolean) : [];
+    const explicitTargets = Array.isArray(plan.target_concept_keys)
+      ? plan.target_concept_keys.map((conceptKey) => String(conceptKey)).filter(Boolean)
+      : [];
     for (const skillId of skillIds) {
       const stat = plannedSkillStats.get(skillId) || {
-        students: new Set<string>(), dates: new Set<string>(), visitsByStudent: new Map<string, number>(),
+        students: new Set<string>(), dates: new Set<string>(), visitsByStudentConcept: new Map<string, number>(),
+        targetConcepts: new Set<string>(),
         expectedConceptCount: 5, roundLimit: 5,
       };
       stat.students.add(studentId);
       stat.dates.add(String(plan.plan_date));
-      stat.visitsByStudent.set(studentId, (stat.visitsByStudent.get(studentId) || 0) + 1);
-      stat.expectedConceptCount = Math.max(stat.expectedConceptCount, Number(plan.question_count) || 5);
+      const skillTargets = explicitTargets.filter((conceptKey) => conceptKey.startsWith(`${skillId}__`));
+      if (explicitTargets.length) {
+        for (const conceptKey of skillTargets) {
+          stat.targetConcepts.add(conceptKey);
+          const visitKey = `${studentId}:${conceptKey}`;
+          stat.visitsByStudentConcept.set(visitKey, (stat.visitsByStudentConcept.get(visitKey) || 0) + 1);
+        }
+      } else {
+        const visitKey = `${studentId}:*`;
+        stat.visitsByStudentConcept.set(visitKey, (stat.visitsByStudentConcept.get(visitKey) || 0) + 1);
+        stat.expectedConceptCount = Math.max(stat.expectedConceptCount, Number(plan.question_count) || 5);
+      }
       stat.roundLimit = Math.max(stat.roundLimit, Number(plan.round_limit) || 5);
       plannedSkillStats.set(skillId, stat);
     }
   }
   const sourcePoolWarnings = [...plannedSkillStats.entries()].flatMap(([skillId, stat]) => {
-    const pools = [...(conceptPools.get(skillId)?.values() || [])];
-    const counts = pools.map((pool) => pool.sources.size);
-    const difficultyLevelCounts = pools.map((pool) => pool.levels.size);
-    const conceptCount = counts.length;
-    const minimumQuestionsPerConcept = counts.length ? Math.min(...counts) : 0;
-    const minimumDifficultyLevelsPerConcept = difficultyLevelCounts.length ? Math.min(...difficultyLevelCounts) : 0;
-    const maxVisitsPerStudent = Math.max(0, ...stat.visitsByStudent.values());
+    const byConcept = conceptPools.get(skillId) || new Map<string, ConceptPool>();
+    const allPools = [...byConcept.values()];
+    const availableCount = (pool: ConceptPool) => Math.min(pool.sources.size, pool.fingerprints.size, pool.mothers.size);
+    const allCounts = allPools.map(availableCount);
+    const allDifficultyLevelCounts = allPools.map((pool) => pool.levels.size);
+    const conceptCount = byConcept.size;
+    const minimumQuestionsPerConcept = allCounts.length ? Math.min(...allCounts) : 0;
+    const minimumDifficultyLevelsPerConcept = allDifficultyLevelCounts.length ? Math.min(...allDifficultyLevelCounts) : 0;
+    const maxVisitsPerStudent = Math.max(0, ...stat.visitsByStudentConcept.values());
     const requiredForFiveRounds = stat.roundLimit;
-    const requiredForCrossDateNoRepeat = stat.roundLimit * maxVisitsPerStudent;
+    const relevantConceptKeys = stat.targetConcepts.size ? [...stat.targetConcepts] : [...byConcept.keys()];
+    let maximumPreviouslyUsedPerConcept = 0;
+    let requiredForCrossDateNoRepeat = 0;
+    const requiredByConcept = new Map<string, number>();
+    for (const studentId of stat.students) {
+      for (const conceptKey of relevantConceptKeys) {
+        const visits = stat.visitsByStudentConcept.get(`${studentId}:${conceptKey}`)
+          ?? stat.visitsByStudentConcept.get(`${studentId}:*`)
+          ?? 0;
+        const previouslyUsed = usedCountByStudentConcept.get(`${studentId}:${conceptKey}`) || 0;
+        maximumPreviouslyUsedPerConcept = Math.max(maximumPreviouslyUsedPerConcept, previouslyUsed);
+        const required = previouslyUsed + stat.roundLimit * visits;
+        requiredByConcept.set(conceptKey, Math.max(requiredByConcept.get(conceptKey) || 0, required));
+        requiredForCrossDateNoRepeat = Math.max(requiredForCrossDateNoRepeat, required);
+      }
+    }
+    const conceptDetails = relevantConceptKeys.map((conceptKey) => {
+      const pool = byConcept.get(conceptKey) || { sources: new Set<string>(), fingerprints: new Set<string>(), mothers: new Set<string>(), levels: new Set<number>(), title: conceptKey };
+      const requiredQuestions = requiredByConcept.get(conceptKey) || requiredForFiveRounds;
+      const availableQuestions = availableCount(pool);
+      return {
+        conceptKey,
+        conceptTitle: pool.title,
+        availableQuestions,
+        requiredQuestions,
+        missingQuestions: Math.max(0, requiredQuestions - availableQuestions),
+        difficultyLevels: pool.levels.size,
+      };
+    });
     const isBlocking = conceptCount !== stat.expectedConceptCount || minimumQuestionsPerConcept < requiredForFiveRounds;
-    const lacksDifficultyProgression = conceptCount === stat.expectedConceptCount && minimumDifficultyLevelsPerConcept < 2;
-    const lacksCrossDateCapacity = minimumQuestionsPerConcept < requiredForCrossDateNoRepeat;
-    if (!isBlocking && !lacksDifficultyProgression && !lacksCrossDateCapacity) return [];
+    const lacksDifficultyProgression = conceptCount === stat.expectedConceptCount && minimumDifficultyLevelsPerConcept < 3;
+    const lacksCrossDateCapacity = conceptDetails.some((detail) => detail.missingQuestions > 0);
     const info = skillInfo.get(skillId);
     const skillTitle = String(info?.title || skillId);
     const gradeBand = String(info?.grade_band || "高一");
-    return [{
-      id: `${gradeBand}:${skillId}`,
-      gradeBand,
-      skillId,
-      skillTitle,
-      severity: isBlocking ? "blocking" : lacksDifficultyProgression ? "progression" : "capacity",
+    const shared = {
+      gradeBand, skillId, skillTitle,
       plannedStudentCount: stat.students.size,
       plannedDateCount: stat.dates.size,
       maxVisitsPerStudent,
@@ -312,14 +373,31 @@ async function dashboard() {
       expectedConceptCount: stat.expectedConceptCount,
       minimumQuestionsPerConcept,
       minimumDifficultyLevelsPerConcept,
+      maximumPreviouslyUsedPerConcept,
       requiredForFiveRounds,
       requiredForCrossDateNoRepeat,
-      message: isBlocking
-        ? `未来14天计划会用到“${skillTitle}”，当前有${conceptCount}个细知识点（应为${stat.expectedConceptCount}个），每个细知识点最少${minimumQuestionsPerConcept}道原题（当天五轮至少${requiredForFiveRounds}道）。未补足前系统必须停止下发。`
-        : lacksDifficultyProgression
-        ? `“${skillTitle}”当前至少有一个细知识点的原题全部处在同一难度，答对后无法真正升级。请补充或重新核定该细点的基础题与提高题。`
-        : `未来14天同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；若跨日也完全不重复，每个细知识点需${requiredForCrossDateNoRepeat}道原题，当前最少${minimumQuestionsPerConcept}道，还差${Math.max(0, requiredForCrossDateNoRepeat - minimumQuestionsPerConcept)}道。`,
-    }];
+      conceptDetails,
+    };
+    const warnings = [];
+    if (isBlocking) warnings.push({
+      ...shared,
+      id: `${gradeBand}:${skillId}:blocking`,
+      severity: "blocking",
+      message: `未来40天计划会用到“${skillTitle}”，当前有${conceptCount}个细知识点（应为${stat.expectedConceptCount}个），每个细知识点最少${minimumQuestionsPerConcept}道原题（当天五轮至少${requiredForFiveRounds}道）。未补足前系统必须停止下发。`,
+    });
+    if (lacksCrossDateCapacity) warnings.push({
+      ...shared,
+      id: `${gradeBand}:${skillId}:capacity`,
+      severity: "capacity",
+      message: `未来40天同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；已做原题也计入占用。按跨日完全不重复口径，缺口细知识点最多需${requiredForCrossDateNoRepeat}道原题（已有学生最多用过${maximumPreviouslyUsedPerConcept}道）。下面逐项列出实际缺口。`,
+    });
+    if (lacksDifficultyProgression) warnings.push({
+      ...shared,
+      id: `${gradeBand}:${skillId}:progression`,
+      severity: "progression",
+      message: `“${skillTitle}”当前至少有一个细知识点不足基础、提高、综合三个难度层级，答对后无法稳定升级。请补充或重新核定该细点的分层原题。`,
+    });
+    return warnings;
   }).sort((a, b) => {
     const rank = (value: string) => value === "blocking" ? 0 : value === "progression" ? 1 : 2;
     return rank(a.severity) === rank(b.severity)
