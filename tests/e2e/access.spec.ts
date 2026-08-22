@@ -294,21 +294,13 @@ test('forgotten code can be reset with a private recovery phrase', async ({ page
   await expect(panel).toContainText('不要使用身份证号、生日、手机号')
 })
 
-test('public High-3 demo stays on the safe teacher-authored pool and never requests licensed assets', async ({ page }) => {
+test('public High-3 demo refuses unsourced questions and never requests licensed assets', async ({ page }) => {
   const sourceActions: string[] = []
-  const demoQuestion = {
-    id: 'e2e-high3-demo-q1', motherId: 'e2e-high3-demo-m1', skillId: 'H3_STOICH', level: 3, gradeBand: '高三',
-    stem: '某反应中各物质的量关系如下，选择符合守恒关系的一项。', options: ['安全演示选项甲', '安全演示选项乙', '安全演示选项丙', '安全演示选项丁'],
-    correctOption: 0, explanation: '先依据题设写出守恒关系，再完成计算。',
-    reviewStatus: 'approved', scopeStatus: 'IN', sourceKind: 'teacher_original', renderMode: 'native', revisionToken: 'e2e-demo-revision',
-    assetRefs: [],
-  }
   await page.route('**/functions/v1/chemistry-access', async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fallback()
     const body = route.request().postDataJSON() as { action: string; data?: { planId?: string } }
     if (body.action === 'start_plan' && body.data?.planId?.startsWith('高三-')) {
-      const plan = { ...reviewPlans[0], id: body.data.planId, studentId: 'demo-高三', mode: 'REVIEW', title: '高三安全演示复习', skillIds: ['H3_STOICH'], knowledgeSummaries: ['化学计量'], attemptCount: 1 }
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ payload: { plan, cards: [], questions: [demoQuestion], attemptSequence: 1, roundNumber: 2, roundLimit: 5, questionCount: 1, isResolved: false, isComplete: false, roundsRemaining: 4 } }) })
+      await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: '公开演示不再下发无材料来源的模拟题。请由甘老师从教师后台预览正式学生原题。' }) })
       return
     }
     if (body.action === 'question_asset' || body.action === 'question_feedback') {
@@ -328,19 +320,12 @@ test('public High-3 demo stays on the safe teacher-authored pool and never reque
   await page.getByRole('button', { name: '高三' }).click()
   await page.locator('.focus-card .primary-button').click()
 
-  await expect(page.getByRole('heading', { name: demoQuestion.stem })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('公开演示不再下发无材料来源的模拟题')
+  await expect(page.locator('.question-card')).toHaveCount(0)
   await expect(page.locator('.source-letter-options')).toHaveCount(0)
   await expect(page.getByText('2025年福建省质检')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  expect(await page.locator('.question-card').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-
-  await page.getByRole('button', { name: 'A. 安全演示选项甲' }).click()
-  await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.getByRole('button', { name: '提交答案' }).click()
-  await expect(page.locator('.answer-feedback')).toContainText('先依据题设写出守恒关系')
   expect(sourceActions).toEqual([])
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('student code routes to student experience without guardian entry', async ({ page }) => {
@@ -467,12 +452,19 @@ test('demo student can switch among all three high-school grades without writing
     const body = request.postDataJSON() as { action?: string; data?: { studentId?: string } }
     if (body.action === 'start_plan' && body.data?.studentId) startedFor.push(body.data.studentId)
   })
+  await page.route('**/functions/v1/chemistry-access', async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fallback()
+    const body = route.request().postDataJSON() as { action?: string }
+    if (body.action !== 'start_plan') return route.fallback()
+    await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: '公开演示不再下发无材料来源的模拟题。请由甘老师从教师后台预览正式学生原题。' }) })
+  })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('演示学生')
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   const switcher = page.getByLabel('切换演示年级')
-  await expect(switcher).toContainText('演示练习不会写入任何真实学生档案')
+  await expect(switcher).toContainText('公开演示不再提供无材料来源的模拟题')
+  await expect(switcher).toContainText('正式原题请由甘老师从教师后台选择真实学生并只读预览')
   const mapExpectations = { 高一: { nodes: 9, edges: 8, title: '高一化学基础主干' }, 高二: { nodes: 8, edges: 7, title: '选择性必修一·反应原理地图' }, 高三: { nodes: 11, edges: 11, title: '高考化学综合能力地图' } } as const
   for (const grade of ['高二', '高三', '高一'] as const) {
     await switcher.getByRole('button', { name: grade }).click()
@@ -490,8 +482,8 @@ test('demo student can switch among all three high-school grades without writing
     await expect(page.locator('.ability-atlas')).not.toContainText(/H[123][-_]/)
     await page.getByRole('button', { name: '今天', exact: true }).click()
     await page.locator('.focus-card').getByRole('button', { name: /开始第一轮/ }).click()
-    await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
-    await page.getByRole('button', { name: '稍后再学' }).click()
+    await expect(page.getByRole('alert')).toContainText('公开演示不再下发无材料来源的模拟题')
+    await expect(page.locator('.question-card')).toHaveCount(0)
   }
   expect(startedFor).toEqual(['demo-高二', 'demo-高三', 'demo-高一'])
   await expect(page.getByRole('button', { name: '账户设置' })).toHaveCount(0)

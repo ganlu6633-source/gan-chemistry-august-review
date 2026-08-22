@@ -37,11 +37,11 @@ describe('high-school source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('analysisAssetRefs: []')
   })
 
-  it('keeps public high-school demos on a separate teacher-authored pool with no licensed asset or feedback access', () => {
+  it('fails public high-school question demos closed and exposes originals only through authenticated real-student preview', () => {
     expect(accessFunction).toContain('const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW"')
     expect(accessFunction).toContain('if (demoHighSchoolReview)')
-    expect(accessFunction).toContain('.eq("source_kind", "teacher_original")')
-    expect(accessFunction).toContain('.eq("usable_for_demo", true)')
+    expect(accessFunction).toContain('公开演示不再下发无材料来源的模拟题')
+    expect(accessFunction).not.toContain('eligibleQuestions = eligibleQuestions\n      .eq("source_kind", "teacher_original")\n      .eq("usable_for_demo", true)')
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true)')
     expect(accessFunction).toContain('demoProfile && historical.sourceKind === "licensed_local"')
     expect(accessFunction).toContain('演示账号不提供本地授权原题或解析图片')

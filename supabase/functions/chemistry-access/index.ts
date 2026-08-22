@@ -971,13 +971,11 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   }
   const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
   if (demoHighSchoolReview) {
-    // Public demo identities never enumerate copyrighted local originals or
-    // their private asset identifiers. They use a separately approved,
-    // teacher-authored demo pool with ordinary local feedback. This pool is
-    // deliberately independent of the production usable_for_review flag.
-    eligibleQuestions = eligibleQuestions
-      .eq("source_kind", "teacher_original")
-      .eq("usable_for_demo", true);
+    // A public demo must neither expose licensed local originals nor fall back
+    // to synthetic questions that a learner could mistake for source originals.
+    // Exact source questions are available only through a real student plan or
+    // the authenticated teacher preview of that real student.
+    throw new RequestError(422, "公开演示不再下发无材料来源的模拟题。请由甘老师从教师后台预览正式学生原题。");
   } else {
     eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true);
     if (plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band))) {
