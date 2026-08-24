@@ -1,7 +1,5 @@
--- Candidate only: source-release architecture for a High-1 replacement that
--- retains the current 175 verified originals and adds at least 36 more.
--- This file contains no question content and must not be deployed until a
--- complete hash-bound content migration has passed visual QA.
+-- Production contract for cumulative High-1 source-backed REVIEW releases.
+-- Content payloads remain in the private deployment package.
 begin;
 
 alter table app_private.chem_question_source_releases

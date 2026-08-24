@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import candidate from '../../supabase/candidates/20260823023000_restore_today_funded_review_packages.sql?raw'
+import candidate from '../../supabase/migrations/20260823023000_restore_today_funded_review_packages.sql?raw'
 
 describe('2026-08-23 funded REVIEW restore contract', () => {
   it('changes only the exact formal REVIEW date and refuses started work', () => {

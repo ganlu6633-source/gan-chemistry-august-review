@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import candidate from '../../supabase/candidates/20260823014500_rebudget_unstarted_review_suffix.sql?raw'
+import candidate from '../../supabase/migrations/20260823014500_rebudget_unstarted_review_suffix.sql?raw'
 
 describe('runtime REVIEW suffix re-budget contract', () => {
   it('uses a private, non-conflicting function and documents the caller transaction contract', () => {
@@ -192,8 +192,8 @@ describe('runtime REVIEW suffix re-budget contract', () => {
     expect(feed).not.toMatch(/question_(?:id|content)|correct_option|selected_option|access_code|phone/i)
   })
 
-  it('is candidate-only and grants execution only to the server role', () => {
-    expect(candidate).toContain('CANDIDATE ONLY')
+  it('audits the deployed migration and grants execution only to the server role', () => {
+    expect(candidate).toContain('Applied server-side suffix re-budgeter')
     expect(candidate).toContain('security definer')
     expect(candidate).toContain("set search_path = ''")
     expect(candidate).toContain('from public, anon, authenticated')

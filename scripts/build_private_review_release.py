@@ -620,10 +620,17 @@ def normalize_row(
     analysis_asset, analysis_input_path = prepare_asset(item, "teacher_analysis_image", validate_only=validate_only)
     fingerprint, fingerprint_contract = content_fingerprint(qtype, stem, options)
     input_render_mode = str(first(row, "render_mode", default="image_primary")).strip()
-    # This builder always emits a verified question image and makes that
-    # original source crop authoritative.  ``source_crop_exact`` is an older
-    # local audit label, not a value accepted by the production table.
+    # This builder always emits a verified question image.  The image may be a
+    # sanitized source crop or a teacher-verified exact reflow of the registered
+    # source; the private provenance records which path was used.
     render_mode = "image_primary"
+    asset_build_mode = str(first(row, "asset_build_mode", default="")).strip()
+    if asset_build_mode == "clean_exact_reflow":
+        transcription_policy = "teacher_verified_exact_reflow_of_registered_source"
+    elif asset_build_mode == "source_crop_sanitized":
+        transcription_policy = "source_crop_sanitized"
+    else:
+        transcription_policy = "source_image_authoritative"
     mother_id = f"M{grade_code}O_{source_item_key[:24].upper()}"
 
     # Asset paths are opaque database identifiers; MIME type is stored apart.
@@ -665,8 +672,8 @@ def normalize_row(
         "year": "审定版",
         "questionNo": "原题",
         "locator": "教师私有来源映射",
-        "transcriptionPolicy": "source_image_authoritative",
-        "optionTranscriptionPolicy": "source_image_authoritative",
+        "transcriptionPolicy": transcription_policy,
+        "optionTranscriptionPolicy": transcription_policy,
         "transcriptionAuditMethod": "manual_full_visual_and_science_review",
         "sourcePairingStatus": "SOURCE_NATIVE_PAIR",
         "sourceMarkerStyle": "plain_answer_analysis",
@@ -682,6 +689,7 @@ def normalize_row(
             "analysis_image_input_path": analysis_input_path,
             "analysis_image_source_sha256": analysis_asset.source_sha256,
             "input_render_mode": input_render_mode,
+            "asset_build_mode": asset_build_mode or "legacy_unspecified",
             "release_generation_namespace": generation_namespace,
         }
     )

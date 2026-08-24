@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
 import candidate from '../../supabase/candidates/20260823021500_h1_expanded_source_release_contract.sql?raw'
+import deployed from '../../supabase/migrations/20260824152000_h1_expanded_source_release_contract.sql?raw'
 
 describe('High-1 expanded source-release architecture', () => {
+  it('deploys the exact audited contract and accepts only the three audited rendering policies', () => {
+    expect(deployed.slice(deployed.indexOf('begin;'))).toBe(candidate.slice(candidate.indexOf('begin;')))
+    expect(candidate).toContain("'source_image_authoritative'")
+    expect(candidate).toContain("'teacher_verified_exact_reflow_of_registered_source'")
+    expect(candidate).toContain("'source_crop_sanitized'")
+  })
+
   it('admits only legacy High-1 totals or a replacement with at least 36 additions', () => {
     expect(candidate).toContain('expected_question_count in (125,175)')
     expect(candidate).toContain('expected_question_count between 211 and 275')

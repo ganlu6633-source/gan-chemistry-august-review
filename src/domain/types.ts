@@ -43,7 +43,11 @@ export interface QuestionSourceInfo {
   year?: string | number | null
   questionNo: string
   locator: string
-  transcriptionPolicy?: 'verbatim_normalized' | 'source_image_authoritative'
+  transcriptionPolicy?:
+    | 'verbatim_normalized'
+    | 'source_image_authoritative'
+    | 'teacher_verified_exact_reflow_of_registered_source'
+    | 'source_crop_sanitized'
 }
 
 export interface QuestionAssetRef {

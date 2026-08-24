@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import migration from '../../supabase/candidates/20260823002000_review_daily_cap_and_next_day_personalization.sql?raw'
-import suffixRebudget from '../../supabase/candidates/20260823014500_rebudget_unstarted_review_suffix.sql?raw'
+import migration from '../../supabase/migrations/20260823002000_review_daily_cap_and_next_day_personalization.sql?raw'
+import suffixRebudget from '../../supabase/migrations/20260823014500_rebudget_unstarted_review_suffix.sql?raw'
 
 function section(start: string, end: string) {
   const startIndex = migration.indexOf(start)
