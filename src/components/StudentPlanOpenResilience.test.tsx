@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { KnowledgeCard, LearningPlanDay, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
@@ -52,6 +53,79 @@ describe('StudentApp plan opening resilience', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('prefetches today once and reuses the same in-flight request when clicked', async () => {
+    let resolveRequest: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolveRequest = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderStudent()
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const prefetchedRequest = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(prefetchedRequest).toMatchObject({ action: 'start_plan', data: { planId: plan.id } })
+
+    fireEvent.click(screen.getByRole('button', { name: /开始第一轮/ }))
+    const overlay = document.querySelector('.plan-opening-overlay')
+    expect(overlay).toBeInTheDocument()
+    expect(overlay).toHaveTextContent('已经收到点击')
+    expect(overlay).toHaveTextContent('页面没有卡住')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => { resolveRequest?.(jsonResponse({ payload: payload(1) })) })
+    expect(await screen.findByRole('heading', { name: '氧化还原知识卡' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not duplicate the today prefetch during StrictMode effect replay', async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StrictMode><StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} /></StrictMode>)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 10)) })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a failed prefetch silent and retries only after the student clicks', async () => {
+    let rejectPrefetch: ((reason: Error) => void) | undefined
+    let resolveRetry: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((_resolve, reject) => { rejectPrefetch = reject }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveRetry = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderStudent()
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await act(async () => { rejectPrefetch?.(new Error('prefetch failed')); await Promise.resolve() })
+    expect(document.querySelector('.plan-opening-overlay')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /开始第一轮/ }))
+    expect(document.querySelector('.plan-opening-overlay')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await act(async () => { resolveRetry?.(jsonResponse({ payload: payload(1) })) })
+    expect(await screen.findByRole('heading', { name: '氧化还原知识卡' })).toBeInTheDocument()
+  })
+
+  it('does not prefetch a future fallback or a write-producing junior session', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined))
+    vi.stubGlobal('fetch', fetchMock)
+    const tomorrow = new Date(`${today}T12:00:00+08:00`)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowText = tomorrow.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    const futureDashboard = { ...dashboard, plans: [{ ...plan, id: 'future-plan', date: tomorrowText }] }
+    const juniorDashboard = { ...dashboard, plans: [{ ...plan, deliveryMode: 'junior_adaptive' as const }] }
+
+    const futureView = render(<StudentApp session={session} initialDashboard={futureDashboard} onDashboard={vi.fn()} />)
+    await act(async () => { await Promise.resolve() })
+    expect(fetchMock).not.toHaveBeenCalled()
+    futureView.unmount()
+    render(<StudentApp session={session} initialDashboard={juniorDashboard} onDashboard={vi.fn()} />)
+    await act(async () => { await Promise.resolve() })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('shows timed progress immediately, stops safely after 15 seconds, and retries only after a click', async () => {

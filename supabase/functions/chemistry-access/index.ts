@@ -214,16 +214,20 @@ function hasRequiredReviewSourceAssets(value: unknown) {
     && refs.some((ref) => ref.kind === "analysis_image");
 }
 
-async function activeVerifiedSourceReleaseId(gradeBand: string) {
-  const result = await supabase.rpc("chem_active_verified_source_releases");
-  if (result.error) throw result.error;
-  const matching = ((result.data || []) as Array<Record<string, unknown>>).filter((row) =>
+function verifiedSourceReleaseId(rows: Array<Record<string, unknown>>, gradeBand: string) {
+  const matching = rows.filter((row) =>
     String(row.grade_band) === gradeBand && validUuid(String(row.source_release_id || ""))
   );
   if (matching.length !== 1) {
     throw new RequestError(422, `${gradeBand}当前必须且只能有一个已完成全量图像核验的正式原题版本，已停止下发并通知甘老师。`);
   }
   return String(matching[0].source_release_id);
+}
+
+async function activeVerifiedSourceReleaseId(gradeBand: string) {
+  const result = await supabase.rpc("chem_active_verified_source_releases");
+  if (result.error) throw result.error;
+  return verifiedSourceReleaseId((result.data || []) as Array<Record<string, unknown>>, gradeBand);
 }
 
 function matchingRawAssetRef(
@@ -1237,10 +1241,12 @@ type StartPlanOptions = {
   allowCompletedPreview?: boolean;
   previewRound?: number;
   includeAnswerLocks?: boolean;
+  /** Student start_plan derives demo/read-only rules from the profile fetched below. */
+  studentOpen?: boolean;
 };
 
 async function startPlanPayload(studentId: string, planId: string, options: StartPlanOptions = {}) {
-  const [planResult, gradeResult] = await Promise.all([
+  const [planResult, gradeResult, sourceReleasesResult] = await Promise.all([
     supabase
       .from("chem_learning_plans")
       .select("*")
@@ -1248,11 +1254,22 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       .eq("student_id", studentId)
       .single(),
     supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single(),
+    // This query does not depend on the student's grade. Starting it with the
+    // plan/profile fetch removes one cross-region round trip for high-school REVIEW.
+    supabase.rpc("chem_active_verified_source_releases"),
   ]);
   const { data: plan, error: planError } = planResult;
   if (planError) throw planError;
   if (gradeResult.error) throw gradeResult.error;
   const demoProfile = (gradeResult.data.metadata as Record<string, unknown> | null)?.demo === true;
+  const effectiveOptions: StartPlanOptions = options.studentOpen
+    ? demoProfile
+      ? { ...options, allowCompletedPreview: true, includeAnswerLocks: false }
+      : { ...options, allowCompletedPreview: false, includeAnswerLocks: true }
+    : options;
+  if (options.studentOpen && !demoProfile && options.previewRound !== undefined) {
+    throw new RequestError(403, "真实学习记录不能指定练习轮次。");
+  }
   const reviewProfile = { gradeBand: String(gradeResult.data.grade_band), isDemo: demoProfile };
   const skillIds: string[] = Array.isArray(plan.skill_ids)
     ? (plan.skill_ids as unknown[]).map((skillId) => String(skillId)).filter(Boolean)
@@ -1263,12 +1280,13 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const highSchoolReview = plan.mode === "REVIEW"
     && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
   const formalHighSchoolReview = isFormalHighSchoolReview(formalReviewContext(plan, reviewProfile));
+  if (highSchoolReview && sourceReleasesResult.error) throw sourceReleasesResult.error;
   const activeSourceReleaseId = highSchoolReview
-    ? await activeVerifiedSourceReleaseId(reviewProfile.gradeBand)
+    ? verifiedSourceReleaseId((sourceReleasesResult.data || []) as Array<Record<string, unknown>>, reviewProfile.gradeBand)
     : null;
   if (
     formalHighSchoolReview
-    && options.includeAnswerLocks
+    && effectiveOptions.includeAnswerLocks
     && String(plan.plan_date || "") > shanghaiDate()
   ) {
     throw new RequestError(409, "后续日期的正式复习尚未开放，请在计划当天进入。先完成今天的题组后，系统会据此调整下一步。");
@@ -1298,7 +1316,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       throw new RequestError(422, "当天学习模块包含没有对应细知识点的项目，已停止下发并通知甘老师。");
     }
   }
-  if (options.previewRound !== undefined && (!Number.isInteger(options.previewRound) || options.previewRound < 1 || options.previewRound > roundLimit)) {
+  if (effectiveOptions.previewRound !== undefined && (!Number.isInteger(effectiveOptions.previewRound) || effectiveOptions.previewRound < 1 || effectiveOptions.previewRound > roundLimit)) {
     throw new RequestError(400, `预览轮次必须在 1—${roundLimit} 之间。`);
   }
   const questionUsageColumn = plan.mode === "CLASS_QUIZ"
@@ -1491,7 +1509,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   }
   const isResolved = latestConceptsAtMaximumDifficulty(latestAnswers, questionPool, questionCount);
   const reachedRoundLimit = actualAttemptCount >= roundLimit;
-  if (!options.allowCompletedPreview && (reachedRoundLimit || isResolved)) {
+  if (!effectiveOptions.allowCompletedPreview && (reachedRoundLimit || isResolved)) {
     throw new RequestError(
       409,
       isResolved
@@ -1500,16 +1518,16 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     );
   }
 
-  const completedPreview = Boolean(options.allowCompletedPreview && actualAttemptCount > 0 && (reachedRoundLimit || isResolved));
-  const selectionSequence = options.previewRound !== undefined
-    ? options.previewRound - 1
+  const completedPreview = Boolean(effectiveOptions.allowCompletedPreview && actualAttemptCount > 0 && (reachedRoundLimit || isResolved));
+  const selectionSequence = effectiveOptions.previewRound !== undefined
+    ? effectiveOptions.previewRound - 1
     : completedPreview
       ? Math.max(0, Math.min(actualAttemptCount, roundLimit) - 1)
       : Math.min(actualAttemptCount, roundLimit - 1);
   const roundNumber = selectionSequence + 1;
   let selectionHistory: SourceAdaptiveHistory[] = historyRows;
   let adaptiveQuestions: SourceAdaptiveQuestion[] = [];
-  if (options.previewRound !== undefined) {
+  if (effectiveOptions.previewRound !== undefined) {
     // Preview/demo answers are intentionally not stored. Reconstruct every
     // preceding preview round as virtual unresolved evidence so rounds 2-5
     // still contain completely different questions and mother questions.
@@ -1567,7 +1585,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     );
   }
   let lockedFeedback: Array<Record<string, unknown>> = [];
-  if (options.includeAnswerLocks && plan.mode === "REVIEW") {
+  if (effectiveOptions.includeAnswerLocks && plan.mode === "REVIEW") {
     const securedIds = adaptiveQuestions
       .filter((question) => isLicensedHighSchoolQuestion(question))
       .map((question) => String(question.id));
@@ -2180,14 +2198,8 @@ Deno.serve(async (req: Request) => {
       const planId = String(body.data?.planId || "");
       if (!planId) return reply(req, { error: "学习计划信息不完整。" }, 400);
       const previewRound = body.data?.previewRound === undefined ? undefined : Number(body.data.previewRound);
-      const demo = await isDemoStudent(targetId);
-      if (previewRound !== undefined && !demo) return reply(req, { error: "真实学习记录不能指定练习轮次。" }, 403);
       return reply(req, {
-        payload: await startPlanPayload(
-          targetId,
-          planId,
-          demo ? { allowCompletedPreview: true, previewRound } : { includeAnswerLocks: true },
-        ),
+        payload: await startPlanPayload(targetId, planId, { studentOpen: true, previewRound }),
       });
     }
 

@@ -63,7 +63,11 @@ describe('formal REVIEW daily-package contract', () => {
     expect(accessSource).toContain('正式复习当天必须明确配置 ${questionCount} 个细知识点')
     expect(accessSource).toContain('String(plan.plan_date || "") > shanghaiDate()')
     expect(accessSource).toContain('后续日期的正式复习尚未开放')
-    expect(accessSource.match(/: \{ includeAnswerLocks: true \}/g)).toHaveLength(3)
+    expect(accessSource).toContain('{ ...options, allowCompletedPreview: true, includeAnswerLocks: false }')
+    expect(accessSource).toContain('{ ...options, allowCompletedPreview: false, includeAnswerLocks: true }')
+    expect(accessSource).toContain('{ studentOpen: true, previewRound }')
+    expect(accessSource).toContain('&& effectiveOptions.includeAnswerLocks')
+    expect(accessSource).toContain('if (effectiveOptions.includeAnswerLocks && plan.mode === "REVIEW")')
     expect(accessSource).toContain('never touches independent quizzes')
   })
 

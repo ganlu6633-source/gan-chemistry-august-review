@@ -59,6 +59,14 @@ describe('high-school source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('return reply(req, { dashboard: await studentDashboard(targetId), achievements: [], simulated: true })')
   })
 
+  it('derives student plan-open permissions from the already-fetched profile and overlaps the current release check', () => {
+    expect(accessFunction).toContain('studentOpen?: boolean')
+    expect(accessFunction).toContain('const [planResult, gradeResult, sourceReleasesResult] = await Promise.all')
+    expect(accessFunction).toContain('options.studentOpen && !demoProfile && options.previewRound !== undefined')
+    expect(accessFunction).toContain('payload: await startPlanPayload(targetId, planId, { studentOpen: true, previewRound })')
+    expect(accessFunction).toContain('verifiedSourceReleaseId((sourceReleasesResult.data || [])')
+  })
+
   it('binds every submission to the immutable source revision and stores separate snapshot identities', () => {
     expect(accessFunction).toContain('submitted.revisionToken')
     expect(accessFunction).toContain('submittedRevisionToken !== expectedRevisionToken')

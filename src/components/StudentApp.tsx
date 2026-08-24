@@ -33,6 +33,7 @@ export type PlanPayload = {
 }
 
 const PLAN_OPEN_TIMEOUT_MS = 15_000
+const PLAN_PREFETCH_TTL_MS = 30_000
 
 type PlanOpenRequest = {
   plan: LearningPlanDay
@@ -44,6 +45,17 @@ type PlanOpenState = {
   request: PlanOpenRequest
   elapsedSeconds: number
   error?: string
+}
+
+type PlanStartResult = { payload: PlanPayload | JuniorAdaptivePayload }
+type PlanRequestEntry = {
+  controller: AbortController
+  expiresAt: number
+  promise: Promise<PlanStartResult>
+}
+
+function planRequestKey(plan: LearningPlanDay, identityKey: string, previewRound?: number) {
+  return [identityKey, plan.id, plan.attemptCount, plan.deliveryMode ?? '', previewRound ?? 'current'].join(':')
 }
 
 function planOpenProgress(elapsedSeconds: number) {
@@ -123,21 +135,89 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
   const planOpenRequestId = useRef(0)
   const planOpenAbort = useRef<AbortController | null>(null)
+  const planRequestCache = useRef(new Map<string, PlanRequestEntry>())
+  const planRequestDisposeTimer = useRef<number | null>(null)
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
   const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
+  const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
 
-  useEffect(() => () => {
-    planOpenRequestId.current += 1
-    planOpenAbort.current?.abort()
+  const ensurePlanRequest = useCallback((plan: LearningPlanDay, previewRound?: number) => {
+    const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
+    const cached = planRequestCache.current.get(key)
+    if (cached && cached.expiresAt > Date.now()) return cached
+    if (cached) {
+      cached.controller.abort()
+      planRequestCache.current.delete(key)
+    }
+    const controller = new AbortController()
+    const promise = (plan.deliveryMode === 'junior_adaptive'
+      ? openJuniorAdaptiveSession(session, plan.id)
+      : previewMode
+        ? teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
+        : accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) }, { signal: controller.signal })) as Promise<PlanStartResult>
+    const entry = { controller, expiresAt: Date.now() + PLAN_PREFETCH_TTL_MS, promise }
+    planRequestCache.current.set(key, entry)
+    void promise.catch(() => {
+      if (planRequestCache.current.get(key) === entry) planRequestCache.current.delete(key)
+    })
+    return entry
+  }, [dashboard.profile.id, dashboard.profile.isDemo, planRequestIdentityKey, previewMode, session])
+
+  useEffect(() => {
+    if (
+      !todayPlan
+      || todayPlan.date !== today
+      || todayPlan.isComplete
+      || todayPlan.mode !== 'REVIEW'
+      || todayPlan.deliveryMode === 'junior_adaptive'
+      || previewMode
+      || !['高一', '高二', '高三'].includes(dashboard.profile.gradeBand)
+    ) return
+    const key = planRequestKey(todayPlan, planRequestIdentityKey)
+    const entry = ensurePlanRequest(todayPlan)
+    const expiryTimer = window.setTimeout(() => {
+      if (planRequestCache.current.get(key) === entry) {
+        entry.controller.abort()
+        planRequestCache.current.delete(key)
+      }
+    }, PLAN_PREFETCH_TTL_MS)
+    return () => window.clearTimeout(expiryTimer)
+  }, [dashboard.profile.gradeBand, ensurePlanRequest, planRequestIdentityKey, previewMode, today, todayPlan])
+
+  useEffect(() => {
+    const requestCache = planRequestCache.current
+    if (planRequestDisposeTimer.current !== null) {
+      window.clearTimeout(planRequestDisposeTimer.current)
+      planRequestDisposeTimer.current = null
+    }
+    return () => {
+      planOpenRequestId.current += 1
+      planOpenAbort.current?.abort()
+      // React StrictMode replays effects once in development. Defer disposal by
+      // one task so that replay can retain the same in-flight prefetch instead
+      // of sending a duplicate protected start_plan request.
+      planRequestDisposeTimer.current = window.setTimeout(() => {
+        requestCache.forEach((entry) => entry.controller.abort())
+        requestCache.clear()
+        planRequestDisposeTimer.current = null
+      }, 0)
+    }
   }, [])
 
   async function openPlan(plan: LearningPlanDay, previewRound?: number): Promise<boolean> {
     if (busy) return false
     const request = { plan, ...(previewRound ? { previewRound } : {}) }
     const requestId = ++planOpenRequestId.current
-    const controller = new AbortController()
+    const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
+    planRequestCache.current.forEach((entry, cachedKey) => {
+      if (cachedKey === key) return
+      entry.controller.abort()
+      planRequestCache.current.delete(cachedKey)
+    })
+    const planRequest = ensurePlanRequest(plan, previewRound)
+    const controller = planRequest.controller
     planOpenAbort.current = controller
     const startedAt = Date.now()
     setBusy(true)
@@ -158,19 +238,16 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       controller.abort()
     }, PLAN_OPEN_TIMEOUT_MS)
     try {
-      const planRequest = plan.deliveryMode === 'junior_adaptive'
-        ? openJuniorAdaptiveSession(session, plan.id)
-        : previewMode
-          ? teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
-          : accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) }, { signal: controller.signal })
-      const result = await Promise.race([planRequest, timeoutPromise])
+      const result = await Promise.race([planRequest.promise, timeoutPromise])
       if (requestId !== planOpenRequestId.current) return false
+      if (planRequestCache.current.get(key) === planRequest) planRequestCache.current.delete(key)
       setPlanOpenState(null)
       if (plan.deliveryMode === 'junior_adaptive') setActiveJuniorPlan((result as { payload: JuniorAdaptivePayload }).payload)
       else setActivePlan((result as { payload: PlanPayload }).payload)
       return true
     } catch (reason) {
       if (requestId !== planOpenRequestId.current) return false
+      if (planRequestCache.current.get(key) === planRequest) planRequestCache.current.delete(key)
       const message = timedOut || reason === timeoutError
         ? '连接复习服务已超过15秒，系统已安全停止等待。请检查网络后再试。'
         : reason instanceof Error && reason.message ? reason.message : '学习内容暂时无法打开。'
@@ -195,6 +272,8 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   async function switchDemoGrade(gradeBand: string) {
     if (gradeBand === dashboard.profile.gradeBand || busy) return
+    planRequestCache.current.forEach((entry) => entry.controller.abort())
+    planRequestCache.current.clear()
     setBusy(true)
     setError('')
     try {
@@ -225,7 +304,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
 
   return (
-    <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}<div className="role-layout student-theme">
+    <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">已经收到点击</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>题组正在安全装入，页面没有卡住，请稍候。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}<div className="role-layout student-theme">
       <aside className={`side-nav ${previewMode || dashboard.profile.isDemo ? 'three-items' : ''}`} aria-label="学生导航">
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />今天</button>
         <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力地图</button>
@@ -243,9 +322,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
             <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{planRhythmLabel(todayPlan)}</span></div></div>
-            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
+            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
-          {planOpenState && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
+          {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
           <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={(plan) => plan.isComplete && !previewMode && !dashboard.profile.isDemo ? setView('growth') : openPlan(plan)} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
