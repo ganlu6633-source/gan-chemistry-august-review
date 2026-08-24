@@ -68,7 +68,7 @@ describe('StudentApp plan opening resilience', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
-    expect(screen.getByText('第3步/3 · 正在安全装入本轮')).toBeInTheDocument()
+    expect(screen.getByText('第3步/3 · 正在安全装入所选题组')).toBeInTheDocument()
     expect(screen.getByText('已等待 6 秒，请不要重复点击。')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
@@ -79,6 +79,21 @@ describe('StudentApp plan opening resilience', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /重试开始第一轮/ }))
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('将正式单题组复习准确显示为今日原题，不再显示旧的多轮口径', () => {
+    const formalPlan = { ...plan, roundLimit: 1, roundsRemaining: 1 }
+    const formalDashboard = {
+      ...dashboard,
+      profile: { ...dashboard.profile, isDemo: false },
+      plans: [formalPlan],
+    }
+    render(<StudentApp session={session} initialDashboard={formalDashboard} onDashboard={vi.fn()} />)
+
+    expect(screen.getByText('今日原题')).toBeInTheDocument()
+    expect(screen.getByText('今日 1 道原题 · 1 个题组 · 错题次日换原题')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /开始今日题组/ })).toBeInTheDocument()
+    expect(screen.queryByText('每轮题目')).not.toBeInTheDocument()
   })
 
   it('keeps the server error visible beside the original action', async () => {

@@ -52,18 +52,18 @@ function planOpenProgress(elapsedSeconds: number) {
     detail: '先确认你的身份和这一天的学习计划，通常需要3—7秒。',
   }
   if (elapsedSeconds < 5) return {
-    title: '第2步/3 · 正在核对知识卡与本轮原题',
+    title: '第2步/3 · 正在核对知识卡与所选日期原题',
     detail: '系统正在等题库返回完整的知识卡和题目清单。',
   }
   return {
-    title: '第3步/3 · 正在安全装入本轮',
+    title: '第3步/3 · 正在安全装入所选题组',
     detail: '当前网络较慢；进入题目后，原题图片会逐张加载。',
   }
 }
 
-function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开本轮', showRetryButton = false }: { state: PlanOpenState; onRetry: () => void; retryLabel?: string; showRetryButton?: boolean }) {
+function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开题组', showRetryButton = false }: { state: PlanOpenState; onRetry: () => void; retryLabel?: string; showRetryButton?: boolean }) {
   if (state.status === 'error') return <div className="plan-open-notice is-error" role="alert">
-    <div><b>本轮还没有打开</b><span>{state.error}</span><small>当前页面和已有学习记录都保留；重试只会重新读取本轮，不会重复提交答案。</small></div>
+    <div><b>所选题组还没有打开</b><span>{state.error}</span><small>当前页面和已有学习记录都保留；重试只会重新读取题组，不会重复提交答案。</small></div>
     {showRetryButton && <button type="button" className="secondary-button compact" onClick={onRetry}><RotateCcw />{retryLabel}</button>}
   </div>
 
@@ -74,8 +74,23 @@ function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开本轮', sho
   </div>
 }
 
+const isSingleDailyReviewPlan = (plan: LearningPlanDay | undefined) => Boolean(plan && plan.mode === 'REVIEW' && plan.roundLimit === 1 && plan.deliveryMode !== 'junior_adaptive')
+
+const planRhythmLabel = (plan: LearningPlanDay) => {
+  if (plan.deliveryMode === 'junior_adaptive') return '今日 12 道原题起步 · 基础未稳最多 15 道 · 每题作答后动态选下一题'
+  if (isSingleDailyReviewPlan(plan)) return `今日 ${plan.questionCount} 道原题 · 1 个题组 · 错题次日换原题`
+  return `每轮 ${plan.questionCount} 题 · 共 ${plan.roundLimit} 轮 · 当天把问题接稳`
+}
+
+const compactPlanRhythmLabel = (plan: LearningPlanDay) => {
+  if (plan.deliveryMode === 'junior_adaptive') return `今日自适应原题 · ${plan.estimatedMinutes}分钟`
+  if (isSingleDailyReviewPlan(plan)) return `今日${plan.questionCount}道原题 · 1个题组 · ${plan.estimatedMinutes}分钟`
+  return `每轮${plan.questionCount}题 · ${plan.roundLimit}轮 · ${plan.estimatedMinutes}分钟`
+}
+
 const nextRoundLabel = (plan: LearningPlanDay) => {
   if (plan.deliveryMode === 'junior_adaptive') return plan.isComplete ? '今天已完成' : plan.juniorSessionStatus === 'active' ? '继续今日学习' : '开始今日学习'
+  if (isSingleDailyReviewPlan(plan)) return plan.isResolved ? '今日题组已接稳' : plan.isComplete || plan.attemptCount >= 1 ? '今日题组已完成' : '开始今日题组'
   if (plan.isResolved) return '今日问题已接稳'
   if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
   return plan.attemptCount === 0 ? '开始第一轮' : `继续第 ${plan.attemptCount + 1} 轮`
@@ -85,6 +100,7 @@ const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
   if (plan.deliveryMode === 'junior_adaptive' && plan.isComplete) return '今日自适应学习已完成'
   if (plan.date < enrollment) return '加入前｜可补学'
   if (plan.attemptCount > 0) {
+    if (isSingleDailyReviewPlan(plan)) return plan.isResolved ? '今日题组已接稳' : plan.isComplete || plan.attemptCount >= 1 ? '今日题组已完成' : '今日题组进行中'
     if (plan.isResolved) return `第 ${plan.attemptCount} 轮已接稳`
     if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
     if (plan.latestCompletedAt && plan.date > plan.latestCompletedAt.slice(0, 10)) return '已提前完成'
@@ -220,13 +236,13 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {error && <div className="inline-alert" role="alert">{error}</div>}
         {view === 'today' && <>
           <section className="welcome-banner">
-            <div><span className="eyebrow">今天也只走一小步</span><h1>{dashboard.profile.displayName}，今天先把最值得的几件事稳住。</h1><p>{dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了第一轮。'}</p></div>
-            <div className="daily-orb"><b>{dashboard.todayQuestionCount || todayPlan?.questionCount || 5}</b><span>{todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : '每轮题目'}</span></div>
+            <div><span className="eyebrow">今天也只走一小步</span><h1>{dashboard.profile.displayName}，今天先把最值得的几件事稳住。</h1><p>{dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了今天的原题。'}</p></div>
+            <div className="daily-orb"><b>{dashboard.todayQuestionCount || todayPlan?.questionCount || 5}</b><span>{todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : isSingleDailyReviewPlan(todayPlan) ? '今日原题' : '每轮题目'}</span></div>
           </section>
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>这里只检查知识卡与学习路线</h2><p>公开演示不再提供无材料来源的模拟题；正式原题请由甘老师从教师后台选择真实学生并只读预览。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlan.deliveryMode === 'junior_adaptive' ? '今日 12 道原题起步 · 基础未稳最多 15 道 · 每题作答后动态选下一题' : `每轮 ${todayPlan.questionCount} 题 · 共 ${todayPlan.roundLimit} 轮 · 当天把问题接稳`}</span></div></div>
+            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{planRhythmLabel(todayPlan)}</span></div></div>
             <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {planOpenState && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
@@ -326,7 +342,7 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
     grid.scrollLeft += buttonRect.left - gridRect.left - (grid.clientWidth - button.offsetWidth) / 2
   }, [today, first, last])
   return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title"><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习计划</h2> : <h1 id="learning-plan-title">我的学习计划</h1>}<p>计划就在首页；今天的任务会自动点亮。{displayDate(first)}是复习第1天，过去可以重做，未来可以提前预习。</p></div>
-    <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{currentWeek ? '本周 · 今天已点亮' : nextWeek ? '下一次安排' : index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''}`} aria-current={isToday ? 'date' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b><ChemText>{plan.title}</ChemText></b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}><ChemText>{topic}</ChemText></li>)}</ul><small>每轮{plan.questionCount}题 · {plan.roundLimit}轮 · {plan.estimatedMinutes}分钟</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
+    <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{currentWeek ? '本周 · 今天已点亮' : nextWeek ? '下一次安排' : index === 0 ? '复习起始周' : `复习第 ${index + 1} 周`}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''}`} aria-current={isToday ? 'date' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b><ChemText>{plan.title}</ChemText></b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}><ChemText>{topic}</ChemText></li>)}</ul><small>{compactPlanRhythmLabel(plan)}</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
   </section>
 }
 
