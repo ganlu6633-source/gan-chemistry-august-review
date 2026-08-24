@@ -22,6 +22,7 @@ function cors(req: Request) {
     "Access-Control-Allow-Origin": allowedOrigins.has(requested) ? requested : "https://ganlu6633-source.github.io",
     "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-app-session",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Image as ImageIcon, RefreshCw, X, ZoomIn } from 'lucide-react'
 import type { QuestionAssetRef, QuestionSourceInfo, SessionIdentity } from '../domain/types'
 import { compactImageWhitespace } from '../domain/compactImageWhitespace'
@@ -35,6 +35,8 @@ interface QuestionSourceMediaProps {
   onPrimaryReadyChange?: (ready: boolean) => void
   /** Lets a learning flow restore focus to its Enter-driven primary action. */
   onZoomClose?: () => void
+  /** A round-scoped loader can prefetch and de-duplicate protected images in memory. */
+  assetLoader?: typeof loadQuestionAsset
 }
 
 type AssetLoadState = {
@@ -70,7 +72,7 @@ function sourceDetails(source: QuestionSourceInfo) {
   return [year, source.questionNo, source.locator].filter(Boolean)
 }
 
-export function QuestionSourceMedia({ question, enabled, session, nativeContent, deferLoad = false, readOnly = false, showSource = true, feedback = false, accessContext, onPrimaryReadyChange, onZoomClose }: QuestionSourceMediaProps) {
+function QuestionSourceMediaComponent({ question, enabled, session, nativeContent, deferLoad = false, readOnly = false, showSource = true, feedback = false, accessContext, onPrimaryReadyChange, onZoomClose, assetLoader = loadQuestionAsset }: QuestionSourceMediaProps) {
   const incomingRefs = question.assetRefs ?? []
   const refsKey = incomingRefs.map((ref) => `${ref.assetId}:${ref.kind}:${ref.sha256}:${ref.width}:${ref.height}:${ref.alt}`).join('|')
   const refsSnapshot = useRef<{ key: string; refs: SourceAssetRef[] }>({ key: refsKey, refs: incomingRefs })
@@ -110,7 +112,7 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
     }
     setAssetStates((current) => ({ ...current, [ref.assetId]: { status: 'loading' } }))
     try {
-      const result = await loadQuestionAsset(activeSession, question.id, ref.assetId, ref.kind === 'analysis_image' ? 'analysis' : 'question', accessContext)
+      const result = await assetLoader(activeSession, question.id, ref.assetId, ref.kind === 'analysis_image' ? 'analysis' : 'question', accessContext)
       if (result.asset.sha256 !== ref.sha256 || result.asset.width !== ref.width || result.asset.height !== ref.height || !result.asset.dataUrl.startsWith('data:image/')) {
         throw new Error('原题图片完整性校验未通过，请重试或联系甘老师。')
       }
@@ -121,7 +123,7 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
         [ref.assetId]: { status: 'error', message: reason instanceof Error ? reason.message : '原题图暂时无法加载。' },
       }))
     }
-  }, [accessContext, question.id, session])
+  }, [accessContext, assetLoader, question.id, session])
 
   useEffect(() => {
     if (!enabled || !loadRequested) return
@@ -214,3 +216,29 @@ export function QuestionSourceMedia({ question, enabled, session, nativeContent,
     </dialog>
   </section>
 }
+
+function sameAccessContext(previous?: QuestionAssetAccessContext, next?: QuestionAssetAccessContext) {
+  return previous?.planId === next?.planId
+    && previous?.attemptSequence === next?.attemptSequence
+    && previous?.revisionToken === next?.revisionToken
+    && previous?.previewRound === next?.previewRound
+    && previous?.studentId === next?.studentId
+}
+
+/**
+ * Selecting A/B/C/D must never re-render the protected image subtree. The question
+ * object and immutable source refs stay stable for the whole step; callbacks and
+ * nativeContent are derived from that same question and are intentionally ignored.
+ */
+export const QuestionSourceMedia = memo(QuestionSourceMediaComponent, (previous, next) => (
+  previous.question === next.question
+  && previous.enabled === next.enabled
+  && previous.deferLoad === next.deferLoad
+  && previous.readOnly === next.readOnly
+  && previous.showSource === next.showSource
+  && previous.feedback === next.feedback
+  && previous.assetLoader === next.assetLoader
+  && previous.session?.token === next.session?.token
+  && previous.session?.role === next.session?.role
+  && sameAccessContext(previous.accessContext, next.accessContext)
+))

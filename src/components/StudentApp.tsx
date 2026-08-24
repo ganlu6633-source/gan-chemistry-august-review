@@ -1,10 +1,10 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
 import type { JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
-import { accessApi, loadLearningRecord, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, submitAttempt, teacherApi } from '../lib/api'
+import { accessApi, loadLearningRecord, loadQuestionAsset, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, submitAttempt, teacherApi, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { ChemText } from './ChemText'
 import { EquilibriumConstantFormulaVisual } from './EquilibriumConstantFormulaVisual'
@@ -392,9 +392,76 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
   const [primaryMediaReady, setPrimaryMediaReady] = useState<Record<string, boolean>>({})
   const primaryActionRef = useRef<HTMLButtonElement>(null)
+  const sourceAssetRequests = useRef(new Map<string, Promise<{ asset: LoadedQuestionAsset }>>())
   const card = payload.cards[cardIndex]
   const question = payload.questions[questionIndex]
   const singleDailyReviewPackage = payload.plan.mode === 'REVIEW' && roundLimit === 1 && !practiceMode
+
+  const cachedQuestionAssetLoader = useCallback((
+    activeSession: SessionIdentity,
+    questionId: string,
+    assetId: string,
+    assetPhase: 'question' | 'analysis',
+    context?: QuestionAssetAccessContext,
+  ) => {
+    const key = [
+      questionId,
+      assetId,
+      assetPhase,
+      context?.planId ?? '',
+      context?.attemptSequence ?? '',
+      context?.revisionToken ?? '',
+      context?.previewRound ?? '',
+      context?.studentId ?? '',
+    ].join('|')
+    const cached = sourceAssetRequests.current.get(key)
+    if (cached) return cached
+    const request = loadQuestionAsset(activeSession, questionId, assetId, assetPhase, context)
+      .catch((reason) => {
+        if (sourceAssetRequests.current.get(key) === request) sourceAssetRequests.current.delete(key)
+        throw reason
+      })
+    sourceAssetRequests.current.set(key, request)
+    return request
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    async function prefetchIssuedQuestionImages() {
+      for (const issuedQuestion of payload.questions) {
+        if (!active) return
+        const isLicensedReview = payload.plan.mode === 'REVIEW'
+          && ['高一', '高二', '高三'].includes(issuedQuestion.gradeBand)
+          && issuedQuestion.sourceKind === 'licensed_local'
+        if (!isLicensedReview) continue
+        const context: QuestionAssetAccessContext = {
+          ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
+          planId: payload.plan.id,
+          attemptSequence: payload.attemptSequence,
+          revisionToken: issuedQuestion.revisionToken ?? null,
+        }
+        for (const ref of issuedQuestion.assetRefs?.filter((item) => item.kind !== 'analysis_image') ?? []) {
+          if (!active) return
+          try {
+            const result = await cachedQuestionAssetLoader(session, issuedQuestion.id, ref.assetId, 'question', context)
+            if (typeof Image !== 'undefined') {
+              const image = new Image()
+              image.src = result.asset.dataUrl
+              try { await image.decode() } catch { /* The visible image still has its normal retry/error path. */ }
+            }
+          } catch {
+            // Prefetch is best-effort; the visible media component reports errors and permits retry.
+          }
+        }
+      }
+    }
+    void prefetchIssuedQuestionImages()
+    return () => {
+      active = false
+    }
+  }, [cachedQuestionAssetLoader, payload.attemptSequence, payload.plan.id, payload.plan.mode, payload.questions, practiceDashboard, practiceMode, roundNumber, session])
+
+  useEffect(() => () => sourceAssetRequests.current.clear(), [])
 
   useEffect(() => {
     function continueWithEnter(event: KeyboardEvent) {
@@ -428,7 +495,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     const isCorrect = isLicensedReview ? currentServerFeedback?.correct === true : selected === question.correctOption
     const isImagePrimary = isLicensedReview && question.renderMode === 'image_primary'
     const sourceMediaReady = !isImagePrimary || primaryMediaReady[question.id] === true
-    const sourceAssetContext = {
+    const sourceAssetContext: QuestionAssetAccessContext = {
       ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
       planId: payload.plan.id,
       attemptSequence: payload.attemptSequence,
@@ -516,7 +583,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     const nativeStem = <h1><ChemText>{question.stem}</ChemText></h1>
     const questionSkillTitle = SKILLS.find((skill) => skill.id === question.skillId)?.title
     const explanationParagraphs = splitAnswerExplanation(resolvedExplanation)
-    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮继续同一知识点</b><p>答对且确定，下一轮提高难度；答错或不确定，也会换一道同知识点原题重新确认。此前复习中已经做过的原题不会再次出现。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>{singleDailyReviewPackage ? '今日题组' : `第 ${roundNumber} 轮`} · {questionIndex + 1}/{payload.questions.length}</span><span>{questionSkillTitle ? <ChemText>{questionSkillTitle}</ChemText> : question.skillId}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level} 原题</span>{isLicensedReview ? <QuestionSourceMedia question={question} enabled session={session} accessContext={sourceAssetContext} nativeContent={nativeStem} showSource={false} onZoomClose={() => primaryActionRef.current?.focus()} onPrimaryReadyChange={(ready) => setPrimaryMediaReady((current) => current[question.id] === ready ? current : { ...current, [question.id]: ready })} /> : nativeStem}<div className={`option-list ${isImagePrimary ? 'source-letter-options' : ''}`}>{question.options.map((option, index) => { const letter = String.fromCharCode(65 + index); const optionLabel = isImagePrimary ? `${letter} 选项，内容见原题图` : `${letter}. ${option}`; return <button aria-label={optionLabel} disabled={feedback || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === resolvedCorrectOption ? 'correct' : ''} ${feedback && selected === index && index !== resolvedCorrectOption ? 'wrong' : ''}`} key={`${index}-${option}`} onClick={() => setSelected(index)}><span>{letter}</span>{!isImagePrimary && <ChemText>{option}</ChemText>}</button> })}</div>{isImagePrimary && !sourceMediaReady && <p className="source-submit-blocked" role="status">原题主图加载完整后才能提交，避免因缺图误答。</p>}<label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback || busy} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? singleDailyReviewPackage ? '答案正确，但仍会在下次换一道原题确认' : '答案正确，再确认一次就更稳' : singleDailyReviewPackage ? '判断正确，下次复习可提高难度' : '判断正确，下一轮提高难度' : '先把关键一步稳住'}</b><div className="answer-explanation">{explanationParagraphs.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>)}</div>{!isCorrect && resolvedScaffold && <p><CircleHelp size={16} />提示：<ChemText>{resolvedScaffold}</ChemText></p>}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null || !sourceMediaReady} onClick={() => void submit()}>{busy ? '正在锁定第一次选择…' : '提交答案'}</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : singleDailyReviewPackage ? '完成今日题组' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
+    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮继续同一知识点</b><p>答对且确定，下一轮提高难度；答错或不确定，也会换一道同知识点原题重新确认。此前复习中已经做过的原题不会再次出现。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>{singleDailyReviewPackage ? '今日题组' : `第 ${roundNumber} 轮`} · {questionIndex + 1}/{payload.questions.length}</span><span>{questionSkillTitle ? <ChemText>{questionSkillTitle}</ChemText> : question.skillId}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / payload.questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level} 原题</span>{isLicensedReview ? <QuestionSourceMedia question={question} enabled session={session} accessContext={sourceAssetContext} assetLoader={cachedQuestionAssetLoader} nativeContent={nativeStem} showSource={false} onZoomClose={() => primaryActionRef.current?.focus()} onPrimaryReadyChange={(ready) => setPrimaryMediaReady((current) => current[question.id] === ready ? current : { ...current, [question.id]: ready })} /> : nativeStem}<div className={`option-list ${isImagePrimary ? 'source-letter-options' : ''}`}>{question.options.map((option, index) => { const letter = String.fromCharCode(65 + index); const optionLabel = isImagePrimary ? `${letter} 选项，内容见原题图` : `${letter}. ${option}`; return <button aria-label={optionLabel} disabled={feedback || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === resolvedCorrectOption ? 'correct' : ''} ${feedback && selected === index && index !== resolvedCorrectOption ? 'wrong' : ''}`} key={`${index}-${option}`} onClick={() => setSelected(index)}><span>{letter}</span>{!isImagePrimary && <ChemText>{option}</ChemText>}</button> })}</div>{isImagePrimary && !sourceMediaReady && <p className="source-submit-blocked" role="status">原题主图加载完整后才能提交，避免因缺图误答。</p>}<label className="uncertain-toggle"><input type="checkbox" checked={uncertain} onChange={(event) => setUncertain(event.target.checked)} disabled={feedback || busy} />我选了，但还不太确定</label>{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? uncertain ? singleDailyReviewPackage ? '答案正确，但仍会在下次换一道原题确认' : '答案正确，再确认一次就更稳' : singleDailyReviewPackage ? '判断正确，下次复习可提高难度' : '判断正确，下一轮提高难度' : '先把关键一步稳住'}</b><div className="answer-explanation">{explanationParagraphs.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>)}</div>{!isCorrect && resolvedScaffold && <p><CircleHelp size={16} />提示：<ChemText>{resolvedScaffold}</ChemText></p>}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null || !sourceMediaReady} onClick={() => void submit()}>{busy ? '正在锁定第一次选择…' : '提交答案'}</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questionIndex < payload.questions.length - 1 ? '下一题' : singleDailyReviewPackage ? '完成今日题组' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
   }
 
   const correct = answers.filter((answer) => answer.correct).length

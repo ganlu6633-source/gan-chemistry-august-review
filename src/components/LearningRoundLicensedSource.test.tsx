@@ -48,6 +48,27 @@ describe('LearningRound licensed source question', () => {
   })
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+  it('highlights every option synchronously without reloading the protected image', async () => {
+    render(<LearningRound session={session} payload={payload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
+
+    expect(await screen.findByAltText('本题原题题面图')).toBeInTheDocument()
+    const options = screen.getByRole('article').querySelector<HTMLElement>('.option-list')!
+    const answerA = within(options).getByRole('button', { name: 'A 选项，内容见原题图' })
+    const answerB = within(options).getByRole('button', { name: 'B 选项，内容见原题图' })
+    const answerC = within(options).getByRole('button', { name: 'C 选项，内容见原题图' })
+
+    fireEvent.click(answerA)
+    expect(answerA).toHaveClass('selected')
+    fireEvent.click(answerB)
+    expect(answerB).toHaveClass('selected')
+    expect(answerA).not.toHaveClass('selected')
+    fireEvent.click(answerC)
+    expect(answerC).toHaveClass('selected')
+    expect(loadQuestionAsset).toHaveBeenCalledTimes(1)
+    expect(loadQuestionFeedback).not.toHaveBeenCalled()
+    expect(submitAttempt).not.toHaveBeenCalled()
+  })
+
   it('uses the exact source image without student-facing source or analysis artwork, and submits the revision token', async () => {
     render(<LearningRound session={session} payload={payload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
