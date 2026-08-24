@@ -1689,6 +1689,7 @@ Deno.serve(async (req: Request) => {
       // sessions may target only another demo profile through resolveDemoTarget.
       // Teacher sessions may inspect every licensed high-school source question.
       let assetStudentId = identity.studentId;
+      let assetTargetIsDemo = false;
       if (identity.role !== "teacher") {
         if (!identity.studentId) return reply(req, { error: "无权读取该原题图片。" }, 403);
         if (identity.role === "student") {
@@ -1707,6 +1708,7 @@ Deno.serve(async (req: Request) => {
         if (!profile.data || !["高一", "高二", "高三"].includes(String(profile.data.grade_band)) || profile.data.record_status !== "active") {
           return reply(req, { error: "无权读取该原题图片。" }, 403);
         }
+        assetTargetIsDemo = (profile.data.metadata as Record<string, unknown> | null)?.demo === true;
       }
 
       const assetsResult = await supabase.rpc("chem_get_question_assets", { p_asset_paths: [assetId] });
@@ -1719,7 +1721,7 @@ Deno.serve(async (req: Request) => {
       }
       const questionResult = await supabase
         .from("chem_questions")
-        .select("id,grade_band,scope_status,source_kind,review_status,usable_for_review,asset_refs,question_revision_token")
+        .select("id,grade_band,scope_status,source_kind,review_status,usable_for_review,render_mode,source_release_id,asset_refs,question_revision_token")
         .eq("id", questionId)
         .maybeSingle();
       if (questionResult.error) throw questionResult.error;
@@ -1749,28 +1751,36 @@ Deno.serve(async (req: Request) => {
         // question image must belong to the exact set the server just issued;
         // an analysis image requires the server-owned first-answer lock. A
         // guardian never receives current-round assets.
-        const evidence = await supabase
-          .from("chem_attempt_answers")
-          .select("id,question_snapshot,chem_learning_attempts!inner(student_id,completed_at)")
-          .eq("question_id", questionId)
-          .eq("chem_learning_attempts.student_id", assetStudentId)
-          .not("chem_learning_attempts.completed_at", "is", null)
-          .limit(20);
-        if (evidence.error) throw evidence.error;
-        const hasCompletedAnswer = (evidence.data || []).some((answer) => {
-          const snapshot = validQuestionSnapshot(answer.question_snapshot)
-            ? answer.question_snapshot
-            : null;
-          return Boolean(snapshot && matchingRawAssetRef(
-            snapshot.assetRefs || snapshot.asset_refs,
-            assetId,
-            asset,
-          ));
-        });
+        // Demo profiles never inherit historical evidence. They may read only
+        // the exact question image issued by the current verified source release.
+        let hasCompletedAnswer = false;
+        if (!assetTargetIsDemo) {
+          const evidence = await supabase
+            .from("chem_attempt_answers")
+            .select("id,question_snapshot,chem_learning_attempts!inner(student_id,completed_at)")
+            .eq("question_id", questionId)
+            .eq("chem_learning_attempts.student_id", assetStudentId)
+            .not("chem_learning_attempts.completed_at", "is", null)
+            .limit(20);
+          if (evidence.error) throw evidence.error;
+          hasCompletedAnswer = (evidence.data || []).some((answer) => {
+            const snapshot = validQuestionSnapshot(answer.question_snapshot)
+              ? answer.question_snapshot
+              : null;
+            return Boolean(snapshot && matchingRawAssetRef(
+              snapshot.assetRefs || snapshot.asset_refs,
+              assetId,
+              asset,
+            ));
+          });
+        }
+        const activeAssetReleaseId = await activeVerifiedSourceReleaseId(String(question.grade_band));
         const currentAssetEligible = Boolean(currentMatchingRef)
           && question.review_status === "approved"
           && question.scope_status === "IN"
-          && question.usable_for_review === true;
+          && question.usable_for_review === true
+          && question.render_mode === "image_primary"
+          && String(question.source_release_id || "") === activeAssetReleaseId;
         let hasLockedAnswer = false;
         if (!hasCompletedAnswer && isAnalysis && identity.role === "student") {
           const planId = String(body.data?.planId || "");
@@ -1787,7 +1797,7 @@ Deno.serve(async (req: Request) => {
             && attemptSequence >= 0
             && attemptSequence <= 7
             && suppliedRevisionToken === expectedRevisionToken
-            && currentMatchingRef
+            && currentAssetEligible
           ) {
             const lockEvidence = await supabase.rpc("chem_has_current_question_answer_lock", {
               p_student_id: assetStudentId,
@@ -1942,6 +1952,7 @@ Deno.serve(async (req: Request) => {
         return reply(req, { error: "原题内容已经更新，请重新打开本轮练习后再作答。" }, 409);
       }
 
+      const activeFeedbackReleaseId = await activeVerifiedSourceReleaseId(String(issuedQuestion.gradeBand));
       const questionResult = await supabase
         .from("chem_questions")
         .select("id,grade_band,source_kind,correct_option,explanation,scaffold,asset_refs,question_revision_token")
@@ -1950,6 +1961,9 @@ Deno.serve(async (req: Request) => {
         .eq("source_kind", "licensed_local")
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
+        .eq("usable_for_review", true)
+        .eq("render_mode", "image_primary")
+        .eq("source_release_id", activeFeedbackReleaseId)
         .maybeSingle();
       if (questionResult.error) throw questionResult.error;
       if (!questionResult.data) return reply(req, { error: "原题已经退出当前题库，请重新打开本轮练习。" }, 409);
