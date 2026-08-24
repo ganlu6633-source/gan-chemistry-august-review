@@ -1,36 +1,40 @@
 import { describe, expect, it } from 'vitest'
 
-import candidate from '../../supabase/candidates/20260823013000_capacity_funded_individual_review_calendar.sql?raw'
+import migration from '../../supabase/migrations/20260824171000_publish_capacity_funded_individual_review_calendar.sql?raw'
 
-describe('capacity-funded individualized REVIEW calendar candidate', () => {
-  it('covers exactly 38 dates and derives a personal 1..8 daily load from remaining capacity', () => {
-    expect(candidate).toContain("date '2026-08-23'")
-    expect(candidate).toContain("date '2026-09-29'")
-    expect(candidate).toContain('date_count')
-    expect(candidate).toContain('fresh_questions < 38')
-    expect(candidate).toContain('least(coalesce(sum(capacity.initial_questions), 0)::integer, 38 * 8)')
-    expect(candidate).toContain('student.scheduled_questions / dates.date_count')
-    expect(candidate).toContain('mod(student.scheduled_questions, dates.date_count)')
-    expect(candidate).toContain('question_count not between 1 and 8')
-    expect(candidate).not.toMatch(/question_count\s*=\s*5/i)
+const candidate = migration
+
+describe('published capacity-funded individualized REVIEW calendar', () => {
+  it('covers exactly 37 unstarted dates and derives a personal 1..8 daily load with source headroom', () => {
+    expect(migration).toContain("date '2026-08-24'")
+    expect(migration).toContain("date '2026-09-29'")
+    expect(migration).toContain('date_count')
+    expect(migration).toContain('fresh_questions < 37')
+    expect(migration).toContain('sum(least(capacity.initial_questions, 37))')
+    expect(migration).toContain('* 0.80')
+    expect(migration).toContain('37 * least(7, count(capacity.concept_key)::integer)')
+    expect(migration).toContain('student.scheduled_questions / dates.date_count')
+    expect(migration).toContain('mod(student.scheduled_questions, dates.date_count)')
+    expect(migration).toContain('question_count not between 1 and 8')
+    expect(migration).not.toMatch(/question_count\s*=\s*5/i)
   })
 
   it('uses only active approved in-scope source originals and excludes all four used identities', () => {
-    expect(candidate).toContain("release.status = 'active'")
-    expect(candidate).toContain("release.verification_status = 'full_visual_verified'")
-    expect(candidate).toContain("question.review_status = 'approved'")
-    expect(candidate).toContain("question.scope_status = 'IN'")
-    expect(candidate).toContain('question.usable_for_review')
-    expect(candidate).toContain("question.source_kind = 'licensed_local'")
-    expect(candidate).toContain("question.render_mode = 'image_primary'")
-    expect(candidate).toContain("asset->>'kind' = 'question_image'")
-    expect(candidate).toContain("asset->>'kind' = 'analysis_image'")
-    expect(candidate).toContain('used.question_id = question.id')
-    expect(candidate).toContain('used.mother_id = question.mother_id')
-    expect(candidate).toContain('used.source_item_key = question.source_item_key')
-    expect(candidate).toContain('used.content_fingerprint = question.content_fingerprint')
-    expect(candidate).toContain("answer.question_snapshot->>'sourceItemKey'")
-    expect(candidate).toContain("answer.question_snapshot->>'contentFingerprint'")
+    expect(migration).toContain("release.status = 'active'")
+    expect(migration).toContain("release.verification_status = 'full_visual_verified'")
+    expect(migration).toContain("question.review_status = 'approved'")
+    expect(migration).toContain("question.scope_status = 'IN'")
+    expect(migration).toContain('question.usable_for_review')
+    expect(migration).toContain("question.source_kind = 'licensed_local'")
+    expect(migration).toContain("question.render_mode = 'image_primary'")
+    expect(migration).toContain("asset->>'kind' = 'question_image'")
+    expect(migration).toContain("asset->>'kind' = 'analysis_image'")
+    expect(migration).toContain('used.question_id = question.id')
+    expect(migration).toContain('used.mother_id = question.mother_id')
+    expect(migration).toContain('used.source_item_key = question.source_item_key')
+    expect(migration).toContain('used.content_fingerprint = question.content_fingerprint')
+    expect(migration).toContain("answer.question_snapshot->>'sourceItemKey'")
+    expect(migration).toContain("answer.question_snapshot->>'contentFingerprint'")
   })
 
   it('budgets only selector-compatible difficulty visits and skips mastered dead ends', () => {
@@ -83,8 +87,8 @@ describe('capacity-funded individualized REVIEW calendar candidate', () => {
     expect(candidate).toContain('first-pass catalog concept has no compatible fresh original')
     expect(candidate).toContain('from _required_first_pass required')
     expect(candidate).toContain('when capacity.reserved_questions = 0')
-    expect(candidate).toContain('first-pass concept coverage missing from the 38-day REVIEW targets')
-    const coverageCheck = candidate.indexOf('first-pass concept coverage missing from the 38-day REVIEW targets')
+    expect(candidate).toContain('first-pass concept coverage missing from the 37-day REVIEW targets')
+    const coverageCheck = candidate.indexOf('first-pass concept coverage missing from the 37-day REVIEW targets')
     const firstPlanWrite = candidate.indexOf('insert into public.chem_learning_plans')
     expect(coverageCheck).toBeGreaterThan(-1)
     expect(coverageCheck).toBeLessThan(firstPlanWrite)
@@ -109,7 +113,11 @@ describe('capacity-funded individualized REVIEW calendar candidate', () => {
     expect(candidate).toContain('update public.chem_learning_plans plan')
     expect(candidate).toContain("plan.mode = 'REVIEW'")
     expect(candidate).toContain('round_limit = 1')
-    expect(candidate).toContain('the candidate window contains a started REVIEW plan')
+    expect(candidate).toContain('the publish window contains a started REVIEW plan')
+    expect(candidate).toContain('create temporary table _attempt_before')
+    expect(candidate).toContain('create temporary table _answer_before')
+    expect(candidate).toContain('create temporary table _quiz_session_before')
+    expect(candidate).toContain('independent quiz_sessions changed unexpectedly')
     expect(candidate).not.toMatch(/(?:insert\s+into|update|delete\s+from)\s+public\.chem_learning_attempts/i)
     expect(candidate).not.toMatch(/(?:insert\s+into|update|delete\s+from)\s+public\.chem_attempt_answers/i)
     expect(candidate).not.toMatch(/(?:insert\s+into|update|delete\s+from)\s+public\.quiz_sessions/i)
@@ -131,9 +139,11 @@ describe('capacity-funded individualized REVIEW calendar candidate', () => {
     expect(candidate).toContain('order by skill.first_target_order, skill.skill_id')
   })
 
-  it('documents that runtime wrong/uncertain replacement must re-budget the future suffix', () => {
+  it('retries runtime wrong/uncertain replacement only after publishing the funded suffix', () => {
     expect(candidate).toContain('chem_personalize_next_review_plan may replace')
     expect(candidate).toContain('re-budget the still-unstarted suffix')
-    expect(candidate).toContain('CANDIDATE ONLY')
+    expect(candidate).toContain('chem_retry_pending_review_personalization(25)')
+    expect(candidate).toContain('known REVIEW personalization compensation failure remains')
+    expect(candidate).not.toContain('CANDIDATE ONLY')
   })
 })

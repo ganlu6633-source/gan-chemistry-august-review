@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import candidate from '../../supabase/migrations/20260823014500_rebudget_unstarted_review_suffix.sql?raw'
+import corrective from '../../supabase/migrations/20260824170000_fix_review_personalization_capacity_and_permission.sql?raw'
 
 describe('runtime REVIEW suffix re-budget contract', () => {
   it('uses a private, non-conflicting function and documents the caller transaction contract', () => {
@@ -198,5 +199,35 @@ describe('runtime REVIEW suffix re-budget contract', () => {
     expect(candidate).toContain("set search_path = ''")
     expect(candidate).toContain('from public, anon, authenticated')
     expect(candidate).toContain('to service_role')
+  })
+})
+
+describe('runtime REVIEW suffix production corrective', () => {
+  it('caps later visits by concept/date and retains source headroom without truncating the anchor', () => {
+    expect(corrective).toContain('per_concept.fresh_questions')
+    expect(corrective).toContain('per_concept.concept_key = any(p_anchor_concept_keys)')
+    expect(corrective).toContain('v_remaining_plan_count')
+    expect(corrective).toContain('floor(v_remaining_question_budget * 0.80)::integer')
+    expect(corrective).toContain('v_remaining_plan_count * 7')
+    expect(corrective).toContain('anchor itself may')
+    expect(corrective).toContain('all 1..8 unresolved concepts')
+    expect(corrective).toContain('review suffix planner headroom patch did not persist')
+  })
+
+  it('grants answer-lock reads only to the server role', () => {
+    expect(corrective).toContain('revoke all on table app_private.chem_question_answer_locks')
+    expect(corrective).toContain('from public, anon, authenticated')
+    expect(corrective).toContain('grant select on table app_private.chem_question_answer_locks to service_role')
+    expect(corrective).toContain("has_table_privilege(\n      'service_role'")
+    expect(corrective).toContain("'anon',\n       'app_private.chem_question_answer_locks'")
+    expect(corrective).toContain("'authenticated',\n       'app_private.chem_question_answer_locks'")
+    expect(corrective).not.toMatch(/grant\s+(?:all|insert|update|delete).*chem_question_answer_locks/i)
+  })
+
+  it('fails closed if the deployed function body drifted', () => {
+    expect(corrective).toContain('pg_get_functiondef')
+    expect(corrective).toContain('v_occurrences <> 1')
+    expect(corrective).toContain('source drifted')
+    expect(corrective).toContain('pg_catalog.replace(v_definition, v_old, v_new)')
   })
 })

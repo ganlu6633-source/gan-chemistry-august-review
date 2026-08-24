@@ -1,9 +1,10 @@
--- CANDIDATE ONLY.  Do not apply without a fresh production dry-run.
+-- Publishes the production-dry-run REVIEW calendar after the expanded High-1
+-- source release made the remaining window fully fundable.
 --
--- Builds the formal REVIEW baseline for 2026-08-23..2026-09-29 from each
+-- Builds the formal REVIEW baseline for 2026-08-24..2026-09-29 from each
 -- learner's own remaining source-original capacity.  It deliberately does not
 -- assign a fixed five questions per day: a learner with 85 fresh originals is
--- spread across the 38 dates at two or three questions per day.
+-- spread across the 37 dates at two or three questions per day.
 --
 -- Runtime ownership boundary: chem_personalize_next_review_plan may replace
 -- tomorrow's baseline targets after today's completion.  That RPC must
@@ -23,6 +24,52 @@ select pg_catalog.pg_advisory_xact_lock(
 -- Prevent a question from becoming answer-locked while the future calendar is
 -- being rebuilt.  An existing lock means the corresponding plan has started.
 lock table app_private.chem_question_answer_locks in share mode;
+
+-- Evidence and the independent quiz site are outside this migration's write
+-- boundary.  Snapshot every row so the final assertion can prove that even an
+-- accidental trigger-side mutation did not slip through.
+create temporary table _attempt_before on commit drop as
+select attempt.id, pg_catalog.to_jsonb(attempt) as row_data
+from public.chem_learning_attempts attempt;
+
+create unique index on _attempt_before(id);
+
+create temporary table _answer_before on commit drop as
+select answer.id, pg_catalog.to_jsonb(answer) as row_data
+from public.chem_attempt_answers answer;
+
+create unique index on _answer_before(id);
+
+create temporary table _quiz_session_before on commit drop as
+select session.id, pg_catalog.to_jsonb(session) as row_data
+from public.quiz_sessions session;
+
+create unique index on _quiz_session_before(id);
+
+create temporary table _answer_lock_before on commit drop as
+select
+  answer_lock.student_id,
+  answer_lock.plan_day_id,
+  answer_lock.attempt_sequence,
+  answer_lock.question_id,
+  pg_catalog.to_jsonb(answer_lock) as row_data
+from app_private.chem_question_answer_locks answer_lock;
+
+create unique index on _answer_lock_before(
+  student_id, plan_day_id, attempt_sequence, question_id
+);
+
+create temporary table _existing_plan_before on commit drop as
+select plan.id, plan.student_id, plan.plan_date, plan.mode
+from public.chem_learning_plans plan
+join public.chem_students_v2 student on student.id = plan.student_id
+where student.record_status = 'active'
+  and student.grade_band in ('高一','高二','高三')
+  and coalesce(student.metadata->'demo', 'false'::jsonb) <> 'true'::jsonb
+  and plan.mode = 'REVIEW'
+  and plan.plan_date between date '2026-08-24' and date '2026-09-29';
+
+create unique index on _existing_plan_before(id);
 
 do $$
 begin
@@ -68,7 +115,7 @@ select
       order by learned.position
     )
   end as confirmed_h1_skills,
-  (38 + ((pg_catalog.hashtextextended(student.id::text, 0) % 38 + 38) % 38)) % 38
+  (37 + ((pg_catalog.hashtextextended(student.id::text, 0) % 37 + 37) % 37)) % 37
     as date_rotation
 from public.chem_students_v2 student
 where student.record_status = 'active'
@@ -80,21 +127,21 @@ create unique index on _formal_students(student_id);
 create temporary table _review_dates on commit drop as
 select
   day::date as plan_date,
-  (day::date - date '2026-08-23')::integer as day_index,
-  38::integer as date_count
+  (day::date - date '2026-08-24')::integer as day_index,
+  37::integer as date_count
 from pg_catalog.generate_series(
-  date '2026-08-23', date '2026-09-29', interval '1 day'
+  date '2026-08-24', date '2026-09-29', interval '1 day'
 ) day;
 
 create unique index on _review_dates(plan_date);
 
 do $$
 begin
-  if (select count(*) from _review_dates) <> 38
-     or (select min(plan_date) from _review_dates) <> date '2026-08-23'
+  if (select count(*) from _review_dates) <> 37
+     or (select min(plan_date) from _review_dates) <> date '2026-08-24'
      or (select max(plan_date) from _review_dates) <> date '2026-09-29'
   then
-    raise exception 'the REVIEW window must contain exactly 38 dates';
+    raise exception 'the REVIEW window must contain exactly 37 dates';
   end if;
 
   if exists (
@@ -242,7 +289,7 @@ from ranked
 where latest_rank = 1 and concept_key is not null;
 
 -- First-pass coverage is satisfied by either a real historical REVIEW answer
--- or one future target in this 38-day window.  Answer locks are deliberately
+-- or one future target in this 37-day window.  Answer locks are deliberately
 -- absent: issuing a question is not the same as the learner answering it.
 create temporary table _required_first_pass (
   student_id uuid not null,
@@ -411,8 +458,21 @@ select
   student.grade_band,
   student.confirmed_h1_skills,
   student.date_rotation,
-  coalesce(sum(capacity.initial_questions), 0)::integer as fresh_questions,
-  least(coalesce(sum(capacity.initial_questions), 0)::integer, 38 * 8) as scheduled_questions
+  -- A fine concept can appear only once in one daily package, so more than 37
+  -- compatible originals for one concept cannot fund more than 37 dates.
+  coalesce(sum(least(capacity.initial_questions, 37)), 0)::integer as fresh_questions,
+  count(capacity.concept_key)::integer as fresh_concepts,
+  -- Preserve twenty percent source headroom for evidence-driven replacement.
+  -- Baseline dates use at most seven questions; runtime may still raise the
+  -- immediate wrong/uncertain anchor to the formal maximum of eight.
+  greatest(
+    37,
+    count(capacity.concept_key)::integer,
+    least(
+      floor(coalesce(sum(least(capacity.initial_questions, 37)), 0) * 0.80)::integer,
+      37 * least(7, count(capacity.concept_key)::integer)
+    )
+  ) as scheduled_questions
 from _formal_students student
 left join _remaining_capacity capacity on capacity.student_id = student.student_id
 group by student.student_id, student.grade_band,
@@ -421,7 +481,7 @@ group by student.student_id, student.grade_band,
 do $$
 begin
   if exists (
-    select 1 from _student_capacity where fresh_questions < 38
+    select 1 from _student_capacity where fresh_questions < 37
   ) then
     raise exception 'a formal learner has fewer than one fresh original per remaining date';
   end if;
@@ -446,7 +506,7 @@ begin
   end if;
 end $$;
 
--- Divide each personal capacity evenly across the 38 days.  The hash rotates
+-- Divide each personal capacity evenly across the 37 days.  The hash rotates
 -- which dates receive the +1, so two learners with the same capacity need not
 -- receive identical daily loads.  The result is always in 1..8.
 create temporary table _daily_load on commit drop as
@@ -473,7 +533,7 @@ begin
        select 1
        from _daily_load daily
        group by daily.student_id
-       having count(*) <> 38
+       having count(*) <> 37
           or sum(daily.question_count) <> (
             select capacity.scheduled_questions
             from _student_capacity capacity
@@ -591,7 +651,7 @@ begin
   end loop;
 end $$;
 
--- Before any INSERT/UPDATE, assert that the 38-day target set actually gives
+-- Before any INSERT/UPDATE, assert that the 37-day target set actually gives
 -- every still-unanswered in-scope concept its required first encounter.  With
 -- historical answers included, the contract retains the full H2=40 and H3=55
 -- catalogs while respecting each H1 confirmed-skill subset.
@@ -607,7 +667,7 @@ begin
         and target.concept_key = required.concept_key
     )
   ) then
-    raise exception 'first-pass concept coverage missing from the 38-day REVIEW targets';
+    raise exception 'first-pass concept coverage missing from the 37-day REVIEW targets';
   end if;
 end $$;
 
@@ -639,7 +699,7 @@ group by daily.student_id, daily.grade_band, daily.plan_date, daily.question_cou
 do $$
 begin
   if (select count(*) from _plan_assignment)
-       <> (select count(*) from _formal_students) * 38
+       <> (select count(*) from _formal_students) * 37
      or exists (
        select 1
        from _plan_assignment assignment
@@ -677,9 +737,9 @@ begin
     join public.chem_learning_plans plan on plan.id = attempt.plan_day_id
     join _formal_students student on student.student_id = plan.student_id
     where plan.mode = 'REVIEW'
-      and plan.plan_date between date '2026-08-23' and date '2026-09-29'
+      and plan.plan_date between date '2026-08-24' and date '2026-09-29'
   ) then
-    raise exception 'the candidate window contains a started REVIEW plan';
+    raise exception 'the publish window contains a started REVIEW plan';
   end if;
 
   if exists (
@@ -688,9 +748,9 @@ begin
     join public.chem_learning_plans plan on plan.id = answer_lock.plan_day_id
     join _formal_students student on student.student_id = plan.student_id
     where plan.mode = 'REVIEW'
-      and plan.plan_date between date '2026-08-23' and date '2026-09-29'
+      and plan.plan_date between date '2026-08-24' and date '2026-09-29'
   ) then
-    raise exception 'the candidate window contains an answer-locked REVIEW plan';
+    raise exception 'the publish window contains an answer-locked REVIEW plan';
   end if;
 
   if exists (
@@ -698,7 +758,7 @@ begin
     from public.chem_learning_plans plan
     join _formal_students student on student.student_id = plan.student_id
     where plan.mode='REVIEW'
-      and plan.plan_date between date '2026-08-23' and date '2026-09-29'
+      and plan.plan_date between date '2026-08-24' and date '2026-09-29'
     group by plan.student_id, plan.plan_date
     having count(*) > 1
   ) then
@@ -772,7 +832,7 @@ begin
     from public.chem_learning_plans plan
     join _formal_students student on student.student_id = plan.student_id
     where plan.mode='REVIEW'
-      and plan.plan_date between date '2026-08-23' and date '2026-09-29'
+      and plan.plan_date between date '2026-08-24' and date '2026-09-29'
     group by plan.student_id, plan.plan_date
     having count(*) <> 1
   ) then
@@ -805,6 +865,138 @@ begin
        or target_count.reserved > coalesce(fresh_count.fingerprints, 0)
   ) then
     raise exception 'a future target occurrence is not funded by a different original';
+  end if;
+end $$;
+
+-- Retry compensation jobs only after the complete funded suffix exists.  The
+-- RPC records failures instead of inventing or repeating a question; the
+-- final assertion rejects the two implementation failures this migration is
+-- designed to eliminate.
+create temporary table _personalization_retry on commit drop as
+select succeeded, status, last_error
+from public.chem_retry_pending_review_personalization(25);
+
+do $$
+begin
+  if exists (
+    select 1
+    from _personalization_retry retry
+    where retry.status = 'pending'
+       or retry.last_error in (
+         'permission denied for table chem_question_answer_locks',
+         'suffix_concept_capacity_shortage'
+       )
+  ) or exists (
+    select 1
+    from app_private.review_plan_personalization_jobs job
+    where job.status = 'pending'
+      and job.last_error in (
+        'permission denied for table chem_question_answer_locks',
+        'suffix_concept_capacity_shortage'
+      )
+  ) then
+    raise exception 'known REVIEW personalization compensation failure remains';
+  end if;
+
+  if exists (
+    select before.id
+    from _existing_plan_before before
+    left join public.chem_learning_plans plan on plan.id = before.id
+    where plan.id is null
+       or plan.student_id is distinct from before.student_id
+       or plan.plan_date is distinct from before.plan_date
+       or plan.mode is distinct from before.mode
+  ) then
+    raise exception 'an existing REVIEW plan identity changed unexpectedly';
+  end if;
+
+  if exists (
+    select 1
+    from public.chem_learning_plans plan
+    join _formal_students student on student.student_id = plan.student_id
+    where plan.mode = 'REVIEW'
+      and plan.plan_date between date '2026-08-24' and date '2026-09-29'
+      and (
+        plan.question_count not between 1 and 8
+        or plan.round_limit <> 1
+        or plan.source <> 'mixed'
+        or pg_catalog.cardinality(plan.skill_ids) not between 1 and plan.question_count
+        or pg_catalog.cardinality(plan.target_concept_keys) <> plan.question_count
+        or pg_catalog.cardinality(plan.knowledge_summaries) <> plan.question_count
+        or (
+          select count(distinct target.concept_key)
+          from pg_catalog.unnest(plan.target_concept_keys) target(concept_key)
+        ) <> plan.question_count
+        or exists (
+          select 1
+          from pg_catalog.unnest(plan.target_concept_keys)
+            with ordinality as target(concept_key, position)
+          left join app_private.chem_review_concept_catalog catalog
+            on catalog.grade_band = student.grade_band
+           and catalog.concept_key = target.concept_key
+          where catalog.concept_key is null
+             or not (catalog.skill_id = any(plan.skill_ids))
+             or plan.knowledge_summaries[target.position] <> catalog.concept_label
+        )
+      )
+  ) then
+    raise exception 'final REVIEW calendar semantic contract failed';
+  end if;
+
+  if (select count(*) from public.chem_learning_attempts)
+       <> (select count(*) from _attempt_before)
+     or exists (
+       select before.id
+       from _attempt_before before
+       left join public.chem_learning_attempts attempt on attempt.id = before.id
+       where attempt.id is null
+          or pg_catalog.to_jsonb(attempt) is distinct from before.row_data
+     )
+  then
+    raise exception 'learning attempts changed unexpectedly';
+  end if;
+
+  if (select count(*) from public.chem_attempt_answers)
+       <> (select count(*) from _answer_before)
+     or exists (
+       select before.id
+       from _answer_before before
+       left join public.chem_attempt_answers answer on answer.id = before.id
+       where answer.id is null
+          or pg_catalog.to_jsonb(answer) is distinct from before.row_data
+     )
+  then
+    raise exception 'learning answers changed unexpectedly';
+  end if;
+
+  if (select count(*) from public.quiz_sessions)
+       <> (select count(*) from _quiz_session_before)
+     or exists (
+       select before.id
+       from _quiz_session_before before
+       left join public.quiz_sessions session on session.id = before.id
+       where session.id is null
+          or pg_catalog.to_jsonb(session) is distinct from before.row_data
+     )
+  then
+    raise exception 'independent quiz_sessions changed unexpectedly';
+  end if;
+
+  if (select count(*) from app_private.chem_question_answer_locks)
+       <> (select count(*) from _answer_lock_before)
+     or exists (
+       select 1
+       from _answer_lock_before before
+       left join app_private.chem_question_answer_locks answer_lock
+         on answer_lock.student_id = before.student_id
+        and answer_lock.plan_day_id = before.plan_day_id
+        and answer_lock.attempt_sequence = before.attempt_sequence
+        and answer_lock.question_id = before.question_id
+       where answer_lock.question_id is null
+          or pg_catalog.to_jsonb(answer_lock) is distinct from before.row_data
+     )
+  then
+    raise exception 'issued answer locks changed unexpectedly';
   end if;
 end $$;
 
