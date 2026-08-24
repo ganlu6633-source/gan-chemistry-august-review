@@ -96,6 +96,14 @@ describe('StudentApp plan opening resilience', () => {
     expect(screen.queryByText('每轮题目')).not.toBeInTheDocument()
   })
 
+  it('明确告知演示学生每天可打开已审核原题，且练习不写入正式记录', () => {
+    renderStudent()
+
+    expect(screen.getByRole('heading', { name: '每一天都可以打开完整学习链路' })).toBeInTheDocument()
+    expect(screen.getByText(/只读取已审核、当前范围内、可用于复习的真实原题/)).toBeInTheDocument()
+    expect(screen.getByText(/不写入任何正式学生记录/)).toBeInTheDocument()
+  })
+
   it('keeps the server error visible beside the original action', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ message: '服务器具体错误：本轮原题数量不足。' }, 422))
     vi.stubGlobal('fetch', fetchMock)

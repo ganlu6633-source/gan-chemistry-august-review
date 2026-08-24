@@ -1259,8 +1259,10 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   if (!skillIds.length) throw new RequestError(422, "当天计划尚未配置可练习的知识模块，请联系甘老师。");
   const questionCount = planQuestionCount(plan);
   const roundLimit = effectivePlanRoundLimit(plan, reviewProfile);
+  const highSchoolReview = plan.mode === "REVIEW"
+    && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
   const formalHighSchoolReview = isFormalHighSchoolReview(formalReviewContext(plan, reviewProfile));
-  const activeSourceReleaseId = formalHighSchoolReview
+  const activeSourceReleaseId = highSchoolReview
     ? await activeVerifiedSourceReleaseId(reviewProfile.gradeBand)
     : null;
   if (
@@ -1315,24 +1317,15 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   if (plan.mode === "REVIEW" && targetConceptKeys.length) {
     eligibleQuestions = eligibleQuestions.in("concept_key", targetConceptKeys);
   }
-  const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band));
-  if (demoHighSchoolReview) {
-    // A public demo must neither expose licensed local originals nor fall back
-    // to synthetic questions that a learner could mistake for source originals.
-    // Exact source questions are available only through a real student plan or
-    // the authenticated teacher preview of that real student.
-    throw new RequestError(422, "公开演示不再下发无材料来源的模拟题。请由甘老师从教师后台预览正式学生原题。");
-  } else {
-    eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true);
-    if (plan.mode === "REVIEW" && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band))) {
-      // Every real high-school REVIEW and teacher preview of a real student is
-      // source-only by product policy. Fail closed if a generated row is
-      // accidentally re-enabled later.
-      eligibleQuestions = eligibleQuestions
-        .eq("source_kind", "licensed_local")
-        .eq("render_mode", "image_primary")
-        .eq("source_release_id", activeSourceReleaseId!);
-    }
+  eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true);
+  if (highSchoolReview) {
+    // Every high-school REVIEW surface, including the read-only demo, uses the
+    // same verified source-only release. Demo answers remain simulated and are
+    // never written to attempts, answer locks or student mastery evidence.
+    eligibleQuestions = eligibleQuestions
+      .eq("source_kind", "licensed_local")
+      .eq("render_mode", "image_primary")
+      .eq("source_release_id", activeSourceReleaseId!);
   }
   if (maxQuestionLevel !== null) eligibleQuestions = eligibleQuestions.lte("level", maxQuestionLevel);
   // The adaptive selector uses the source index as its final deterministic
@@ -1454,7 +1447,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const latestAnswers = latestAttemptId
     ? historyRows.filter((answer) => String(answer.attempt_id) === latestAttemptId)
     : [];
-  const questionPool = (formalHighSchoolReview
+  const questionPool = (highSchoolReview
     ? (questions.data || []).filter((question) => hasRequiredReviewSourceAssets(question.asset_refs))
     : (questions.data || [])) as SourceAdaptiveQuestion[];
   if (plan.mode === "REVIEW" && !demoProfile && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band))) {
@@ -1714,9 +1707,6 @@ Deno.serve(async (req: Request) => {
         if (!profile.data || !["高一", "高二", "高三"].includes(String(profile.data.grade_band)) || profile.data.record_status !== "active") {
           return reply(req, { error: "无权读取该原题图片。" }, 403);
         }
-        if ((profile.data.metadata as Record<string, unknown> | null)?.demo === true) {
-          return reply(req, { error: "演示账号不提供本地授权原题或解析图片。" }, 403);
-        }
       }
 
       const assetsResult = await supabase.rpc("chem_get_question_assets", { p_asset_paths: [assetId] });
@@ -1928,10 +1918,6 @@ Deno.serve(async (req: Request) => {
         }
       }
       if (!targetId || !validUuid(targetId)) return reply(req, { error: "无权提交该题答案。" }, 403);
-      if (await isDemoStudent(targetId)) {
-        return reply(req, { error: "演示账号使用独立安全题库，不提供本地授权原题反馈。" }, 403);
-      }
-
       const payload = await startPlanPayload(
         targetId,
         planId,

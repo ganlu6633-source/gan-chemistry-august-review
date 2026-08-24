@@ -37,15 +37,22 @@ describe('high-school source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('analysisAssetRefs: []')
   })
 
-  it('fails public high-school question demos closed and exposes originals only through authenticated real-student preview', () => {
-    expect(accessFunction).toContain('const demoHighSchoolReview = demoProfile && plan.mode === "REVIEW"')
-    expect(accessFunction).toContain('if (demoHighSchoolReview)')
-    expect(accessFunction).toContain('公开演示不再下发无材料来源的模拟题')
+  it('opens every high-school demo day with the verified source release while keeping all demo answers read-only', () => {
+    expect(accessFunction).toContain('const highSchoolReview = plan.mode === "REVIEW"')
+    expect(accessFunction).toContain('const activeSourceReleaseId = highSchoolReview')
+    expect(accessFunction).toContain('if (highSchoolReview)')
     expect(accessFunction).not.toContain('eligibleQuestions = eligibleQuestions\n      .eq("source_kind", "teacher_original")\n      .eq("usable_for_demo", true)')
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true)')
+    expect(accessFunction).toContain('.eq("source_kind", "licensed_local")')
+    expect(accessFunction).toContain('.eq("render_mode", "image_primary")')
+    expect(accessFunction).toContain('.eq("source_release_id", activeSourceReleaseId!)')
     expect(accessFunction).toContain('demoProfile && historical.sourceKind === "licensed_local"')
-    expect(accessFunction).toContain('演示账号不提供本地授权原题或解析图片')
-    expect(accessFunction).toContain('演示账号使用独立安全题库，不提供本地授权原题反馈')
+    expect(accessFunction).not.toContain('公开演示不再下发无材料来源的模拟题')
+    expect(accessFunction).not.toContain('演示账号不提供本地授权原题或解析图片')
+    expect(accessFunction).not.toContain('演示账号使用独立安全题库，不提供本地授权原题反馈')
+    expect(accessFunction).toContain('if (targetId) readOnlyPreview = await isDemoStudent(targetId)')
+    expect(accessFunction).toContain('simulated: readOnlyPreview')
+    expect(accessFunction).toContain('return reply(req, { dashboard: await studentDashboard(targetId), achievements: [], simulated: true })')
   })
 
   it('binds every submission to the immutable source revision and stores separate snapshot identities', () => {
