@@ -284,7 +284,8 @@ export type IssuedJuniorQuestion = Omit<Question, 'correctOption' | 'explanation
   correctOption?: never
   explanation?: never
   scaffold?: never
-  sourceInfo?: null
+  /** Intentionally absent from the student payload; provenance is server-only. */
+  sourceInfo?: never
 }
 
 export interface JuniorAdaptivePayload {

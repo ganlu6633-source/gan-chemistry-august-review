@@ -97,6 +97,16 @@ function randomToken() {
 function validUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
+async function sourceReleaseStates(releaseIds: string[]) {
+  return releaseIds.length
+    ? await supabase.rpc("chem_source_release_states", { p_release_ids: releaseIds })
+    : { data: [], error: null };
+}
+async function juniorKnowledgeProvenanceStates(knowledgeIds: string[]) {
+  return knowledgeIds.length
+    ? await supabase.rpc("chem_junior_knowledge_provenance_states", { p_knowledge_ids: knowledgeIds })
+    : { data: [], error: null };
+}
 const profileShape = (row: Record<string, unknown>) => ({
   id: row.id,
   displayName: row.display_name,
@@ -835,7 +845,10 @@ function juniorQuestionShape(row: Record<string, unknown>) {
     id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key || null, level: row.level,
     gradeBand: row.grade_band, stem: row.stem, options: row.options,
     reviewStatus: row.review_status, scopeStatus: row.scope_status, sourceKind: row.source_kind,
-    imageUrl: null, sourceInfo: null, assetRefs: [], renderMode: "native",
+    // Do not even serialize a null provenance field here. The student client
+    // must receive no source-shaped property that could later be populated by
+    // an accidental query expansion.
+    imageUrl: null, assetRefs: [], renderMode: "native",
     revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
   };
 }
@@ -886,9 +899,7 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
   if (result.error) throw result.error;
   const rows = (result.data || []) as Array<Record<string, unknown>>;
   const releaseIds = [...new Set(rows.map((row) => String(row.source_release_id || "")).filter(Boolean))];
-  const releases = releaseIds.length
-    ? await supabase.schema("app_private").from("chem_question_source_releases").select("id,status,verification_status").in("id", releaseIds)
-    : { data: [], error: null };
+  const releases = await sourceReleaseStates(releaseIds);
   if (releases.error) throw releases.error;
   const validReleases = new Set((releases.data || [])
     .filter((row) => row.status === "active" && row.verification_status === "full_visual_verified")
@@ -975,7 +986,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     supabase.from("chem_knowledge_cards").select("*").in("skill_id", skillIds).eq("review_status", "approved"),
     supabase.from("chem_junior_session_steps").select("*").eq("session_id", String(session.id)).order("sequence"),
     supabase.from("chem_junior_daily_sessions").select("id,curriculum_day_id,status,study_date").eq("student_id", studentId).order("study_date"),
-    supabase.schema("app_private").from("chem_junior_knowledge_provenance").select("knowledge_id,verification_status").in("knowledge_id", skillIds),
+    juniorKnowledgeProvenanceStates(skillIds),
   ]);
   if (cardsResult.error || stepsResult.error || allSessionsResult.error || provenanceResult.error) {
     throw cardsResult.error || stepsResult.error || allSessionsResult.error || provenanceResult.error;
@@ -1027,9 +1038,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   if (poolResult.error) throw poolResult.error;
   const poolRows = (poolResult.data || []) as Array<Record<string, unknown>>;
   const releaseIds = [...new Set(poolRows.map((row) => String(row.source_release_id || "")).filter(Boolean))];
-  const releaseResult = releaseIds.length
-    ? await supabase.schema("app_private").from("chem_question_source_releases").select("id,status,verification_status").in("id", releaseIds)
-    : { data: [], error: null };
+  const releaseResult = await sourceReleaseStates(releaseIds);
   if (releaseResult.error) throw releaseResult.error;
   const activeReleaseIds = new Set((releaseResult.data || []).filter((row) => row.status === "active" && row.verification_status === "full_visual_verified").map((row) => String(row.id)));
   const candidates = poolRows.filter((row) => activeReleaseIds.has(String(row.source_release_id))).map(juniorCandidate);
