@@ -157,6 +157,10 @@ export function selectJuniorNextQuestion<T extends JuniorAdaptiveCandidate>(inpu
   const byQuestionId = new Map<string, JuniorAdaptiveHistory>();
   for (const row of [...input.answered, ...input.issued]) byQuestionId.set(row.question_id, row);
   const allHistory = [...byQuestionId.values()];
+  // Prior-day answers are retained only for immutable source-identity
+  // exclusion. Each new daily session must independently earn its own two
+  // foundation successes plus one higher-level success per knowledge point.
+  const currentSession = input.issued;
   const issuedCount = input.issued.length;
   if (issuedCount >= hardCap) return null;
   // A Day-2 recovery must be a *different* original from the error made on
@@ -169,7 +173,7 @@ export function selectJuniorNextQuestion<T extends JuniorAdaptiveCandidate>(inpu
   // one medium success have been observed. A wrong answer stays on that
   // knowledge point and receives a different original before moving forward.
   for (const skillId of input.knowledgeSkillIds) {
-    const selection = nextForCore(skillId, pool, allHistory, input.candidates);
+    const selection = nextForCore(skillId, pool, currentSession, input.candidates);
     if (selection) return selection;
   }
 
@@ -179,13 +183,18 @@ export function selectJuniorNextQuestion<T extends JuniorAdaptiveCandidate>(inpu
   if (input.curriculumDayNumber > 1 && issuedCount >= 6 && issuedRecoveryCount < 5) {
     const recovery = recoveryCandidate(pool, input.priorErrors);
     if (recovery) return recovery;
+    // A later day with unstable prior evidence must collect at least two
+    // different-original confirmations. Returning null before that minimum
+    // lets the caller fail closed instead of silently replacing recovery with
+    // generic stability filler.
+    if (input.priorErrors.length > 0 && issuedRecoveryCount < 2) return null;
   }
 
   if (issuedCount < initialTarget) {
-    const counts = new Map(input.knowledgeSkillIds.map((skillId) => [skillId, knowledgeRows(allHistory, skillId).length]));
+    const counts = new Map(input.knowledgeSkillIds.map((skillId) => [skillId, knowledgeRows(currentSession, skillId).length]));
     const orderedSkills = [...input.knowledgeSkillIds].sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0) || a.localeCompare(b));
     for (const skillId of orderedSkills) {
-      const rows = knowledgeRows(allHistory, skillId);
+      const rows = knowledgeRows(currentSession, skillId);
       const lastLevel = rows.at(-1)?.level || 1;
       const validation = firstCandidate(pool, (candidate) => candidate.knowledge_id === skillId && candidate.level >= lastLevel);
       if (validation) return { question: validation, routeKind: 'stability_validation', routeReason: '三项知识均已过核心关，补足当天 12 题的独立稳定性证据。' };
@@ -196,7 +205,7 @@ export function selectJuniorNextQuestion<T extends JuniorAdaptiveCandidate>(inpu
   // or incorrect foundation judgement may trigger them.
   if (issuedCount >= initialTarget) {
     for (const skillId of input.knowledgeSkillIds) {
-      const rows = knowledgeRows(allHistory, skillId);
+      const rows = knowledgeRows(currentSession, skillId);
       const latest = rows.at(-1);
       if (latest && !confidentCorrect(latest)) {
         const readiness = coreReadiness(skillId, rows, input.candidates);

@@ -60,7 +60,7 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     <button className={view === 'students' ? 'active' : ''} onClick={() => setView('students')}><Users />学生档案</button>
     <button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')}><MonitorPlay />模拟学生端</button>
     <button className={view === 'videos' ? 'active' : ''} onClick={() => setView('videos')}><Film />视频讲解</button>
-    <button className={view === 'plans' ? 'active' : ''} onClick={() => setView('plans')}><BookOpen />计划编辑器</button>
+    <button className={view === 'plans' ? 'active' : ''} onClick={() => setView('plans')}><BookOpen />课程节点审核</button>
     <button className={view === 'questions' ? 'active' : ''} onClick={() => setView('questions')}><MessageSquareText />题库审核</button>
     <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings2 />权限与访问码</button>
   </nav><button className="logout-button" onClick={() => { clearAccessSession(); window.location.assign(`${window.location.origin}${import.meta.env.BASE_URL}`) }}><LogIn />退出登录</button></aside>
@@ -116,13 +116,19 @@ function ObservationForm({ dashboard }: { dashboard: TeacherDashboardData }) {
   const [guardianMessage, setGuardianMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); setSaving(true); setSaved(false)
+    event.preventDefault(); setSaving(true); setSaved(false); setError('')
     const observation: Omit<TeacherObservation, 'id'> = { studentId, courseDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }), taughtContent: taught, observedEvidence: evidence, internalNote: internal, studentMessage, guardianMessage, visibility: 'internal' }
-    try { await saveTeacherObservation(observation); setSaved(true); setTaught(''); setEvidence(''); setInternal(''); setStudentMessage(''); setGuardianMessage('') } finally { setSaving(false) }
+    try {
+      await saveTeacherObservation(observation)
+      setSaved(true); setTaught(''); setEvidence(''); setInternal(''); setStudentMessage(''); setGuardianMessage('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '课堂记录没有保存成功，请稍后重试。')
+    } finally { setSaving(false) }
   }
-  return <><div className="teacher-page-head"><div><span className="eyebrow">只输入一次，系统自动分发</span><h1>快速课堂记录</h1></div></div><form className="observation-form" onSubmit={submit}><label>学生<select value={studentId} onChange={(event) => setStudentId(event.target.value)}>{dashboard.students.map((student) => <option key={student.id} value={student.id}>{student.displayName} · {student.gradeBand}</option>)}</select></label><label>今天讲了什么<textarea value={taught} onChange={(event) => setTaught(event.target.value)} required placeholder="知识点、题型、课堂进度" /></label><label>我观察到了什么<textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} required placeholder="只记录可观察事实，如：两次把比较对象看反" /></label><label className="internal-field">教师内部备注（永不直接展示给家长）<textarea value={internal} onChange={(event) => setInternal(event.target.value)} placeholder="教学策略、需要后续核验的判断" /></label><div className="two-fields"><label>给学生的话<textarea value={studentMessage} onChange={(event) => setStudentMessage(event.target.value)} placeholder="强调已经获得的能力" /></label><label>给家长的话<textarea value={guardianMessage} onChange={(event) => setGuardianMessage(event.target.value)} placeholder="简短、事实化、喜忧都报" /></label></div>{saved && <div className="success-message"><CheckCircle2 />已写入学生档案，并按可见性分发。</div>}<button className="primary-button" disabled={saving}><Save size={18} />{saving ? '正在保存…' : '保存并自动分发'}</button></form></>
+  return <><div className="teacher-page-head"><div><span className="eyebrow">只输入一次，系统自动分发</span><h1>快速课堂记录</h1></div></div><form className="observation-form" onSubmit={submit}><label>学生<select value={studentId} onChange={(event) => setStudentId(event.target.value)}>{dashboard.students.map((student) => <option key={student.id} value={student.id}>{student.displayName} · {student.gradeBand}</option>)}</select></label><label>今天讲了什么<textarea value={taught} onChange={(event) => setTaught(event.target.value)} required placeholder="知识点、题型、课堂进度" /></label><label>我观察到了什么<textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} required placeholder="只记录可观察事实，如：两次把比较对象看反" /></label><label className="internal-field">教师内部备注（永不直接展示给家长）<textarea value={internal} onChange={(event) => setInternal(event.target.value)} placeholder="教学策略、需要后续核验的判断" /></label><div className="two-fields"><label>给学生的话<textarea value={studentMessage} onChange={(event) => setStudentMessage(event.target.value)} placeholder="强调已经获得的能力" /></label><label>给家长的话<textarea value={guardianMessage} onChange={(event) => setGuardianMessage(event.target.value)} placeholder="简短、事实化、喜忧都报" /></label></div>{error && <div className="inline-alert" role="alert">{error}</div>}{saved && <div className="success-message"><CheckCircle2 />已写入学生档案，并按可见性分发。</div>}<button className="primary-button" disabled={saving}><Save size={18} />{saving ? '正在保存…' : '保存并自动分发'}</button></form></>
 }
 
 type StudentDirectoryGrade = '全部' | GradeBand
@@ -208,9 +214,27 @@ type CourseNodeRow = { id: string; grade_band: string; textbook_version: string;
 function PlanEditor({ dashboard }: { dashboard: TeacherDashboardData }) {
   const [nodes, setNodes] = useState<CourseNodeRow[]>([])
   const [busy, setBusy] = useState('')
-  useEffect(() => { void teacherApi<{ nodes: CourseNodeRow[] }>('list_course_nodes').then((r) => setNodes(r.nodes)) }, [])
-  async function toggle(node: CourseNodeRow) { setBusy(node.id); await teacherApi('approve_course_node', { id: node.id, approved: !node.teacher_approved }); setNodes((all) => all.map((item) => item.id === node.id ? { ...item, teacher_approved: !item.teacher_approved } : item)); setBusy('') }
-  return <><div className="teacher-page-head"><div><span className="eyebrow">课程脑与考试脑的正式输入</span><h1>学习计划编辑器</h1></div></div><section className="teacher-panel"><p>课程节点只有经教师确认后才会参与选题。</p><div className="editor-summary"><div><b>{dashboard.pendingCourseNodes}</b><span>课程节点待审核</span></div><div><b>3</b><span>调度模式</span></div><div><b>8 / 10</b><span>默认 / 硬上限</span></div></div><div className="audit-list">{nodes.map((node) => <article key={node.id}><div><b><ChemText>{node.title}</ChemText></b><p>{node.grade_band} · {node.textbook_version} · {node.chapter}</p></div><button className="secondary-button" disabled={busy === node.id} onClick={() => void toggle(node)}>{node.teacher_approved ? '撤回批准' : '批准使用'}</button></article>)}</div></section></>
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    setLoading(true); setError('')
+    void teacherApi<{ nodes: CourseNodeRow[] }>('list_course_nodes')
+      .then((result) => { if (active) setNodes(result.nodes) })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '课程节点暂时无法读取。') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [])
+  async function toggle(node: CourseNodeRow) {
+    setBusy(node.id); setError('')
+    try {
+      await teacherApi('approve_course_node', { id: node.id, approved: !node.teacher_approved })
+      setNodes((all) => all.map((item) => item.id === node.id ? { ...item, teacher_approved: !item.teacher_approved } : item))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '课程节点审核状态没有保存成功。')
+    } finally { setBusy('') }
+  }
+  return <><div className="teacher-page-head"><div><span className="eyebrow">课程脑与考试脑的正式输入</span><h1>课程节点审核</h1></div></div><section className="teacher-panel"><p>课程节点只有经教师确认后才会参与选题；这里不直接修改学生日期计划。</p><div className="editor-summary"><div><b>{dashboard.pendingCourseNodes}</b><span>课程节点待审核</span></div><div><b>3</b><span>调度模式</span></div><div><b>1—8</b><span>高中每日原题</span></div><div><b>12—15</b><span>初中自适应原题</span></div></div>{error && <div className="inline-alert" role="alert">{error}</div>}{loading ? <div className="center-loading"><RefreshCw className="spin" />正在读取课程节点……</div> : <div className="audit-list">{nodes.map((node) => <article key={node.id}><div><b><ChemText>{node.title}</ChemText></b><p>{node.grade_band} · {node.textbook_version} · {node.chapter}</p></div><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void toggle(node)}>{busy === node.id ? '正在保存…' : node.teacher_approved ? '撤回批准' : '批准使用'}</button></article>)}</div>}</section></>
 }
 
 type QuestionAuditRow = {
@@ -233,6 +257,11 @@ type QuestionAuditRow = {
   render_mode?: 'native' | 'image_assist' | 'image_primary'
   content_fingerprint?: string | null
   source_release_id?: string | null
+  textbook_version?: string | null
+  knowledge_id?: string | null
+  same_type_key?: string | null
+  source_item_key?: string | null
+  parent_source_item_key?: string | null
   usable_for_review: boolean
 }
 
@@ -299,9 +328,9 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
   return <>
     <div className="teacher-page-head"><div><span className="eyebrow">原题题面、答案、原解析与出处逐项核对</span><h1>题库审核</h1></div></div>
     <section className="teacher-panel">
-      <div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>只有题面完整、答案唯一、原解析匹配、福建范围正确且原图校验通过，才允许进入高中复习。</p></div></div>
+      <div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>只有题面完整、答案唯一、原解析匹配、教材与考试范围正确且视觉校验通过，才允许进入正式复习。</p></div></div>
       <div className="question-audit-filters" aria-label="题库筛选">
-        <label>年级<select value={gradeBand} onChange={(event) => { setGradeBand(event.target.value as '' | GradeBand); setPage(1) }}><option value="">全部</option><option value="高一">高一</option><option value="高二">高二</option><option value="高三">高三</option></select></label>
+        <label>年级<select value={gradeBand} onChange={(event) => { setGradeBand(event.target.value as '' | GradeBand); setPage(1) }}><option value="">全部</option><option value="初三">初三</option><option value="高一">高一</option><option value="高二">高二</option><option value="高三">高三</option></select></label>
         <label>来源<select value={sourceKind} onChange={(event) => { setSourceKind(event.target.value as '' | QuestionAuditRow['source_kind']); setPage(1) }}><option value="">全部</option><option value="licensed_local">本地资料原题</option><option value="teacher_original">教师原创</option><option value="original_variant">原创变式</option></select></label>
         <label>状态<select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value as '' | QuestionAuditRow['review_status']); setPage(1) }}><option value="">全部</option><option value="needs_review">待人工复核</option><option value="approved">已批准</option><option value="retired">已停用</option><option value="draft">草稿</option></select></label>
         <b>{total} 道</b>
@@ -321,7 +350,7 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
                 : <div className="question-audit-native"><h3>题干</h3><p><ChemText>{question.stem}</ChemText></p></div>}
               <section><h3>文字辅助稿与答案</h3><p className="question-audit-transcript-note">复杂公式、结构式与装置图以原题图为准。</p><ol className="question-audit-options">{question.options.map((option, index) => <li className={index === question.correct_option ? 'is-answer' : ''} key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}</b><ChemText>{option}</ChemText>{index === question.correct_option && <span>正确答案</span>}</li>)}</ol></section>
               <section className="question-audit-analysis"><h3>文字解析（原解析图为最终依据）</h3><div className="answer-explanation">{explanationParagraphs.map((item, paragraphIndex) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${paragraphIndex}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>)}</div>{question.scaffold && <small>提示：<ChemText>{question.scaffold}</ChemText></small>}</section>
-              <dl className="question-audit-metadata"><div><dt>母题</dt><dd>{question.mother_id}</dd></div><div><dt>细概念</dt><dd>{question.concept_key || '待标注'}</dd></div><div><dt>内容指纹</dt><dd>{question.content_fingerprint ? `${question.content_fingerprint.slice(0, 12)}…` : '缺失'}</dd></div><div><dt>图片</dt><dd>{refs.filter((ref) => ref.kind !== 'analysis_image').length} 张题面 · {refs.filter((ref) => ref.kind === 'analysis_image').length} 张解析</dd></div></dl>
+              <dl className="question-audit-metadata"><div><dt>母题</dt><dd>{question.mother_id}</dd></div><div><dt>细概念</dt><dd>{question.knowledge_id || question.concept_key || '待标注'}</dd></div>{question.grade_band === '初三' && <><div><dt>教材</dt><dd>{question.textbook_version || '待标注'}</dd></div><div><dt>同类题键</dt><dd>{question.same_type_key || '待标注'}</dd></div><div><dt>来源题键</dt><dd>{question.source_item_key ? `${question.source_item_key.slice(0, 16)}…` : '缺失'}</dd></div><div><dt>父来源题键</dt><dd>{question.parent_source_item_key ? `${question.parent_source_item_key.slice(0, 16)}…` : '缺失'}</dd></div></>}<div><dt>内容指纹</dt><dd>{question.content_fingerprint ? `${question.content_fingerprint.slice(0, 12)}…` : '缺失'}</dd></div><div><dt>图片</dt><dd>{refs.filter((ref) => ref.kind !== 'analysis_image').length} 张题面 · {refs.filter((ref) => ref.kind === 'analysis_image').length} 张解析</dd></div></dl>
               {releaseManaged && <p className="question-release-lock">该题属于已锁定的完整原题版本；可在这里逐项检查，但不能单题修改。需调整时应校对并发布整套新版本。</p>}
               <div className="audit-actions"><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'approved')}>批准</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'needs_review')}>待复核</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'retired')}>停用</button></div>
             </div>
@@ -337,6 +366,17 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
 function AccessSettings({ dashboard }: { dashboard: TeacherDashboardData }) {
   const [generated, setGenerated] = useState<{ studentCode: string; guardianCode: string } | null>(null)
   const [studentId, setStudentId] = useState(dashboard.students[0]?.id ?? '')
-  async function generate() { const result = await teacherApi<{ studentCode: string; guardianCode: string }>('reset_access_codes', { studentId }); setGenerated(result) }
-  return <><div className="teacher-page-head"><div><span className="eyebrow">学生码与家长码完全分开</span><h1>权限与访问码</h1></div></div><section className="teacher-panel"><label>学生<select value={studentId} onChange={(event) => { setStudentId(event.target.value); setGenerated(null) }}>{dashboard.students.map((student) => <option value={student.id} key={student.id}>{student.displayName}</option>)}</select></label><div className="security-rules"><p><KeyRound />重置时生成8位初始码；学生登录后可自行改成6—12位数字。</p><p><Shield />重置后旧码立即失效；明文只在本次页面显示一次。</p></div><button className="primary-button" onClick={generate}>生成或重置两种访问码</button>{generated && <div className="one-time-secret"><b>请立即安全交给对应用户，关闭后无法再次查看</b><div><span>学生码</span><code>{generated.studentCode}</code></div><div><span>家长码</span><code>{generated.guardianCode}</code></div></div>}</section></>
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function generate() {
+    if (!studentId || busy) return
+    setBusy(true); setError(''); setGenerated(null)
+    try {
+      const result = await teacherApi<{ studentCode: string; guardianCode: string }>('reset_access_codes', { studentId })
+      setGenerated(result)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '访问码没有重置成功，请稍后重试。')
+    } finally { setBusy(false) }
+  }
+  return <><div className="teacher-page-head"><div><span className="eyebrow">学生码与家长码完全分开</span><h1>权限与访问码</h1></div></div><section className="teacher-panel"><label>学生<select value={studentId} disabled={busy} onChange={(event) => { setStudentId(event.target.value); setGenerated(null); setError('') }}>{dashboard.students.map((student) => <option value={student.id} key={student.id}>{student.displayName}</option>)}</select></label><div className="security-rules"><p><KeyRound />重置时生成8位初始码；学生登录后可自行改成6—12位数字。</p><p><Shield />重置后旧码立即失效；明文只在本次页面显示一次。</p></div>{error && <div className="inline-alert" role="alert">{error}</div>}<button className="primary-button" disabled={busy || !studentId} onClick={() => void generate()}>{busy ? '正在重置，请勿重复点击…' : '生成或重置两种访问码'}</button>{generated && <div className="one-time-secret"><b>请立即安全交给对应用户，关闭后无法再次查看</b><div><span>学生码</span><code>{generated.studentCode}</code></div><div><span>家长码</span><code>{generated.guardianCode}</code></div></div>}</section></>
 }

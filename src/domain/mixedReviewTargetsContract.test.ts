@@ -33,7 +33,7 @@ describe('mixed REVIEW fine-concept targets', () => {
 
   it('uses the same exact target filter when issuing and submitting', () => {
     expect(accessSource.match(/\.in\("concept_key", targetConceptKeys\)/g)).toHaveLength(2)
-    expect(accessSource).toContain('.select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level")')
+    expect(accessSource).toContain('.select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level,delivery_mode")')
   })
 
   it('computes teacher capacity by repeated fine concept instead of whole mixed skill days', () => {

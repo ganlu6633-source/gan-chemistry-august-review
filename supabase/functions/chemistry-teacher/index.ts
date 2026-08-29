@@ -741,7 +741,7 @@ Deno.serve(async (req: Request) => {
       if (reviewStatus && !["draft", "needs_review", "approved", "retired"].includes(reviewStatus)) return reply(req, { error: "审核状态筛选无效。" }, 400);
       if (sourceKind && !["teacher_original", "licensed_local", "original_variant"].includes(sourceKind)) return reply(req, { error: "题目来源筛选无效。" }, 400);
       let query = admin.from("chem_questions").select(
-        "id,mother_id,skill_id,concept_key,level,grade_band,stem,options,correct_option,explanation,scaffold,review_status,scope_status,source_kind,source_info,asset_refs,render_mode,content_fingerprint,source_release_id,usable_for_review,updated_at",
+        "id,mother_id,skill_id,concept_key,level,grade_band,stem,options,correct_option,explanation,scaffold,review_status,scope_status,source_kind,source_info,asset_refs,render_mode,content_fingerprint,source_release_id,usable_for_review,textbook_version,knowledge_id,same_type_key,source_item_key,parent_source_item_key,updated_at",
         { count: "exact" },
       );
       if (gradeBand) query = query.eq("grade_band", gradeBand);
@@ -768,6 +768,11 @@ Deno.serve(async (req: Request) => {
       if (question.source_release_id) {
         return reply(req, {
           error: "这是完整原题版本中的题目，不能单题修改。请校对并发布一个完整的新版本。",
+        }, 409);
+      }
+      if (reviewStatus === "approved" && question.source_kind === "licensed_local" && question.grade_band === "初三") {
+        return reply(req, {
+          error: "初三原题必须连同教材版本、知识点来源和整套发布清单一起审核，不能单题批准。",
         }, 409);
       }
       if (reviewStatus === "approved" && question.source_kind === "licensed_local") {

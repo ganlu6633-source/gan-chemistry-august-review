@@ -97,9 +97,9 @@ export async function loadQuestionFeedback(session: SessionIdentity, input: Ques
   return accessApi<{ feedback: QuestionFeedback; simulated: boolean }>(session, 'question_feedback', input)
 }
 
-/** Open or resume a 科粤版初中 daily session. The server issues just one original at a time. */
-export async function openJuniorAdaptiveSession(session: SessionIdentity, planId: string) {
-  return accessApi<{ payload: JuniorAdaptivePayload }>(session, 'junior_open_session', { planId })
+/** Open or resume a textbook-confirmed junior daily session. The server issues one reviewed original at a time. */
+export async function openJuniorAdaptiveSession(session: SessionIdentity, planId: string, options?: ApiRequestOptions) {
+  return accessApi<{ payload: JuniorAdaptivePayload }>(session, 'junior_open_session', { planId }, options)
 }
 
 export interface JuniorStepAnswerInput {

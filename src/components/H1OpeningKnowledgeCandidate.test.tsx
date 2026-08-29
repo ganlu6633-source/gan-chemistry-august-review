@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { StructuredKnowledgeContent } from '../domain/types'
 import { StructuredKnowledgeMap } from './StudentApp'
+import h1OpeningMigration from '../../supabase/migrations/20260829173000_publish_h1_opening_knowledge_cards.sql?raw'
 
 type CandidateCard = {
   skill_id: string
@@ -11,7 +12,7 @@ type CandidateCard = {
   structured_content: StructuredKnowledgeContent
 }
 
-const cards = JSON.parse(readFileSync(resolve(process.cwd(), '../h1_opening_original_build/knowledge_cards.json'), 'utf8')) as CandidateCard[]
+const cards = JSON.parse(readFileSync(resolve(process.cwd(), 'content/knowledge/h1_opening_knowledge_cards.json'), 'utf8')) as CandidateCard[]
 
 describe('H1 opening knowledge-card candidate uses the real StudentApp contract', () => {
   it.each(cards)('$skill_id renders without throwing and exposes all five fine points', (card) => {
@@ -41,5 +42,13 @@ describe('H1 opening knowledge-card candidate uses the real StudentApp contract'
     expect(JSON.stringify(cards)).not.toContain('tree_and_network')
     expect(JSON.stringify(cards)).not.toContain('flow_and_error_tree')
     expect(JSON.stringify(cards)).not.toContain(`N${String.fromCodePoint(0x2090)}`)
+  })
+
+  it('stores all three skill levels with the typed student goal and required ability fields', () => {
+    const skillSeed = h1OpeningMigration.slice(0, h1OpeningMigration.indexOf('with reviewed_cards'))
+    expect((skillSeed.match(/"studentFacingGoal"/g) || [])).toHaveLength(6)
+    expect((skillSeed.match(/"requiredAbility"/g) || [])).toHaveLength(6)
+    expect(skillSeed).not.toMatch(/"goal"\s*:/)
+    expect(h1OpeningMigration).toContain('H1 opening skill level criteria do not match the typed three-level contract')
   })
 })

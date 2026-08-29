@@ -128,6 +128,67 @@ describe('StudentApp plan opening resilience', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('never opens a mutating junior session from teacher read-only preview', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const teacherSession: SessionIdentity = { ...session, role: 'teacher', token: 'teacher-session', displayName: '甘老师' }
+    const juniorDashboard: StudentDashboardData = {
+      ...dashboard,
+      profile: { ...dashboard.profile, gradeBand: '初三', isDemo: false },
+      plans: [{ ...plan, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'active', hardQuestionCap: 15 }],
+    }
+    render(<StudentApp session={teacherSession} initialDashboard={juniorDashboard} onDashboard={vi.fn()} previewMode onExitPreview={vi.fn()} />)
+
+    expect(screen.getByText(/教师只读模拟不会启动或提交这类会话/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看只读说明' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('不会启动或提交这类会话')
+    expect(screen.getByRole('alert')).toHaveTextContent('不会向学生作答接口发送请求')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps a real student future plan locked until its scheduled date', () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    const futureDashboard: StudentDashboardData = {
+      ...dashboard,
+      profile: { ...dashboard.profile, isDemo: false },
+      plans: [{ ...plan, id: 'plan-future', date: tomorrow }],
+    }
+    render(<StudentApp session={session} initialDashboard={futureDashboard} onDashboard={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: '按日期开放' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /今天的氧化还原复习，按日期开放/ })).toBeDisabled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('passes an AbortSignal to junior_open_session and aborts it after the open timeout', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const juniorDashboard: StudentDashboardData = {
+      ...dashboard,
+      profile: { ...dashboard.profile, gradeBand: '初三', isDemo: false },
+      plans: [{ ...plan, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'not_started', hardQuestionCap: 15 }],
+    }
+    render(<StudentApp session={session} initialDashboard={juniorDashboard} onDashboard={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开始今日学习' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const requestSignal = (fetchMock.mock.calls[0][1] as RequestInit).signal as AbortSignal
+    expect(request).toEqual({ action: 'junior_open_session', data: { planId: plan.id } })
+    expect(requestSignal).toBeInstanceOf(AbortSignal)
+    expect(requestSignal.aborted).toBe(false)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(requestSignal.aborted).toBe(true)
+    expect(screen.getByRole('alert')).toHaveTextContent('连接复习服务已超过15秒')
+  })
+
   it('shows timed progress immediately, stops safely after 15 seconds, and retries only after a click', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {

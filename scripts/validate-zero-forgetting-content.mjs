@@ -74,7 +74,10 @@ function parseCsvLine(line) {
   return values
 }
 
-const scopePath = resolve(repoRoot, '..', 'g_fujian_filter', 'out_of_scope_patterns.csv')
+// Keep the audited scope rules inside the repository so a clean checkout can
+// run the same content gate without depending on a previous machine's work
+// directory.  The source hash and handoff provenance live beside the CSV.
+const scopePath = resolve(repoRoot, 'content', 'scope', 'out_of_scope_patterns.csv')
 const patternLines = readFileSync(scopePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).slice(1)
 const publicContent = JSON.stringify(zeroForgettingCards)
 for (const unexplainedTerm of ['温升', '若保温差']) {

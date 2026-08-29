@@ -142,6 +142,9 @@ const planShape = (
     return answer.correct === true && answer.uncertain !== true && Number(snapshot?.level || 0) >= maximumLevel;
   });
   const juniorCompleted = deliveryMode === "junior_adaptive" && juniorSession?.status === "completed";
+  const juniorFallbackScore = juniorSession?.correct_count === null || juniorSession?.correct_count === undefined
+    ? null
+    : Number(juniorSession.correct_count);
   const isComplete = juniorCompleted || isResolved || attempts.length >= roundLimit;
   return {
     id: row.id, studentId: row.student_id, date: row.plan_date, mode: row.mode, title: row.title,
@@ -151,8 +154,10 @@ const planShape = (
     questionCount, roundLimit, maxQuestionLevel: maximumLevel, deliveryMode,
     juniorSessionStatus: deliveryMode === "junior_adaptive" ? String(juniorSession?.status || "not_started") : null,
     hardQuestionCap: deliveryMode === "junior_adaptive" ? 15 : null,
-    attemptCount: deliveryMode === "junior_adaptive" && juniorCompleted ? 1 : attempts.length, firstScore: deliveryMode === "junior_adaptive" && juniorSession ? Number(juniorSession.correct_count || 0) : first?.first_score ?? null,
-    latestScore: latest?.first_score ?? null, latestCompletedAt: latest?.completed_at ?? null,
+    attemptCount: attempts.length || (juniorCompleted ? 1 : 0),
+    firstScore: first?.first_score ?? (juniorCompleted ? juniorFallbackScore : null),
+    latestScore: latest?.first_score ?? (juniorCompleted ? juniorFallbackScore : null),
+    latestCompletedAt: latest?.completed_at ?? (juniorCompleted ? juniorSession?.completed_at ?? null : null),
     isResolved, isComplete, roundsRemaining: isComplete ? 0 : Math.max(0, roundLimit - attempts.length),
   };
 };
@@ -820,16 +825,122 @@ function isJuniorAdaptivePlan(row: Record<string, unknown>) {
   return row.delivery_mode === "junior_adaptive";
 }
 
+function juniorExactStringArray(left: unknown, right: unknown) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((value, index) => String(value) === String(right[index]));
+}
+
+function juniorPlanMatchesSessionContract(
+  plan: Record<string, unknown>,
+  session: Record<string, unknown>,
+  curriculum: Record<string, unknown>,
+  studentId: string,
+  textbookVersion: string,
+) {
+  const planDate = String(plan.plan_date || "");
+  return String(plan.id || "") === String(session.plan_day_id || "")
+    && String(plan.student_id || "") === String(session.student_id || "")
+    && String(session.student_id || "") === studentId
+    && plan.delivery_mode === "junior_adaptive"
+    && planDate.length > 0
+    && planDate === String(session.study_date || "")
+    && planDate <= shanghaiDate()
+    && String(plan.junior_curriculum_day_id || "") === String(session.curriculum_day_id || "")
+    && String(session.curriculum_day_id || "") === String(curriculum.id || "")
+    && juniorExactStringArray(plan.skill_ids, session.knowledge_skill_ids)
+    && juniorExactStringArray(session.knowledge_skill_ids, curriculum.knowledge_skill_ids)
+    && String(plan.mode || "") === "REVIEW"
+    && Number(plan.question_count) === Number(session.initial_question_target)
+    && Number(session.initial_question_target) === 12
+    && Number(plan.round_limit) === 1
+    && String(session.textbook_version || "") === textbookVersion
+    && String(curriculum.textbook_version || "") === textbookVersion
+    && curriculum.release_status === "ready";
+}
+
 function juniorSourceQuestionIsSafe(row: Record<string, unknown>) {
-  const text = [row.stem, ...(Array.isArray(row.options) ? row.options : [])].map(String).join("\n");
+  const text = [
+    row.stem,
+    ...(Array.isArray(row.options) ? row.options : []),
+    row.explanation,
+    row.scaffold,
+  ].map((value) => String(value || "")).join("\n");
   // The actual provenance remains in the protected release and canonical
-  // library. A source label must never leak into student wording.
-  return !/(?:(?:【|\[)[^】\]]{0,40}(?:20\d{2}|中考|期中|期末|模拟|真题|省|市|县|学校))|(?:20\d{2}\s*年[^\n]{0,36}(?:中考|期中|期末|检测|学校|省|市))/u.test(text);
+  // library. A source label must never leak through either the question or
+  // the feedback explanation/scaffold. Generic exam labels add no learning
+  // value here, so ambiguous wording is rejected rather than guessed safe.
+  return !/(?:(?:【|\[)[^】\]]{0,60}(?:20\d{2}|中考|期中|期末|模拟|真题|质检|检测|省|市|县|学校|中学))|(?:来源|出处|选自|题源)\s*[:：]?[^\n]{0,80}|(?:20\d{2}\s*年)?[^\n]{0,30}(?:中考(?:真题)?|期中(?:考试)?|期末(?:考试)?|模拟(?:题|考试)?|真题|质检(?:题)?|检测题))/u.test(text);
+}
+
+function juniorNativeQuestionIsSafe(row: Record<string, unknown>) {
+  const options = Array.isArray(row.options) ? row.options : [];
+  const correctOption = Number(row.correct_option);
+  const normalizedOptions = options.map((option) => typeof option === "string" ? option.trim() : "");
+  return String(row.render_mode || "") === "native"
+    && !String(row.image_url || "").trim()
+    && Array.isArray(row.asset_refs)
+    && row.asset_refs.length === 0
+    && String(row.skill_id || "") === String(row.knowledge_id || "")
+    && String(row.stem || "").trim().length > 0
+    && options.length === 4
+    && options.every((option) => typeof option === "string" && option.trim().length > 0)
+    && new Set(normalizedOptions).size === 4
+    && Number.isInteger(correctOption)
+    && correctOption >= 0
+    && correctOption <= 3
+    && String(row.explanation || "").trim().length > 0
+    && juniorSourceQuestionIsSafe(row);
+}
+
+function juniorIssuedQuestionMatchesContract(
+  row: Record<string, unknown>,
+  rawSnapshot: unknown,
+  textbookVersion: string,
+  releaseByKnowledge: Map<string, string>,
+) {
+  if (!rawSnapshot || typeof rawSnapshot !== "object" || Array.isArray(rawSnapshot)) return false;
+  const snapshot = rawSnapshot as Record<string, unknown>;
+  const knowledgeId = String(row.knowledge_id || "");
+  const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  return juniorNativeQuestionIsSafe(row)
+    && String(row.grade_band || "") === "初三"
+    && String(row.textbook_version || "") === textbookVersion
+    && String(row.source_kind || "") === "licensed_local"
+    && String(row.review_status || "") === "approved"
+    && String(row.scope_status || "") === "IN"
+    && row.usable_for_review === true
+    && releaseByKnowledge.get(knowledgeId) === String(row.source_release_id || "")
+    && String(snapshot.questionId || "") === String(row.id || "")
+    && String(snapshot.motherId || "") === String(row.mother_id || "")
+    && String(snapshot.skillId || "") === String(row.skill_id || "")
+    && String(snapshot.knowledgeId || "") === knowledgeId
+    && String(snapshot.conceptKey || "") === String(row.concept_key || "")
+    && Number(snapshot.level) === Number(row.level)
+    && String(snapshot.gradeBand || "") === "初三"
+    && String(snapshot.textbookVersion || "") === textbookVersion
+    && String(snapshot.stem || "") === String(row.stem || "")
+    && sameJson(snapshot.options, row.options)
+    && Number(snapshot.correctOption) === Number(row.correct_option)
+    && String(snapshot.explanation || "") === String(row.explanation || "")
+    && String(snapshot.scaffold || "") === String(row.scaffold || "")
+    && String(snapshot.reviewStatus || "") === "approved"
+    && String(snapshot.scopeStatus || "") === "IN"
+    && String(snapshot.sourceKind || "") === "licensed_local"
+    && String(snapshot.renderMode || "") === "native"
+    && !String(snapshot.imageUrl || "").trim()
+    && Array.isArray(snapshot.assetRefs)
+    && snapshot.assetRefs.length === 0
+    && String(snapshot.sourceReleaseId || "") === String(row.source_release_id || "")
+    && String(snapshot.sourceItemKey || "") === String(row.source_item_key || "")
+    && String(snapshot.parentSourceItemKey || "") === String(row.parent_source_item_key || "")
+    && String(snapshot.sameTypeKey || "") === String(row.same_type_key || "")
+    && String(snapshot.contentFingerprint || "") === String(row.content_fingerprint || "")
+    && String(snapshot.revisionToken || "") === String(row.question_revision_token || "");
 }
 
 function juniorQuestionShape(row: Record<string, unknown>) {
-  if (!juniorSourceQuestionIsSafe(row)) {
-    throw new RequestError(422, "初中原题的学生版文字仍含来源标记，已停止下发并通知甘老师。");
+  if (!juniorNativeQuestionIsSafe(row)) {
+    throw new RequestError(422, "初中原题尚未满足原生文字、安全去来源和完整选项门禁，已停止下发并通知甘老师。");
   }
   return {
     id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key || null, level: row.level,
@@ -837,6 +948,42 @@ function juniorQuestionShape(row: Record<string, unknown>) {
     reviewStatus: row.review_status, scopeStatus: row.scope_status, sourceKind: row.source_kind,
     imageUrl: null, sourceInfo: null, assetRefs: [], renderMode: "native",
     revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
+  };
+}
+
+function juniorIssuedQuestionSnapshot(
+  row: Record<string, unknown>,
+  routeKind: JuniorRouteKind,
+  routeReason: string,
+) {
+  return {
+    questionId: row.id,
+    motherId: row.mother_id,
+    skillId: row.skill_id,
+    knowledgeId: row.knowledge_id,
+    conceptKey: row.concept_key ?? null,
+    level: row.level,
+    gradeBand: row.grade_band,
+    textbookVersion: row.textbook_version,
+    stem: row.stem,
+    options: row.options,
+    correctOption: row.correct_option,
+    explanation: row.explanation,
+    scaffold: row.scaffold ?? null,
+    reviewStatus: row.review_status,
+    scopeStatus: row.scope_status,
+    sourceKind: row.source_kind,
+    renderMode: row.render_mode,
+    imageUrl: row.image_url ?? null,
+    assetRefs: row.asset_refs,
+    sourceReleaseId: row.source_release_id,
+    sourceItemKey: row.source_item_key,
+    parentSourceItemKey: row.parent_source_item_key,
+    sameTypeKey: row.same_type_key,
+    contentFingerprint: row.content_fingerprint,
+    revisionToken: row.question_revision_token ?? null,
+    routeKind,
+    routeReason,
   };
 }
 
@@ -853,6 +1000,7 @@ function juniorCandidate(row: Record<string, unknown>): JuniorAdaptiveCandidate 
     level: Number(row.level),
   };
   if (!candidate.id || !candidate.mother_id || !candidate.skill_id || !candidate.knowledge_id
+    || candidate.skill_id !== candidate.knowledge_id
     || !candidate.same_type_key || candidate.source_item_key.length < 16 || candidate.parent_source_item_key.length < 16
     || !/^[0-9a-f]{64}$/.test(candidate.content_fingerprint) || !Number.isInteger(candidate.level)) {
     throw new RequestError(422, "初中题目缺少可追溯的题源或同类题索引，已停止下发并通知甘老师。");
@@ -874,26 +1022,166 @@ function juniorStepHistory(row: Record<string, unknown>): JuniorAdaptiveHistory 
   };
 }
 
+function juniorSessionCoreEvidenceReady(
+  skillIds: string[],
+  steps: Array<Record<string, unknown>>,
+  candidates: JuniorAdaptiveCandidate[],
+) {
+  return skillIds.every((skillId) => {
+    const levels = candidates.filter((candidate) => candidate.knowledge_id === skillId).map((candidate) => candidate.level);
+    const foundationLevel = Math.min(...levels);
+    if (!Number.isFinite(foundationLevel)) return false;
+    const confident = steps.filter((step) => String(step.knowledge_id || step.skill_id) === skillId
+      && step.correct === true && step.uncertain !== true);
+    const foundationQuestions = new Set(confident
+      .filter((step) => Number(step.level) === foundationLevel)
+      .map((step) => String(step.question_id)));
+    const higherQuestions = new Set(confident
+      .filter((step) => Number(step.level) > foundationLevel)
+      .map((step) => String(step.question_id)));
+    return foundationQuestions.size >= 2 && higherQuestions.size >= 1;
+  });
+}
+
+function juniorInitialPathHasCapacity(
+  candidates: JuniorAdaptiveCandidate[],
+  knowledgeSkillIds: string[],
+  answered: JuniorAdaptiveHistory[],
+  priorErrors: JuniorAdaptiveHistory[],
+  curriculumDayNumber: number,
+) {
+  const simulated: JuniorAdaptiveHistory[] = [];
+  for (let sequence = 1; sequence <= 12; sequence += 1) {
+    const selection = selectJuniorNextQuestion({
+      candidates,
+      knowledgeSkillIds,
+      answered,
+      issued: simulated,
+      priorErrors,
+      curriculumDayNumber,
+      initialTarget: 12,
+      hardCap: 15,
+    });
+    if (!selection) return false;
+    simulated.push({
+      question_id: selection.question.id,
+      mother_id: selection.question.mother_id,
+      skill_id: selection.question.skill_id,
+      knowledge_id: selection.question.knowledge_id,
+      same_type_key: selection.question.same_type_key,
+      source_item_key: selection.question.source_item_key,
+      parent_source_item_key: selection.question.parent_source_item_key,
+      content_fingerprint: selection.question.content_fingerprint,
+      level: selection.question.level,
+      correct: true,
+      uncertain: false,
+      answered_at: new Date(sequence * 1000).toISOString(),
+      route_kind: selection.routeKind,
+    });
+  }
+  return priorErrors.length === 0
+    || simulated.filter((row) => row.route_kind === "prior_error_recovery").length >= 2;
+}
+
+async function ensureJuniorTeacherAlert(
+  studentId: string,
+  title: string,
+  reason: string,
+  severity: "info" | "attention" | "urgent" = "attention",
+) {
+  const existing = await supabase.from("chem_teacher_alerts")
+    .select("id")
+    .eq("student_id", studentId)
+    .eq("title", title)
+    .eq("reason", reason)
+    .is("resolved_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return;
+  const inserted = await supabase.from("chem_teacher_alerts").insert({ student_id: studentId, severity, title, reason });
+  if (inserted.error) throw inserted.error;
+}
+
+async function blockJuniorSession(
+  sessionId: string,
+  studentId: string,
+  reasonCode: "question_revision_changed" | "source_capacity_exhausted" | "knowledge_contract_unavailable" | "source_release_unavailable" | "manual_pause",
+  detail: string,
+  title: string,
+) {
+  const blockedAt = new Date().toISOString();
+  const blocked = await supabase.from("chem_junior_daily_sessions").update({
+    status: "blocked",
+    blocked_reason_code: reasonCode,
+    blocked_reason_detail: detail,
+    blocked_at: blockedAt,
+    updated_at: blockedAt,
+  })
+    .eq("id", sessionId)
+    .eq("student_id", studentId)
+    .eq("status", "active")
+    .select("id")
+    .maybeSingle();
+  if (blocked.error) throw blocked.error;
+  if (!blocked.data) {
+    // Finalization and blocking may be triggered by two overlapping requests.
+    // A stale blocker must never regress a completed immutable attempt back to
+    // `blocked`, and only the request that wins active -> blocked may alert.
+    const current = await supabase.from("chem_junior_daily_sessions")
+      .select("status")
+      .eq("id", sessionId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    if (current.error) throw current.error;
+    return current.data?.status === "completed" ? "completed" : "unchanged";
+  }
+  await ensureJuniorTeacherAlert(studentId, title, detail, reasonCode === "question_revision_changed" ? "urgent" : "attention");
+  return "blocked";
+}
+
+async function juniorVerifiedProvenance(skillIds: string[], textbookVersion: string) {
+  const provenanceResult = await supabase.rpc("chem_junior_verified_provenance_rows", {
+    p_textbook_version: textbookVersion,
+    p_knowledge_ids: skillIds,
+  });
+  if (provenanceResult.error) throw provenanceResult.error;
+  const provenanceRows = (provenanceResult.data || []) as Array<Record<string, unknown>>;
+  const releaseByKnowledge = new Map<string, string>();
+  for (const skillId of skillIds) {
+    const rows = provenanceRows.filter((row) => String(row.knowledge_id) === skillId
+      && String(row.textbook_version) === textbookVersion
+      && row.verification_status === "verified"
+      && row.source_release_ready === true
+      && validUuid(String(row.source_release_id || "")));
+    if (rows.length !== 1) {
+      return { ready: false, reason: `“${skillId}”没有唯一、已核验且绑定初三正式发布的教材来源。`, releaseByKnowledge };
+    }
+    releaseByKnowledge.set(skillId, String(rows[0].source_release_id));
+  }
+
+  return { ready: true, reason: "", releaseByKnowledge };
+}
+
 async function juniorDayReadiness(curriculum: Record<string, unknown>) {
   const skillIds = Array.isArray(curriculum.knowledge_skill_ids) ? curriculum.knowledge_skill_ids.map(String) : [];
-  if (skillIds.length !== 3) return { ready: false, reason: "当天没有配置恰好三个知识点。", questions: [] as Array<Record<string, unknown>> };
+  if (skillIds.length !== 3 || new Set(skillIds).size !== 3) {
+    return { ready: false, reason: "当天没有配置三个互不重复的知识点。", questions: [] as Array<Record<string, unknown>> };
+  }
+  const textbookVersion = String(curriculum.textbook_version || "").trim();
+  if (!textbookVersion) return { ready: false, reason: "当天课程没有标明教材版本。", questions: [] as Array<Record<string, unknown>> };
+  const provenance = await juniorVerifiedProvenance(skillIds, textbookVersion);
+  if (!provenance.ready) return { ready: false, reason: provenance.reason, questions: [] as Array<Record<string, unknown>> };
   const result = await supabase.from("chem_questions")
-    .select("id,mother_id,skill_id,knowledge_id,same_type_key,source_item_key,parent_source_item_key,content_fingerprint,level,source_release_id")
-    .eq("grade_band", "初三").eq("textbook_version", String(curriculum.textbook_version))
+    .select("id,mother_id,skill_id,knowledge_id,same_type_key,source_item_key,parent_source_item_key,content_fingerprint,level,source_release_id,textbook_version,stem,options,correct_option,explanation,render_mode,image_url,asset_refs")
+    .eq("grade_band", "初三").eq("textbook_version", textbookVersion)
     .in("knowledge_id", skillIds).eq("source_kind", "licensed_local")
     .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true)
     .not("source_release_id", "is", null).order("id");
   if (result.error) throw result.error;
   const rows = (result.data || []) as Array<Record<string, unknown>>;
-  const releaseIds = [...new Set(rows.map((row) => String(row.source_release_id || "")).filter(Boolean))];
-  const releases = releaseIds.length
-    ? await supabase.schema("app_private").from("chem_question_source_releases").select("id,status,verification_status").in("id", releaseIds)
-    : { data: [], error: null };
-  if (releases.error) throw releases.error;
-  const validReleases = new Set((releases.data || [])
-    .filter((row) => row.status === "active" && row.verification_status === "full_visual_verified")
-    .map((row) => String(row.id)));
-  const usable = rows.filter((row) => validReleases.has(String(row.source_release_id)));
+  const usable = rows.filter((row) => juniorNativeQuestionIsSafe(row)
+    && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
   for (const skillId of skillIds) {
     const candidates = usable.filter((row) => String(row.knowledge_id) === skillId);
     const levels = candidates.map((row) => Number(row.level)).filter(Number.isInteger);
@@ -903,31 +1191,94 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
       return { ready: false, reason: `“${skillId}”缺少首日所需的不同原题（至少5道基础、2道中档）。`, questions: usable };
     }
   }
+  try {
+    const candidatePool = usable.map(juniorCandidate);
+    const simulated: JuniorAdaptiveHistory[] = [];
+    for (let sequence = 1; sequence <= 12; sequence += 1) {
+      const selection = selectJuniorNextQuestion({
+        candidates: candidatePool,
+        knowledgeSkillIds: skillIds,
+        answered: simulated,
+        issued: simulated,
+        priorErrors: [],
+        curriculumDayNumber: Number(curriculum.day_number) || 1,
+        initialTarget: 12,
+        hardCap: 15,
+      });
+      if (!selection) return { ready: false, reason: "正式题池无法按三个知识点完成首日12道不同原题的稳定路径。", questions: usable };
+      simulated.push({
+        question_id: selection.question.id,
+        mother_id: selection.question.mother_id,
+        skill_id: selection.question.skill_id,
+        knowledge_id: selection.question.knowledge_id,
+        same_type_key: selection.question.same_type_key,
+        source_item_key: selection.question.source_item_key,
+        parent_source_item_key: selection.question.parent_source_item_key,
+        content_fingerprint: selection.question.content_fingerprint,
+        level: selection.question.level,
+        correct: true,
+        uncertain: false,
+        answered_at: new Date(sequence * 1000).toISOString(),
+        route_kind: selection.routeKind,
+      });
+    }
+  } catch {
+    return { ready: false, reason: "正式题池仍有题源身份或知识点映射不完整。", questions: usable };
+  }
   return { ready: true, reason: "", questions: usable };
 }
 
 async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, unknown>) {
-  if (String(profile.grade_band) !== "初三" || String(profile.textbook_version) !== "科粤版") return false;
+  if (String(profile.grade_band) !== "初三") return false;
   if ((profile.metadata as Record<string, unknown> | null)?.demo) return false;
+  const textbookVersion = String(profile.textbook_version || "").trim();
+  if (!textbookVersion || textbookVersion === "待确认") {
+    await ensureJuniorTeacherAlert(
+      studentId,
+      "初中教材版本待确认",
+      "学生档案尚未确认教材版本；系统没有猜测版本，也没有下发任何原题。请甘老师核对后再启用初中自适应学习。",
+    );
+    return false;
+  }
   const [curriculumResult, sessionsResult] = await Promise.all([
-    supabase.from("chem_junior_curriculum_days").select("*").eq("textbook_version", "科粤版").eq("release_status", "ready").order("day_number"),
+    supabase.from("chem_junior_curriculum_days").select("*").eq("textbook_version", textbookVersion).eq("release_status", "ready").order("day_number"),
     supabase.from("chem_junior_daily_sessions").select("curriculum_day_id,status").eq("student_id", studentId),
   ]);
   if (curriculumResult.error || sessionsResult.error) throw curriculumResult.error || sessionsResult.error;
   const curriculumRows = (curriculumResult.data || []) as Array<Record<string, unknown>>;
+  if (!curriculumRows.length) {
+    await ensureJuniorTeacherAlert(
+      studentId,
+      "初中课程尚未审核发布",
+      `“${textbookVersion}”当前没有已审核的课程日；系统没有用其他教材或自编内容补位。`,
+    );
+    return false;
+  }
   const sessions = sessionsResult.data || [];
   if (sessions.some((session) => session.status === "active")) return false;
   const completed = new Set(sessions.filter((session) => session.status === "completed").map((session) => String(session.curriculum_day_id)));
   const next = curriculumRows.find((row) => !completed.has(String(row.id)));
   if (!next) return false;
+  const today = shanghaiDate();
+  const [existingDay, existingCurriculum] = await Promise.all([
+    supabase.from("chem_learning_plans").select("id")
+      .eq("student_id", studentId).eq("plan_date", today).eq("delivery_mode", "junior_adaptive").limit(1).maybeSingle(),
+    supabase.from("chem_learning_plans").select("id")
+      .eq("student_id", studentId).eq("junior_curriculum_day_id", String(next.id)).limit(1).maybeSingle(),
+  ]);
+  if (existingDay.error || existingCurriculum.error) throw existingDay.error || existingCurriculum.error;
+  if (existingDay.data || existingCurriculum.data) return false;
   const readiness = await juniorDayReadiness(next);
-  if (!readiness.ready) return false;
-  const existing = await supabase.from("chem_learning_plans").select("id")
-    .eq("student_id", studentId).eq("junior_curriculum_day_id", String(next.id)).maybeSingle();
-  if (existing.error) throw existing.error;
-  if (existing.data) return false;
+  if (!readiness.ready) {
+    await ensureJuniorTeacherAlert(
+      studentId,
+      "初中正式题源容量未就绪",
+      `课程日“${String(next.id)}”未创建计划：${readiness.reason}`,
+    );
+    return false;
+  }
   const insert = await supabase.from("chem_learning_plans").insert({
-    student_id: studentId, plan_date: shanghaiDate(), mode: "REVIEW", title: String(next.title),
+    student_id: studentId, plan_date: today, mode: "REVIEW", title: String(next.title),
     skill_ids: next.knowledge_skill_ids, knowledge_summaries: next.knowledge_summaries,
     estimated_minutes: Number(next.estimated_minutes) || 30, source: "course", is_scheduled: true,
     question_count: 12, round_limit: 1, max_question_level: null,
@@ -940,51 +1291,100 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
 async function juniorSessionPayload(studentId: string, planId: string): Promise<Record<string, unknown>> {
   const [planResult, profileResult] = await Promise.all([
     supabase.from("chem_learning_plans").select("*").eq("id", planId).eq("student_id", studentId).maybeSingle(),
-    supabase.from("chem_students_v2").select("grade_band,textbook_version,metadata").eq("id", studentId).single(),
+    supabase.from("chem_students_v2").select("grade_band,textbook_version,metadata,record_status").eq("id", studentId).single(),
   ]);
   if (planResult.error || profileResult.error) throw planResult.error || profileResult.error;
   const plan = planResult.data as Record<string, unknown> | null;
-  if (!plan || !isJuniorAdaptivePlan(plan) || String(profileResult.data.grade_band) !== "初三" || String(profileResult.data.textbook_version) !== "科粤版") {
-    throw new RequestError(409, "这不是可打开的科粤版初中自适应学习计划。");
+  const textbookVersion = String(profileResult.data.textbook_version || "").trim();
+  if (!plan || !isJuniorAdaptivePlan(plan) || String(profileResult.data.grade_band) !== "初三"
+    || String(profileResult.data.record_status) !== "active"
+    || !textbookVersion || textbookVersion === "待确认") {
+    throw new RequestError(409, "这不是教材版本已经确认的初中自适应学习计划。");
   }
   if ((profileResult.data.metadata as Record<string, unknown> | null)?.demo) throw new RequestError(403, "演示账号不下发私有原题。");
+  if (String(plan.plan_date || "") > shanghaiDate()) {
+    throw new RequestError(409, "后续日期的初三自适应学习尚未开放，请在计划当天进入。");
+  }
   const curriculumId = String(plan.junior_curriculum_day_id || "");
   if (!curriculumId) throw new RequestError(422, "该初中计划缺少课程日索引，已停止下发并通知甘老师。");
-  const curriculumResult = await supabase.from("chem_junior_curriculum_days").select("*").eq("id", curriculumId).eq("release_status", "ready").maybeSingle();
+  const curriculumResult = await supabase.from("chem_junior_curriculum_days").select("*")
+    .eq("id", curriculumId).eq("textbook_version", textbookVersion).eq("release_status", "ready").maybeSingle();
   if (curriculumResult.error) throw curriculumResult.error;
   const curriculum = curriculumResult.data as Record<string, unknown> | null;
   if (!curriculum) throw new RequestError(422, "当天课程尚未完成审核发布。");
   const skillIds = Array.isArray(curriculum.knowledge_skill_ids) ? curriculum.knowledge_skill_ids.map(String) : [];
-  if (skillIds.length !== 3) throw new RequestError(422, "当天课程没有配置恰好三个知识点。");
+  if (skillIds.length !== 3 || new Set(skillIds).size !== 3) throw new RequestError(422, "当天课程没有配置三个互不重复的知识点。");
 
   let sessionResult = await supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).maybeSingle();
   if (sessionResult.error) throw sessionResult.error;
   if (!sessionResult.data) {
+    const existingActive = await supabase.from("chem_junior_daily_sessions")
+      .select("id,plan_day_id")
+      .eq("student_id", studentId).eq("status", "active").limit(1).maybeSingle();
+    if (existingActive.error) throw existingActive.error;
+    if (existingActive.data && String(existingActive.data.plan_day_id) !== planId) {
+      throw new RequestError(409, "已有另一天的初三学习会话正在进行；请先完成或由甘老师处理后再开启新计划。");
+    }
     const created = await supabase.from("chem_junior_daily_sessions").insert({
       student_id: studentId, plan_day_id: planId, curriculum_day_id: curriculumId, study_date: String(plan.plan_date),
-      textbook_version: "科粤版", knowledge_skill_ids: skillIds,
+      textbook_version: textbookVersion, knowledge_skill_ids: skillIds,
     }).select("*").maybeSingle();
     if (created.error && created.error.code !== "23505") throw created.error;
-    sessionResult = created.data
-      ? created
-      : await supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).single();
+    if (created.data) {
+      sessionResult = created;
+    } else {
+      const activeAfterConflict = await supabase.from("chem_junior_daily_sessions")
+        .select("id,plan_day_id")
+        .eq("student_id", studentId).eq("status", "active").limit(1).maybeSingle();
+      if (activeAfterConflict.error) throw activeAfterConflict.error;
+      if (activeAfterConflict.data && String(activeAfterConflict.data.plan_day_id) !== planId) {
+        throw new RequestError(409, "另一初三学习会话刚刚开始；系统已阻止并发取题，请先完成该会话。");
+      }
+      sessionResult = await supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).single();
+    }
     if (sessionResult.error) throw sessionResult.error;
   }
   const session = sessionResult.data as Record<string, unknown>;
-  const [cardsResult, stepsResult, allSessionsResult, provenanceResult] = await Promise.all([
+  if (!juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, textbookVersion)) {
+    const detail = `计划“${planId}”与课程日“${curriculumId}”或既有会话的学生、日期、教材、知识点、题量合同不再完全一致。`;
+    if (session.status === "active") {
+      await blockJuniorSession(
+        String(session.id), studentId, "knowledge_contract_unavailable", detail,
+        "初中计划与会话合同漂移",
+      );
+    } else {
+      await ensureJuniorTeacherAlert(
+        studentId,
+        "初中计划与会话合同漂移",
+        `${detail} 系统已拒绝展示既有学习结果，请核对计划和会话证据。`,
+      );
+    }
+    throw new RequestError(409, "初中计划、课程日与学习会话的不可变合同已变化；系统已停止返回内容并通知甘老师。");
+  }
+  const [cardsResult, stepsResult, allSessionsResult, provenance] = await Promise.all([
     supabase.from("chem_knowledge_cards").select("*").in("skill_id", skillIds).eq("review_status", "approved"),
     supabase.from("chem_junior_session_steps").select("*").eq("session_id", String(session.id)).order("sequence"),
     supabase.from("chem_junior_daily_sessions").select("id,curriculum_day_id,status,study_date").eq("student_id", studentId).order("study_date"),
-    supabase.schema("app_private").from("chem_junior_knowledge_provenance").select("knowledge_id,verification_status").in("knowledge_id", skillIds),
+    juniorVerifiedProvenance(skillIds, textbookVersion),
   ]);
-  if (cardsResult.error || stepsResult.error || allSessionsResult.error || provenanceResult.error) {
-    throw cardsResult.error || stepsResult.error || allSessionsResult.error || provenanceResult.error;
+  if (cardsResult.error || stepsResult.error || allSessionsResult.error) {
+    throw cardsResult.error || stepsResult.error || allSessionsResult.error;
   }
   const cards = (cardsResult.data || []) as Array<Record<string, unknown>>;
-  if (skillIds.some((skillId) => cards.filter((card) => String(card.skill_id) === skillId).length !== 1)
-    || skillIds.some((skillId) => !((provenanceResult.data || []) as Array<Record<string, unknown>>)
-      .some((row) => String(row.knowledge_id) === skillId && row.verification_status === "verified"))) {
-    throw new RequestError(422, "当天三个知识点没有逐项完成教材来源核验，已停止下发。");
+  const missingCard = skillIds.some((skillId) => cards.filter((card) => String(card.skill_id) === skillId).length !== 1);
+  if (missingCard || !provenance.ready) {
+    const detail = missingCard
+      ? "当天三个知识点没有各自且仅有一张审核通过的知识卡。"
+      : provenance.reason;
+    if (session.status === "active") {
+      await blockJuniorSession(
+        String(session.id), studentId,
+        missingCard ? "knowledge_contract_unavailable" : "source_release_unavailable",
+        detail,
+        missingCard ? "初中知识卡合同异常" : "初中正式来源发布异常",
+      );
+    }
+    throw new RequestError(422, `${detail} 系统已停止下发并通知甘老师。`);
   }
   const steps = (stepsResult.data || []) as Array<Record<string, unknown>>;
   const unanswered = steps.find((step) => !step.answered_at);
@@ -996,13 +1396,47 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
   const orderedCards = [...cards].sort((a, b) => (cardOrder.get(String(a.skill_id)) ?? 99) - (cardOrder.get(String(b.skill_id)) ?? 99));
   if (session.status === "completed") return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: sessionSummary(), currentQuestion: null, completed: true };
-  if (session.status !== "active") throw new RequestError(422, "这一天的初中学习会话已被暂停，请联系甘老师处理题源容量。");
+  if (session.status !== "active") {
+    const reason = String(session.blocked_reason_detail || "这一天的初中学习会话已被暂停。");
+    throw new RequestError(422, `${reason} 请联系甘老师处理后再继续。`);
+  }
 
   if (unanswered) {
     const currentQuestion = await supabase.from("chem_questions").select("*").eq("id", String(unanswered.question_id)).maybeSingle();
     if (currentQuestion.error) throw currentQuestion.error;
-    if (!currentQuestion.data || String(currentQuestion.data.question_revision_token || "") !== String((unanswered.question_snapshot as Record<string, unknown> | null)?.revisionToken || "")) {
-      await supabase.from("chem_junior_daily_sessions").update({ status: "blocked", updated_at: new Date().toISOString() }).eq("id", String(session.id));
+    // The database re-locks the active session, immutable step, current
+    // question, textbook provenance and source release in one transaction.
+    // Never shape or return the question before that atomic gate succeeds.
+    const validated = await supabase.rpc("chem_junior_validate_issued_step", {
+      p_session_id: String(session.id),
+      p_student_id: studentId,
+      p_step_id: String(unanswered.id),
+    });
+    const validatedRow = Array.isArray(validated.data)
+      ? validated.data[0] as Record<string, unknown> | undefined
+      : undefined;
+    if (validated.error
+      || !validatedRow
+      || String(validatedRow.step_id || "") !== String(unanswered.id)
+      || String(validatedRow.question_id || "") !== String(unanswered.question_id)) {
+      await blockJuniorSession(
+        String(session.id), studentId, "question_revision_changed",
+        `课程日“${curriculumId}”的在答原题已不再满足当前教材、题源发布或不可变快照合同。`,
+        "初中在答原题合同失效",
+      );
+      throw new RequestError(409, "当前原题的正式来源或版本已变化，系统没有返回题目内容；请联系甘老师处理。");
+    }
+    if (!currentQuestion.data || !juniorIssuedQuestionMatchesContract(
+      currentQuestion.data as Record<string, unknown>,
+      unanswered.question_snapshot,
+      textbookVersion,
+      provenance.releaseByKnowledge,
+    )) {
+      await blockJuniorSession(
+        String(session.id), studentId, "question_revision_changed",
+        `课程日“${curriculumId}”的在答原题版本已变化；系统未替换或重写学生正在作答的题。`,
+        "初中在答原题版本变化",
+      );
       throw new RequestError(409, "当前原题已更新，系统不会替换正在答的题；请联系甘老师处理。");
     }
     return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: sessionSummary(), currentStepId: unanswered.id, currentQuestion: juniorQuestionShape(currentQuestion.data), completed: false };
@@ -1017,49 +1451,113 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   const allSteps = (allStepsResult.data || []) as Array<Record<string, unknown>>;
   const priorSession = [...allSessions].filter((row) => row.status === "completed" && String(row.id) !== String(session.id)).at(-1);
   const priorErrors = priorSession
-    ? allSteps.filter((step) => String(step.session_id) === String(priorSession.id) && step.correct !== true).map(juniorStepHistory)
+    ? allSteps.filter((step) => String(step.session_id) === String(priorSession.id)
+      && (step.correct !== true || step.uncertain === true)).map(juniorStepHistory)
     : [];
   const candidateKnowledgeIds = [...new Set([...skillIds, ...priorErrors.map((row) => String(row.knowledge_id || row.skill_id)).filter(Boolean)])];
+  const poolProvenance = candidateKnowledgeIds.length === skillIds.length
+    ? provenance
+    : await juniorVerifiedProvenance(candidateKnowledgeIds, textbookVersion);
+  if (!poolProvenance.ready) {
+    await blockJuniorSession(
+      String(session.id), studentId, "source_release_unavailable",
+      poolProvenance.reason,
+      "初中错题回收来源发布异常",
+    );
+    throw new RequestError(422, `${poolProvenance.reason} 系统已停止下发并通知甘老师。`);
+  }
   const poolResult = await supabase.from("chem_questions").select("*")
-    .eq("grade_band", "初三").eq("textbook_version", "科粤版").in("knowledge_id", candidateKnowledgeIds)
+    .eq("grade_band", "初三").eq("textbook_version", textbookVersion).in("knowledge_id", candidateKnowledgeIds)
     .eq("source_kind", "licensed_local").eq("review_status", "approved").eq("scope_status", "IN")
     .eq("usable_for_review", true).not("source_release_id", "is", null).order("id");
   if (poolResult.error) throw poolResult.error;
   const poolRows = (poolResult.data || []) as Array<Record<string, unknown>>;
-  const releaseIds = [...new Set(poolRows.map((row) => String(row.source_release_id || "")).filter(Boolean))];
-  const releaseResult = releaseIds.length
-    ? await supabase.schema("app_private").from("chem_question_source_releases").select("id,status,verification_status").in("id", releaseIds)
-    : { data: [], error: null };
-  if (releaseResult.error) throw releaseResult.error;
-  const activeReleaseIds = new Set((releaseResult.data || []).filter((row) => row.status === "active" && row.verification_status === "full_visual_verified").map((row) => String(row.id)));
-  const candidates = poolRows.filter((row) => activeReleaseIds.has(String(row.source_release_id))).map(juniorCandidate);
+  const eligiblePoolRows = poolRows.filter((row) => juniorNativeQuestionIsSafe(row)
+    && poolProvenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
+  const candidates = eligiblePoolRows.map(juniorCandidate);
+  const answeredHistory = allSteps.map(juniorStepHistory);
+  if (!steps.length && !juniorInitialPathHasCapacity(
+    candidates,
+    skillIds,
+    answeredHistory,
+    priorErrors,
+    Number(curriculum.day_number),
+  )) {
+    await blockJuniorSession(
+      String(session.id), studentId, "source_capacity_exhausted",
+      `课程日“${curriculumId}”无法在不重复历史原题的前提下完成当天核心证据和至少2道昨日错题/不确定题回收。`,
+      "初中个性化原题容量不足",
+    );
+    throw new RequestError(422, "正式题池不足以完成当天核心学习与昨日错题回收，系统没有用自编题补位，并已通知甘老师。");
+  }
   const selection = selectJuniorNextQuestion({
-    candidates, knowledgeSkillIds: skillIds, answered: allSteps.map(juniorStepHistory), issued: steps.map(juniorStepHistory), priorErrors,
+    candidates, knowledgeSkillIds: skillIds, answered: answeredHistory, issued: steps.map(juniorStepHistory), priorErrors,
     curriculumDayNumber: Number(curriculum.day_number), initialTarget: 12, hardCap: 15,
   });
   if (!selection) {
-    if (steps.length >= 12) {
+    const hardCapReached = steps.length >= 15;
+    const evidenceReady = juniorSessionCoreEvidenceReady(skillIds, steps, candidates);
+    const recoveryReady = priorErrors.length === 0
+      || steps.filter((step) => step.route_kind === "prior_error_recovery").length >= 2;
+    if (steps.length >= 12 && recoveryReady && (hardCapReached || evidenceReady)) {
       const finalized = await supabase.rpc("chem_junior_finalize_session", { p_session_id: session.id, p_student_id: studentId });
       if (finalized.error) throw finalized.error;
       return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: { ...sessionSummary(), status: "completed" }, currentQuestion: null, completed: true };
     }
-    await supabase.from("chem_junior_daily_sessions").update({ status: "blocked", updated_at: new Date().toISOString() }).eq("id", String(session.id));
+    await blockJuniorSession(
+      String(session.id), studentId, "source_capacity_exhausted",
+      `课程日“${curriculumId}”的正式题池无法继续满足12题起步、最多15题、跨日不同原题和来源发布一致性规则。`,
+      "初中正式题源容量不足",
+    );
     throw new RequestError(422, "原题池不足以保持“12题起步、不同原题、不自编题”的规则，今天已停止下发并通知甘老师。");
   }
-  const selected = poolRows.find((row) => String(row.id) === selection.question.id);
+  const selected = eligiblePoolRows.find((row) => String(row.id) === selection.question.id);
   if (!selected) throw new RequestError(500, "初中题库选择结果异常。");
-  const inserted = await supabase.from("chem_junior_session_steps").insert({
-    session_id: session.id, sequence: steps.length + 1, question_id: selected.id, mother_id: selected.mother_id,
-    skill_id: selected.skill_id, knowledge_id: selected.knowledge_id, same_type_key: selected.same_type_key,
-    source_item_key: selected.source_item_key, parent_source_item_key: selected.parent_source_item_key,
-    content_fingerprint: selected.content_fingerprint, level: selected.level, route_kind: selection.routeKind,
-    route_reason: selection.routeReason,
-    question_snapshot: { questionId: selected.id, motherId: selected.mother_id, skillId: selected.skill_id, level: selected.level, stem: selected.stem, options: selected.options, revisionToken: selected.question_revision_token || null },
-  }).select("*").maybeSingle();
-  if (inserted.error && inserted.error.code !== "23505") throw inserted.error;
-  if (!inserted.data) return juniorSessionPayload(studentId, planId);
-  steps.push(inserted.data as Record<string, unknown>);
-  return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: sessionSummary(), currentStepId: inserted.data.id, currentQuestion: juniorQuestionShape(selected), completed: false };
+  const selectedSnapshot = juniorIssuedQuestionSnapshot(selected, selection.routeKind, selection.routeReason);
+  const issued = await supabase.rpc("chem_junior_issue_step", {
+    p_session_id: String(session.id),
+    p_student_id: studentId,
+    p_question_id: String(selected.id),
+    p_sequence: steps.length + 1,
+    p_route_kind: selection.routeKind,
+    p_route_reason: selection.routeReason,
+    p_question_snapshot: selectedSnapshot,
+  });
+  if (issued.error?.code === "23505" || issued.error?.code === "40001") {
+    // A concurrent opener may have won the session-row lock. Re-read through
+    // the validated-resume path; never fall back to a direct step insert.
+    return juniorSessionPayload(studentId, planId);
+  }
+  const issuedRow = Array.isArray(issued.data)
+    ? issued.data[0] as Record<string, unknown> | undefined
+    : undefined;
+  if (issued.error
+    || !issuedRow
+    || String(issuedRow.question_id || "") !== String(selected.id)
+    || Number(issuedRow.sequence) !== steps.length + 1
+    || !validUuid(String(issuedRow.step_id || ""))) {
+    await blockJuniorSession(
+      String(session.id), studentId, "source_release_unavailable",
+      `课程日“${curriculumId}”的原题未通过数据库原子下发门禁；系统没有返回题目内容。`,
+      "初中原题原子下发失败",
+    );
+    throw new RequestError(409, "正式原题在下发前未通过当前教材、来源发布和不可变快照校验，系统没有返回题目内容。");
+  }
+  steps.push({
+    id: issuedRow.step_id,
+    sequence: issuedRow.sequence,
+    question_id: issuedRow.question_id,
+    answered_at: null,
+  });
+  return {
+    deliveryMode: "junior_adaptive",
+    plan: planShape(plan),
+    cards: orderedCards.map(cardShape),
+    session: sessionSummary(),
+    currentStepId: issuedRow.step_id,
+    currentQuestion: juniorQuestionShape(selected),
+    completed: false,
+  };
 }
 
 async function studentDashboard(studentId: string) {
@@ -1089,14 +1587,14 @@ async function studentDashboard(studentId: string) {
   for (const result of [planResult, stateResult, attemptResult]) if (result.error) throw result.error;
   let plans = (planResult.data || []) as Array<Record<string, unknown>>;
   let juniorSessionByPlanId = new Map<string, Record<string, unknown>>();
-  if (String(profileResult.data.grade_band) === "初三" && String(profileResult.data.textbook_version) === "科粤版") {
+  if (String(profileResult.data.grade_band) === "初三") {
     await ensureJuniorDailyPlan(studentId, profileResult.data as Record<string, unknown>);
     const [refreshedPlans, juniorSessions] = await Promise.all([
       supabase.from("chem_learning_plans")
         .select("id,student_id,plan_date,mode,title,skill_ids,target_concept_keys,knowledge_summaries,estimated_minutes,source,is_scheduled,question_count,round_limit,max_question_level,delivery_mode,junior_curriculum_day_id")
         .eq("student_id", studentId).order("plan_date"),
       supabase.from("chem_junior_daily_sessions")
-        .select("plan_day_id,status")
+        .select("plan_day_id,status,completed_at,blocked_reason_code,blocked_reason_detail")
         .eq("student_id", studentId),
     ]);
     if (refreshedPlans.error || juniorSessions.error) throw refreshedPlans.error || juniorSessions.error;
@@ -1261,6 +1759,9 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const { data: plan, error: planError } = planResult;
   if (planError) throw planError;
   if (gradeResult.error) throw gradeResult.error;
+  if (plan.delivery_mode === "junior_adaptive") {
+    throw new RequestError(409, "初三自适应学习只能通过专用学习会话打开；通用练习入口已关闭。");
+  }
   const demoProfile = (gradeResult.data.metadata as Record<string, unknown> | null)?.demo === true;
   const effectiveOptions: StartPlanOptions = options.studentOpen
     ? demoProfile
@@ -2060,11 +2561,15 @@ Deno.serve(async (req: Request) => {
       }
       const sessionPayload = issued.session as Record<string, unknown>;
       const questionResult = await supabase.from("chem_questions")
-        .select("id,correct_option,explanation,scaffold,asset_refs,question_revision_token")
+        .select("*")
         .eq("id", String(currentQuestion.id)).eq("grade_band", "初三").eq("source_kind", "licensed_local")
-        .eq("review_status", "approved").eq("scope_status", "IN").maybeSingle();
+        .eq("skill_id", String(currentQuestion.skillId)).eq("knowledge_id", String(currentQuestion.skillId))
+        .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true)
+        .eq("render_mode", "native").maybeSingle();
       if (questionResult.error) throw questionResult.error;
-      if (!questionResult.data) return reply(req, { error: "这道原题已退出题库，请联系甘老师处理。" }, 409);
+      if (!questionResult.data || !juniorNativeQuestionIsSafe(questionResult.data as Record<string, unknown>)) {
+        return reply(req, { error: "这道原题已退出正式题库或不再满足原生题门禁，请联系甘老师处理。" }, 409);
+      }
       const recorded = await supabase.rpc("chem_junior_record_step", {
         p_session_id: String(sessionPayload.id), p_student_id: identity.studentId, p_step_id: stepId,
         p_selected_option: selectedOption, p_uncertain: body.data?.uncertain === true,
@@ -2222,12 +2727,15 @@ Deno.serve(async (req: Request) => {
 
       const { data: plan, error: planError } = await supabase
         .from("chem_learning_plans")
-        .select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level")
+        .select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level,delivery_mode")
         .eq("id", String(attempt.planDayId))
         .eq("student_id", targetId)
         .maybeSingle();
       if (planError) throw planError;
       if (!plan) return reply(req, { error: "无权提交该学习记录。" }, 403);
+      if (plan.delivery_mode === "junior_adaptive") {
+        return reply(req, { error: "初三自适应答案只能通过专用学习会话提交；通用提交入口已关闭。" }, 409);
+      }
 
       const submittedAnswers = attempt.answers as Array<Record<string, unknown>>;
       const questionCount = planQuestionCount(plan);

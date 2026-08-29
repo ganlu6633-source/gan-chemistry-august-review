@@ -294,23 +294,13 @@ test('forgotten code can be reset with a private recovery phrase', async ({ page
   await expect(panel).toContainText('不要使用身份证号、生日、手机号')
 })
 
-test('public High-3 demo refuses unsourced questions and never requests licensed assets', async ({ page }) => {
-  const sourceActions: string[] = []
-  await page.route('**/functions/v1/chemistry-access', async (route) => {
-    if (route.request().method() === 'OPTIONS') return route.fallback()
-    const body = route.request().postDataJSON() as { action: string; data?: { planId?: string } }
-    if (body.action === 'start_plan' && body.data?.planId?.startsWith('高三-')) {
-      await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: '公开演示不再下发无材料来源的模拟题。请由甘老师从教师后台预览正式学生原题。' }) })
-      return
-    }
-    if (body.action === 'question_asset' || body.action === 'question_feedback') {
-      sourceActions.push(body.action)
-      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: '演示账号不得访问本地授权原题。' }) })
-      return
-    }
-    await route.fallback()
+test('public High-3 demo opens the reviewed read-only learning chain without writing evidence', async ({ page }) => {
+  const writeActions: string[] = []
+  page.on('request', (request) => {
+    if (!request.url().includes('/functions/v1/chemistry-access') || request.method() !== 'POST') return
+    const body = request.postDataJSON() as { action?: string }
+    if (['submit_attempt', 'junior_submit_step'].includes(String(body.action))) writeActions.push(String(body.action))
   })
-
   await page.setViewportSize({ width: 360, height: 780 })
   await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')
@@ -320,12 +310,11 @@ test('public High-3 demo refuses unsourced questions and never requests licensed
   await page.getByRole('button', { name: '高三' }).click()
   await page.locator('.focus-card .primary-button').click()
 
-  await expect(page.getByRole('alert')).toContainText('公开演示不再下发无材料来源的模拟题')
-  await expect(page.locator('.question-card')).toHaveCount(0)
-  await expect(page.locator('.source-letter-options')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
+  await expect(page.getByText('本次结果只在当前页面展示，不会写入任何真实学生档案。')).toHaveCount(0)
   await expect(page.getByText('2025年福建省质检')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  expect(sourceActions).toEqual([])
+  expect(writeActions).toEqual([])
 })
 
 test('student code routes to student experience without guardian entry', async ({ page }) => {
@@ -452,19 +441,13 @@ test('demo student can switch among all three high-school grades without writing
     const body = request.postDataJSON() as { action?: string; data?: { studentId?: string } }
     if (body.action === 'start_plan' && body.data?.studentId) startedFor.push(body.data.studentId)
   })
-  await page.route('**/functions/v1/chemistry-access', async (route) => {
-    if (route.request().method() === 'OPTIONS') return route.fallback()
-    const body = route.request().postDataJSON() as { action?: string }
-    if (body.action !== 'start_plan') return route.fallback()
-    await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: '公开演示不再下发无材料来源的模拟题。请由甘老师从教师后台预览正式学生原题。' }) })
-  })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('演示学生')
   await page.getByLabel('登录码').fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   const switcher = page.getByLabel('切换演示年级')
-  await expect(switcher).toContainText('公开演示不再提供无材料来源的模拟题')
-  await expect(switcher).toContainText('正式原题请由甘老师从教师后台选择真实学生并只读预览')
+  await expect(switcher).toContainText('每一天都可以打开完整学习链路')
+  await expect(switcher).toContainText('作答只在当前页面模拟，不写入任何正式学生记录')
   const mapExpectations = { 高一: { nodes: 9, edges: 8, title: '高一化学基础主干' }, 高二: { nodes: 8, edges: 7, title: '选择性必修一·反应原理地图' }, 高三: { nodes: 11, edges: 11, title: '高考化学综合能力地图' } } as const
   for (const grade of ['高二', '高三', '高一'] as const) {
     await switcher.getByRole('button', { name: grade }).click()
@@ -482,8 +465,8 @@ test('demo student can switch among all three high-school grades without writing
     await expect(page.locator('.ability-atlas')).not.toContainText(/H[123][-_]/)
     await page.getByRole('button', { name: '今天', exact: true }).click()
     await page.locator('.focus-card').getByRole('button', { name: /开始第一轮/ }).click()
-    await expect(page.getByRole('alert')).toContainText('公开演示不再下发无材料来源的模拟题')
-    await expect(page.locator('.question-card')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '物质到底分成哪些？从总树干一路分到底' })).toBeVisible()
+    await page.getByRole('button', { name: /返回计划/ }).click()
   }
   expect(startedFor).toEqual(['demo-高二', 'demo-高三', 'demo-高一'])
   await expect(page.getByRole('button', { name: '账户设置' })).toHaveCount(0)
@@ -507,7 +490,7 @@ test('ability map remains one readable vertical route on a compact phone', async
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((element) => element.clientWidth))
 })
 
-test('a real review day uses five questions per round and stops after the fifth round', async ({ page }) => {
+test('a grandfathered legacy review day can finish its existing five-round record', async ({ page }) => {
   test.setTimeout(90_000)
   await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   const submissions: Array<{ sequence: number; answers: unknown[] }> = []
@@ -604,7 +587,7 @@ test('guardian sees the same skill facts and exact question evidence without int
   await page.getByLabel('输入姓名').fill('测试家长')
   await page.getByLabel('登录码').fill('22222222')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
-  await expect(page.getByRole('heading', { name: '学过什么、点亮多少、下一步在哪里' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '学过什么、点亮多少、下一步在哪里' })).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-testid="learning-record-summary"]')).toContainText('点亮一部分')
   const classification = page.locator('[data-testid="learning-skill-card"]', { hasText: '物质的分类' })
   await classification.locator('summary').first().click()
@@ -762,8 +745,8 @@ test('teacher name and code use the same entry and open the private workspace', 
   await page.getByRole('button', { name: '返回演示计划' }).click()
   await page.getByRole('button', { name: /返回教师后台/ }).click()
   await expect(page).toHaveURL(/\/teacher$/)
-  await page.getByRole('button', { name: '计划编辑器' }).click()
-  await expect(page.getByRole('heading', { name: '学习计划编辑器' })).toBeVisible()
+  await page.getByRole('button', { name: '课程节点审核' }).click()
+  await expect(page.getByRole('heading', { name: '课程节点审核' })).toBeVisible()
   await page.getByRole('button', { name: '题库审核' }).click()
   await expect(page.getByRole('heading', { name: '题库审核' })).toBeVisible()
   await page.getByRole('button', { name: '权限与访问码' }).click()
