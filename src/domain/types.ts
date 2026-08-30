@@ -128,7 +128,7 @@ export interface Question {
   scaffold?: string
   reviewStatus: QuestionReviewStatus
   scopeStatus: 'IN' | 'CTX-IN' | 'POSTPONE' | 'OUT'
-  sourceKind: 'teacher_original' | 'licensed_local' | 'original_variant'
+  sourceKind: 'teacher_original' | 'licensed_local' | 'user_provided_local' | 'original_variant'
   imageUrl?: string | null
   sourceInfo?: QuestionSourceInfo | null
   assetRefs?: QuestionAssetRef[]
@@ -247,7 +247,8 @@ export interface LearningPlanDay {
   targetConceptKeys?: string[]
   knowledgeSummaries: string[]
   estimatedMinutes: number
-  source: 'course' | 'exam' | 'memory' | 'mastery' | 'mixed'
+  /** Omitted from future student-dashboard rows; provenance stays server-side. */
+  source?: 'course' | 'exam' | 'memory' | 'mastery' | 'mixed'
   isScheduled: boolean
   attemptCount: number
   firstScore: number | null
@@ -280,11 +281,28 @@ export interface JuniorAdaptiveSessionSummary {
   correctCount: number
 }
 
-export type IssuedJuniorQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold' | 'sourceInfo'> & {
-  correctOption?: never
-  explanation?: never
-  scaffold?: never
-  sourceInfo?: null
+export interface IssuedJuniorQuestion {
+  /** Public curriculum skill only; source-question and mother identifiers stay server-side. */
+  skillId: string
+  level: number
+  gradeBand: '初三'
+  stem: string
+  options: string[]
+  revisionToken?: string | null
+}
+
+/** Feedback for one opaque junior session step; it never exposes a library question id. */
+export interface JuniorQuestionFeedback {
+  stepId: string
+  selectedOption: number
+  correct: boolean
+  correctOption: number
+  uncertain: boolean
+  durationSec: number
+  explanation: string
+  scaffold?: string | null
+  analysisAssetRefs: QuestionAssetRef[]
+  revisionToken?: string | null
 }
 
 export interface JuniorAdaptivePayload {
@@ -295,6 +313,20 @@ export interface JuniorAdaptivePayload {
   currentStepId?: string
   currentQuestion: IssuedJuniorQuestion | null
   completed: boolean
+}
+
+/**
+ * Read-only knowledge preview for a plan whose formal study date has not
+ * arrived. It intentionally contains no questions, answers, session id,
+ * attempt sequence, or mastery result.
+ */
+export interface FuturePlanPreviewPayload {
+  previewMode: 'future_knowledge_only'
+  plan: Omit<LearningPlanDay, 'source'>
+  cards: KnowledgeCard[]
+  formalOpenDate: string
+  recordsLearningEvidence: false
+  includesQuestions: false
 }
 
 export interface QuestionCandidate {
@@ -453,8 +485,12 @@ export interface LearningRecordKnowledgeSection {
 }
 
 export interface LearningRecordQuestionEvidence {
-  questionId: string
-  motherId: string
+  /** Opaque evidence-row identity suitable for rendering only. */
+  evidenceId: string
+  /** Present only when an authorized high-school source image may be loaded. */
+  questionId?: string
+  /** Kept out of junior responses; high-school history may still use it internally. */
+  motherId?: string
   level: number
   stem: string
   options: string[]

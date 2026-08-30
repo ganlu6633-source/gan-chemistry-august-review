@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IssuedJuniorQuestion, JuniorAdaptivePayload, KnowledgeCard, LearningPlanDay, QuestionFeedback, SessionIdentity } from '../domain/types'
+import type { IssuedJuniorQuestion, JuniorAdaptivePayload, JuniorQuestionFeedback, KnowledgeCard, LearningPlanDay, SessionIdentity } from '../domain/types'
 import { JuniorAdaptiveSession } from './JuniorAdaptiveSession'
 
 const session: SessionIdentity = { role: 'student', token: 'junior-session', displayName: '初三学生', expiresAt: '2099-01-01T00:00:00Z' }
@@ -19,10 +19,10 @@ const card: KnowledgeCard = {
   microExample: '反应前后总质量相等。', reviewStatus: 'approved',
 }
 
-function question(id: string, stem: string): IssuedJuniorQuestion {
+function question(revisionLabel: string, stem: string): IssuedJuniorQuestion {
   return {
-    id, motherId: `mother-${id}`, skillId: 'J3_MASS_CONSERVATION', level: 1, gradeBand: '初三', stem,
-    options: ['原子种类和数目不变', '物质种类完全不变'], reviewStatus: 'approved', scopeStatus: 'IN', sourceKind: 'licensed_local', sourceInfo: null,
+    skillId: 'J3_MASS_CONSERVATION', level: 1, gradeBand: '初三', stem,
+    options: ['原子种类和数目不变', '物质种类完全不变'], revisionToken: `revision-${revisionLabel}`,
   }
 }
 
@@ -30,14 +30,14 @@ function payload(currentQuestion: IssuedJuniorQuestion | null, answeredCount = 0
   return {
     deliveryMode: 'junior_adaptive', plan, cards: [card],
     session: { id: 'adaptive-session', status: currentQuestion ? 'active' : 'completed', initialQuestionTarget: 12, hardQuestionCap: 15, issuedCount: answeredCount + (currentQuestion ? 1 : 0), answeredCount, correctCount: answeredCount },
-    currentStepId: currentQuestion ? `step-${currentQuestion.id}` : undefined,
+    currentStepId: currentQuestion ? `step-${answeredCount + 1}` : undefined,
     currentQuestion,
     completed: currentQuestion === null,
   }
 }
 
-const feedback: QuestionFeedback = {
-  questionId: 'question-1', selectedOption: 0, correct: true, correctOption: 0, uncertain: false, durationSec: 4,
+const feedback: JuniorQuestionFeedback = {
+  stepId: 'step-1', selectedOption: 0, correct: true, correctOption: 0, uncertain: false, durationSec: 4,
   explanation: 'A. 化学反应前后原子的种类和数目不变。\nB. 物质种类可以发生改变。', analysisAssetRefs: [],
 }
 

@@ -43,6 +43,20 @@ describe('knowledge-card runtime contract', () => {
     })).toBe(false)
   })
 
+  it('rejects malformed or over-wide optional visual fields before React maps them', () => {
+    expect(isStructuredKnowledgeContent({
+      ...validCard,
+      visualSummary: { ...validCard.visualSummary, axes: [null] },
+    })).toBe(false)
+    expect(isStructuredKnowledgeContent({
+      ...validCard,
+      visualSummary: {
+        ...validCard.visualSummary,
+        axes: Array.from({ length: 101 }, (_, index) => ({ label: `轴${index + 1}`, items: ['项目'] })),
+      },
+    })).toBe(false)
+  })
+
   it('rejects incomplete examples instead of letting an empty expansion reach students', () => {
     expect(isStructuredKnowledgeContent({
       ...validCard,

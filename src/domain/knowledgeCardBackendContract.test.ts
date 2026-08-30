@@ -6,7 +6,9 @@ const accessSource = readFileSync('supabase/functions/chemistry-access/index.ts'
 describe('knowledge-card backend fail-closed contract', () => {
   it('rejects malformed non-empty structured content before issuing a review round', () => {
     expect(accessSource).toContain('function validStructuredKnowledgeContent(value: unknown): boolean')
-    expect(accessSource).toContain('if (hasStructured && !validStructuredKnowledgeContent(structured))')
+    expect(accessSource).toContain('function validOptionalStructuredKnowledgeContent(value: unknown)')
+    expect(accessSource).toContain('if (!isPlainRecord(value)) return false')
+    expect(accessSource).toContain('if (!validOptionalStructuredKnowledgeContent(structured))')
     expect(accessSource).toContain('展开内容结构不完整，已停止下发并通知甘老师')
   })
 

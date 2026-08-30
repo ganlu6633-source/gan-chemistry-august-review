@@ -23,7 +23,7 @@ const makeSkill = (overrides: Partial<LearningRecordSkill>): LearningRecordSkill
   learnedTopics: ['混合物与纯净物', '单质与化合物'],
   knowledgeSections: [{ id: 'classification-tree', title: '分类总树', summary: '从物质一路向下判断', points: [{ id: 'pure', title: '纯净物', rule: '纯净物继续分为单质和化合物。' }] }],
   knowledgeEvidenceScope: 'module_directory_only',
-  recentQuestions: [{ questionId: 'q1', motherId: 'm1', level: 2, stem: '下列物质属于纯净物的是', options: ['空气', '液氯', '盐酸', '漂白粉'], selectedOption: 0, correctOption: 1, explanation: '液氯只含Cl₂一种物质，属于纯净物。', correct: false, uncertain: true, durationSec: 38, answeredAt: '2026-08-13T08:00:00Z', snapshotAvailable: true, currentQuestionStatus: 'retired' }],
+  recentQuestions: [{ evidenceId: 'evidence-1', questionId: 'q1', motherId: 'm1', level: 2, stem: '下列物质属于纯净物的是', options: ['空气', '液氯', '盐酸', '漂白粉'], selectedOption: 0, correctOption: 1, explanation: '液氯只含Cl₂一种物质，属于纯净物。', correct: false, uncertain: true, durationSec: 38, answeredAt: '2026-08-13T08:00:00Z', snapshotAvailable: true, currentQuestionStatus: 'retired' }],
   recentQuestionsTruncated: false,
   nextPlan: { id: 'plan-1', date: '2026-08-17', title: '分类树与电解质' },
   ...overrides,
@@ -68,6 +68,18 @@ describe('LearningRecordPanel', () => {
     expect(screen.getByText('离子反应')).toBeInTheDocument()
     expect(screen.queryByText('氧化还原')).not.toBeInTheDocument()
     expect(screen.getAllByText('后续学习').length).toBeGreaterThan(0)
+  })
+
+  it('routes future knowledge through the dedicated preview instead of expanding it in the record', () => {
+    render(<LearningRecordPanel record={record} gradeBand="高一" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /后续学习 1/ }))
+    const futureCard = screen.getByText('离子反应').closest('details')!
+    fireEvent.click(within(futureCard).getByText('离子反应').closest('summary')!)
+    expect(within(futureCard).getByText('知识内容从预习页进入')).toBeInTheDocument()
+    expect(within(futureCard).getByText('请从对应日期的“提前预习”进入')).toBeInTheDocument()
+    expect(within(futureCard).queryByText('分类总树')).not.toBeInTheDocument()
+    expect(within(futureCard).queryByText('纯净物继续分为单质和化合物。')).not.toBeInTheDocument()
   })
 
   it('opens a skill into its knowledge checklist and exact answered-question evidence', () => {

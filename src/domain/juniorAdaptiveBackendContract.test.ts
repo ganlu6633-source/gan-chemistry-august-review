@@ -32,6 +32,19 @@ function accessSection(startMarker: string, endMarker: string) {
 const juniorAccess = accessSection('function juniorSourceQuestionIsSafe', 'async function studentDashboard')
 
 describe('2026-08-29 junior evidence backend contract', () => {
+  it('binds the final junior runtime and appended SQL contract to Keyue user-provided local sources', () => {
+    expect(accessFunction).toContain('const JUNIOR_TEXTBOOK_VERSION = "科粤版"')
+    expect(accessFunction).toContain('const JUNIOR_SOURCE_KIND = "user_provided_local"')
+    expect(juniorAccess).toContain('textbookVersion !== JUNIOR_TEXTBOOK_VERSION')
+    expect(juniorAccess).toContain('textbookVersion: JUNIOR_TEXTBOOK_VERSION')
+    expect(juniorAccess).toContain('sourceKind: JUNIOR_SOURCE_KIND')
+    expect((juniorAccess.match(/JUNIOR_SOURCE_KIND/g) || []).length).toBeGreaterThanOrEqual(5)
+    expect(juniorAccess).not.toContain('"licensed_local"')
+    expect(juniorEvidenceMigration).toContain("'科粤版'")
+    expect(juniorEvidenceMigration).toContain("'user_provided_local'")
+    expect((accessFunction.match(/"licensed_local"/g) || []).length).toBeGreaterThanOrEqual(6)
+  })
+
   it('admits a bounded junior source release without weakening any high-school count contract', () => {
     expect(juniorEvidenceMigration).toMatch(
       /chem_question_source_releases_grade_band_check[\s\S]*?grade_band\s+in\s*\(\s*'初三'\s*,\s*'高一'\s*,\s*'高二'\s*,\s*'高三'\s*\)/i,
@@ -50,6 +63,56 @@ describe('2026-08-29 junior evidence backend contract', () => {
     const legacyStart = accessSection('async function startPlanPayload', 'async function authenticate')
     expect(legacyStart).toMatch(/plan\.delivery_mode\s*===\s*["']junior_adaptive["'][\s\S]*?throw\s+new\s+RequestError\(409/i)
     expect(accessFunction).toMatch(/body\.action\s*===\s*["']submit_attempt["'][\s\S]*?select\(["'][^"']*delivery_mode[^"']*["']\)[\s\S]*?plan\.delivery_mode\s*===\s*["']junior_adaptive["'][\s\S]*?reply\(req,[\s\S]*?,\s*409\)/i)
+  })
+
+  it('removes provenance fields and card assets from every formal junior student payload', () => {
+    const juniorSession = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
+    expect(juniorSession).toContain('const studentCards = orderedCards.map(studentProvenanceFreeCardShape)')
+    expect(juniorSession).toContain('studentCards.some((card) => !studentInstructionalCardTextIsSafe(card))')
+    expect((juniorSession.match(/cards:\s*studentCards/g) || [])).toHaveLength(4)
+    expect(juniorSession).toContain('const studentPlan = juniorStudentPlanShape(')
+    expect(juniorSession).toContain('{ failClosedOnUnsafeCopy: true }')
+    expect(juniorSession).toContain('futurePreviewInstructionalTextIsSafe([curriculum.title, curriculum.knowledge_summaries])')
+    expect((juniorSession.match(/plan:\s*studentPlan/g) || [])).toHaveLength(4)
+    expect(juniorSession).not.toContain('plan: planShape(plan)')
+    expect(juniorSession).not.toContain('orderedCards.map(cardShape)')
+    expect(accessFunction).toContain('asset: undefined')
+  })
+
+  it('rejects unsafe curriculum copy before generating a junior plan', () => {
+    const generator = accessSection('async function ensureJuniorDailyPlan', 'async function juniorSessionPayload')
+    const scan = generator.indexOf('futurePreviewInstructionalTextIsSafe([next.title, next.knowledge_summaries])')
+    const insert = generator.indexOf('supabase.from("chem_learning_plans").insert')
+    expect(scan).toBeGreaterThanOrEqual(0)
+    expect(insert).toBeGreaterThan(scan)
+    expect(generator).toContain('系统没有创建学生计划')
+  })
+
+  it('keeps source-library identities server-side in junior question, feedback, and history DTOs', () => {
+    const questionDto = accessSection('function juniorQuestionShape', 'function juniorIssuedQuestionSnapshot')
+    for (const allowed of ['skillId: row.skill_id', 'level: row.level', 'gradeBand: row.grade_band', 'stem: row.stem', 'options: row.options', 'revisionToken:']) {
+      expect(questionDto).toContain(allowed)
+    }
+    for (const forbidden of ['id: row.id', 'motherId:', 'conceptKey:', 'sourceKind:', 'sourceInfo:', 'source_item_key', 'content_fingerprint']) {
+      expect(questionDto, `junior question DTO leaked ${forbidden}`).not.toContain(forbidden)
+    }
+
+    const feedbackDto = accessSection('function juniorQuestionFeedbackShape', 'function validKnowledgeTreeNode')
+    expect(feedbackDto).toContain('stepId,')
+    expect(feedbackDto).not.toContain('questionId:')
+    const submitRoute = accessFunction.slice(
+      accessFunction.indexOf('body.action === "junior_submit_step"'),
+      accessFunction.indexOf('body.action === "student_dashboard"'),
+    )
+    expect(submitRoute).toContain('.select("question_id,skill_id,knowledge_id,session_id")')
+    expect(submitRoute).toContain('juniorQuestionFeedbackShape(questionResult.data, stepId')
+    expect(submitRoute).not.toContain('currentQuestion.id')
+
+    const record = accessSection('async function studentLearningRecord', 'function isJuniorAdaptivePlan')
+    expect(record).toContain('evidenceId: `${String(answer.attempt_id)}:${String(answer.created_at)}:${answerIndex}`')
+    expect(record).toContain('...(juniorEvidence ? {} : {')
+    expect(record).toContain('sourceInfo: juniorEvidence ? null : historical.sourceInfo')
+    expect(record).toContain('assetRefs: juniorEvidence ? [] : historical.assetRefs')
   })
 
   it('lets finalization win over a stale concurrent blocker without creating a false alert', () => {
@@ -103,7 +166,7 @@ describe('2026-08-29 junior evidence backend contract', () => {
       expect(contract).toMatch(/chem_knowledge_cards[\s\S]*?review_status\s*=\s*'approved'[\s\S]*?for\s+share/i)
       expect(contract).toMatch(/having\s+count\(card\.id\)\s*=\s*1/i)
       expect(contract).toContain("grade_band <> '初三'")
-      expect(contract).toContain("source_kind <> 'licensed_local'")
+      expect(contract).toContain("source_kind <> 'user_provided_local'")
       expect(contract).toContain("review_status <> 'approved'")
       expect(contract).toContain("scope_status <> 'IN'")
       expect(contract).toContain('not v_question.usable_for_review')
@@ -494,7 +557,8 @@ describe('2026-08-29 junior evidence backend contract', () => {
       "'初三'",
       "'approved'",
       "'IN'",
-      "'licensed_local'",
+      "'科粤版'",
+      "'user_provided_local'",
       "'[]'::jsonb",
       "'native'",
     ]) {

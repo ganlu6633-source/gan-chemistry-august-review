@@ -1,4 +1,4 @@
-import type { CreateVideoRecommendationInput, GuardianDashboardData, JuniorAdaptivePayload, LearningAttempt, LearningRecordData, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
+import type { CreateVideoRecommendationInput, FuturePlanPreviewPayload, GuardianDashboardData, JuniorAdaptivePayload, JuniorQuestionFeedback, LearningAttempt, LearningRecordData, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
 import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
@@ -102,6 +102,14 @@ export async function openJuniorAdaptiveSession(session: SessionIdentity, planId
   return accessApi<{ payload: JuniorAdaptivePayload }>(session, 'junior_open_session', { planId }, options)
 }
 
+/**
+ * Open a future plan as knowledge-only preview. The server response never
+ * includes questions or creates a learning session/evidence row.
+ */
+export async function loadFuturePlanPreview(session: SessionIdentity, planId: string, options?: ApiRequestOptions) {
+  return accessApi<{ preview: FuturePlanPreviewPayload }>(session, 'future_plan_preview', { planId }, options)
+}
+
 export interface JuniorStepAnswerInput {
   planId: string
   stepId: string
@@ -113,7 +121,7 @@ export interface JuniorStepAnswerInput {
 
 /** Persist one immutable first answer and receive the server-selected next original. */
 export async function submitJuniorAdaptiveStep(session: SessionIdentity, input: JuniorStepAnswerInput) {
-  return accessApi<{ feedback: QuestionFeedback; payload: JuniorAdaptivePayload; dashboard?: StudentDashboardData }>(session, 'junior_submit_step', input)
+  return accessApi<{ feedback: JuniorQuestionFeedback; payload: JuniorAdaptivePayload; dashboard?: StudentDashboardData }>(session, 'junior_submit_step', input)
 }
 
 /** Read-only teacher simulation; no real attempt or answer lock is written. */

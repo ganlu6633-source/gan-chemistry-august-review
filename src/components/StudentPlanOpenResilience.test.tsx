@@ -147,20 +147,49 @@ describe('StudentApp plan opening resilience', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('keeps a real student future plan locked until its scheduled date', () => {
-    const fetchMock = vi.fn<typeof fetch>()
-    vi.stubGlobal('fetch', fetchMock)
+  it('opens a real student future plan as a separate knowledge-only preview', async () => {
     const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    const futurePlan = { ...plan, id: 'plan-future', date: tomorrow }
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input
+      void _init
+      return jsonResponse({
+        preview: {
+          previewMode: 'future_knowledge_only',
+          plan: futurePlan,
+          cards: [card],
+          formalOpenDate: tomorrow,
+          recordsLearningEvidence: false,
+          includesQuestions: false,
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
     const futureDashboard: StudentDashboardData = {
       ...dashboard,
       profile: { ...dashboard.profile, isDemo: false },
-      plans: [{ ...plan, id: 'plan-future', date: tomorrow }],
+      plans: [futurePlan],
     }
     render(<StudentApp session={session} initialDashboard={futureDashboard} onDashboard={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: '按日期开放' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /今天的氧化还原复习，按日期开放/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '进入预习' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /今天的氧化还原复习，可提前预习/ })).toBeEnabled()
     expect(fetchMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '进入预习' }))
+
+    expect(await screen.findByTestId('future-plan-preview')).toBeInTheDocument()
+    const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(request).toEqual({ action: 'future_plan_preview', data: { planId: futurePlan.id } })
+    expect(screen.getByText('提前预习 · 只读知识页')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '氧化还原知识卡' })).toBeInTheDocument()
+    expect(screen.getByText(/不展示正式题目、答案或提示/)).toBeInTheDocument()
+    expect(screen.getByText(/不创建学习会话，也不计入掌握度和正式学习记录/)).toBeInTheDocument()
+    expect(screen.queryByText(question.stem)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /提交|确认答案|开始练习/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '完成预习，返回计划' }))
+    expect(screen.getByRole('button', { name: '进入预习' })).toBeInTheDocument()
   })
 
   it('passes an AbortSignal to junior_open_session and aborts it after the open timeout', async () => {

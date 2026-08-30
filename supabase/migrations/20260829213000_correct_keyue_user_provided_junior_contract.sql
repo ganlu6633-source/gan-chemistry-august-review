@@ -1,152 +1,44 @@
 begin;
 
--- Junior releases share the audited source-release ledger with the three
--- high-school grades.  Keep every existing high-school count contract intact,
--- while allowing a junior batch only when it can fund the minimum adaptive
--- evidence matrix: at least three knowledge routes x (five foundation + two
--- higher) independent originals.  The upper bound prevents an unreviewably large
--- batch from bypassing the release audit as a single manifest.
-alter table app_private.chem_question_source_releases
-  drop constraint if exists chem_question_source_releases_grade_band_check,
-  drop constraint if exists chem_question_source_releases_expected_question_count_check;
+-- This append-only corrective migration makes the junior release contract
+-- truthful about both textbook scope and rights.  "user_provided_local" means
+-- that a source was supplied from the user's private local collection; it is
+-- deliberately not a claim that redistribution rights were verified.
 
-alter table app_private.chem_question_source_releases
-  add constraint chem_question_source_releases_grade_band_check
-    check (grade_band in ('初三','高一','高二','高三')),
-  add constraint chem_question_source_releases_expected_question_count_check
-    check (
-      (grade_band = '初三' and expected_question_count between 21 and 2000)
-      or (grade_band = '高一' and (
-        expected_question_count in (125, 175)
-        or expected_question_count between 211 and 275
-      ))
-      or (grade_band = '高二' and expected_question_count between 200 and 2000)
-      or (grade_band = '高三' and expected_question_count between 275 and 2000)
-    );
+alter table public.chem_students_v2
+  drop constraint if exists chem_students_v2_textbook_version_check;
 
--- A completed junior session must be represented by the same immutable
--- attempt/answer ledger used by every student, guardian and teacher view.
-alter table public.chem_learning_attempts
-  add column if not exists junior_session_id uuid;
+alter table public.chem_students_v2
+  add constraint chem_students_v2_textbook_version_check
+  check (textbook_version in ('科粤版', '苏教版', '人教版', '通用', '待确认'));
 
-alter table public.chem_learning_attempts
-  drop constraint if exists chem_learning_attempts_junior_session_fk;
+alter table public.chem_students_v2
+  drop constraint if exists chem_students_v2_junior_keyue_textbook_check;
 
-alter table public.chem_learning_attempts
-  add constraint chem_learning_attempts_junior_session_fk
-  foreign key (junior_session_id)
-  references public.chem_junior_daily_sessions(id)
-  on delete cascade;
+alter table public.chem_students_v2
+  add constraint chem_students_v2_junior_keyue_textbook_check
+  check (grade_band <> '初三' or textbook_version in ('科粤版', '待确认'))
+  not valid;
 
-alter table public.chem_learning_attempts
-  drop constraint if exists chem_learning_attempts_junior_session_key;
+alter table public.chem_course_nodes
+  drop constraint if exists chem_course_nodes_junior_keyue_textbook_check;
 
-alter table public.chem_learning_attempts
-  add constraint chem_learning_attempts_junior_session_key
-  unique (junior_session_id);
+alter table public.chem_course_nodes
+  add constraint chem_course_nodes_junior_keyue_textbook_check
+  check (grade_band <> '初三' or textbook_version = '科粤版')
+  not valid;
 
-comment on column public.chem_learning_attempts.junior_session_id is
-  'One-to-one link from a finalized junior-adaptive session to the unified immutable learning-attempt ledger.';
+alter table public.chem_questions
+  drop constraint if exists chem_questions_source_kind_check;
 
--- Prevent concurrent dashboard refreshes from funding two adaptive plans for
--- the same student and Shanghai calendar day.
-create unique index if not exists chem_learning_plans_one_junior_adaptive_per_day_uidx
-  on public.chem_learning_plans (student_id, plan_date)
-  where delivery_mode = 'junior_adaptive';
-
--- A learner can have only one source-selecting junior session at a time. This
--- serializes cross-day identity exclusion even if two old plan ids are opened
--- concurrently through direct API calls.
-create unique index if not exists chem_junior_daily_sessions_one_active_student_uidx
-  on public.chem_junior_daily_sessions (student_id)
-  where status = 'active';
-
-alter table public.chem_junior_daily_sessions
-  add column if not exists blocked_reason_code text,
-  add column if not exists blocked_reason_detail text,
-  add column if not exists blocked_at timestamptz;
-
-alter table public.chem_junior_daily_sessions
-  drop constraint if exists chem_junior_daily_sessions_blocked_metadata_check;
-
-alter table public.chem_junior_daily_sessions
-  add constraint chem_junior_daily_sessions_blocked_metadata_check
-  check (
-    (
-      status = 'blocked'
-      and blocked_reason_code is not null
-      and blocked_reason_code in (
-        'question_revision_changed',
-        'source_capacity_exhausted',
-        'knowledge_contract_unavailable',
-        'source_release_unavailable',
-        'manual_pause'
-      )
-      and length(btrim(coalesce(blocked_reason_detail, ''))) between 1 and 1000
-      and blocked_at is not null
-    )
-    or (
-      status <> 'blocked'
-      and blocked_reason_code is null
-      and blocked_reason_detail is null
-      and blocked_at is null
-    )
-  );
-
-comment on column public.chem_junior_daily_sessions.blocked_reason_code is
-  'Machine-readable fail-closed reason; blocked sessions also require a human-readable detail and timestamp.';
-
--- The same knowledge id can legitimately occur in more than one textbook.
--- Every verified mapping must point to an immutable, audited source release.
-do $$
-begin
-  if exists (
-    select 1
-    from app_private.chem_junior_knowledge_provenance
-    where source_release_id is null
-  ) then
-    raise exception 'Junior knowledge provenance cannot be hardened while a source release is missing';
-  end if;
-end;
-$$;
-
-alter table app_private.chem_junior_knowledge_provenance
-  alter column source_release_id set not null;
-
-alter table app_private.chem_junior_knowledge_provenance
-  drop constraint if exists chem_junior_knowledge_provenance_pkey;
-
-alter table app_private.chem_junior_knowledge_provenance
-  add constraint chem_junior_knowledge_provenance_pkey
-  primary key (textbook_version, knowledge_id);
-
--- Junior releases are scoped by confirmed textbook version.  High-school
--- release rows remain NULL here and retain exactly one active release per
--- grade; junior can safely keep one active batch per confirmed textbook.
-alter table app_private.chem_question_source_releases
-  add column if not exists textbook_version text;
-
--- The live junior release predates the release-level textbook column, while
--- its verified knowledge provenance is already scoped to 科粤版.  Backfill the
--- release before installing the scope check so this append-only hardening can
--- be applied to the existing database without weakening or discarding that
--- historical evidence.
-update app_private.chem_question_source_releases as release
-set textbook_version = '科粤版'
-where release.grade_band = '初三'
-  and release.textbook_version is null
-  and exists (
-    select 1
-    from app_private.chem_junior_knowledge_provenance as provenance
-    where provenance.source_release_id = release.id
-      and provenance.textbook_version = '科粤版'
-  )
-  and not exists (
-    select 1
-    from app_private.chem_junior_knowledge_provenance as conflicting
-    where conflicting.source_release_id = release.id
-      and conflicting.textbook_version <> '科粤版'
-  );
+alter table public.chem_questions
+  add constraint chem_questions_source_kind_check
+  check (source_kind in (
+    'teacher_original',
+    'licensed_local',
+    'user_provided_local',
+    'original_variant'
+  ));
 
 alter table app_private.chem_question_source_releases
   drop constraint if exists chem_question_source_releases_textbook_scope_check;
@@ -156,79 +48,1095 @@ alter table app_private.chem_question_source_releases
   check (
     (
       grade_band = '初三'
-      and textbook_version is not null
-      and textbook_version in ('科粤版', '苏教版', '人教版', '通用')
+      and textbook_version = '科粤版'
     )
     or (
       grade_band in ('高一', '高二', '高三')
       and textbook_version is null
     )
-  );
+  )
+  not valid;
 
-drop index if exists app_private.chem_question_source_releases_one_active_grade_uidx;
-create unique index chem_question_source_releases_one_active_grade_uidx
-  on app_private.chem_question_source_releases (grade_band)
-  where status = 'active' and grade_band in ('高一', '高二', '高三');
+alter table app_private.chem_junior_source_release_specs
+  drop constraint if exists chem_junior_source_release_specs_textbook_version_check;
 
-create unique index if not exists chem_question_source_releases_one_active_junior_textbook_uidx
-  on app_private.chem_question_source_releases (textbook_version)
-  where status = 'active' and grade_band = '初三';
+alter table app_private.chem_junior_source_release_specs
+  add constraint chem_junior_source_release_specs_textbook_version_check
+  check (textbook_version = '科粤版')
+  not valid;
 
-alter table app_private.chem_question_source_releases
-  drop constraint if exists chem_question_source_releases_revision_contract_check;
+alter table app_private.chem_junior_source_release_provenance
+  drop constraint if exists chem_junior_source_release_provenance_textbook_version_check;
 
-alter table app_private.chem_question_source_releases
-  add constraint chem_question_source_releases_revision_contract_check
-  check (revision_contract in (
-    'v1_assets',
-    'v2_explanation_assets',
-    'v3_junior_native_text'
-  ));
+alter table app_private.chem_junior_source_release_provenance
+  add constraint chem_junior_source_release_provenance_textbook_version_check
+  check (textbook_version = '科粤版')
+  not valid;
 
--- The release spec freezes the textbook and its complete reviewed adaptive
--- route set (at least three routes; a curriculum day selects exactly three)
--- before the first original is staged.  A separate release-versioned
--- provenance table lets a replacement batch be reviewed while the current
--- active mapping remains available to learners.
-create table if not exists app_private.chem_junior_source_release_specs (
+alter table public.chem_junior_curriculum_days
+  drop constraint if exists chem_junior_curriculum_days_keyue_textbook_check;
+
+alter table public.chem_junior_curriculum_days
+  add constraint chem_junior_curriculum_days_keyue_textbook_check
+  check (textbook_version = '科粤版')
+  not valid;
+
+alter table public.chem_junior_daily_sessions
+  drop constraint if exists chem_junior_daily_sessions_keyue_textbook_check;
+
+alter table public.chem_junior_daily_sessions
+  add constraint chem_junior_daily_sessions_keyue_textbook_check
+  check (textbook_version = '科粤版')
+  not valid;
+
+alter table app_private.chem_junior_knowledge_provenance
+  drop constraint if exists chem_junior_knowledge_provenance_keyue_textbook_check;
+
+alter table app_private.chem_junior_knowledge_provenance
+  add constraint chem_junior_knowledge_provenance_keyue_textbook_check
+  check (textbook_version = '科粤版')
+  not valid;
+
+-- Keep the long-standing licensed-local checks intact for high-school source
+-- releases.  Add parallel, explicitly named checks for private user-provided
+-- junior material instead of weakening the licensed contract.
+alter table public.chem_questions
+  drop constraint if exists chem_questions_user_provided_local_grade_check,
+  drop constraint if exists chem_questions_user_provided_local_not_demo,
+  drop constraint if exists chem_questions_user_provided_local_provenance;
+
+alter table public.chem_questions
+  add constraint chem_questions_user_provided_local_grade_check
+    check (source_kind <> 'user_provided_local' or grade_band = '初三')
+    not valid,
+  add constraint chem_questions_user_provided_local_not_demo
+    check (source_kind <> 'user_provided_local' or not usable_for_demo)
+    not valid,
+  add constraint chem_questions_user_provided_local_provenance
+    check (
+      source_kind <> 'user_provided_local'
+      or (
+        source_info is not null
+        and length(btrim(coalesce(source_info->>'title', ''))) > 0
+        and length(btrim(coalesce(source_info->>'exam', ''))) > 0
+        and length(btrim(coalesce(source_info->>'questionNo', ''))) > 0
+        and length(btrim(coalesce(source_info->>'locator', ''))) > 0
+        and length(btrim(coalesce(source_item_key, ''))) >= 16
+        and coalesce(content_fingerprint, '') ~ '^[0-9a-f]{64}$'
+        and coalesce(question_revision_token, '') ~ '^[0-9a-f]{64}$'
+        and (
+          render_mode = 'native'
+          or jsonb_array_length(asset_refs) > 0
+        )
+      )
+    )
+    not valid;
+
+alter table public.chem_questions
+  drop constraint if exists chem_questions_junior_source_contract,
+  drop constraint if exists chem_questions_junior_no_new_legacy_licensed;
+
+alter table public.chem_questions
+  add constraint chem_questions_junior_source_contract
+  check (
+    grade_band <> '初三'
+    or source_kind <> 'user_provided_local'
+    or (
+      textbook_version = '科粤版'
+      and knowledge_id is not null and length(btrim(knowledge_id)) > 0
+      and skill_id = knowledge_id
+      and same_type_key is not null and length(btrim(same_type_key)) > 0
+      and source_item_key is not null and length(btrim(source_item_key)) >= 16
+      and parent_source_item_key is not null and length(btrim(parent_source_item_key)) >= 16
+      and content_fingerprint is not null
+      and content_fingerprint ~ '^[0-9a-f]{64}$'
+      and question_revision_token is not null
+      and question_revision_token ~ '^[0-9a-f]{64}$'
+      and source_release_id is not null
+      and review_status = 'approved'
+      and scope_status = 'IN'
+      and render_mode = 'native'
+      and coalesce(btrim(image_url), '') = ''
+      and asset_refs = '[]'::jsonb
+      and not usable_for_class_quiz
+      and not usable_for_exam_sprint
+      and not usable_for_demo
+    )
+  )
+  not valid;
+
+-- Intentionally NOT VALID: existing immutable historical rows, if any, remain
+-- readable evidence, while every new INSERT or UPDATE is prevented from using
+-- the legacy licensed routing token for junior material.
+alter table public.chem_questions
+  add constraint chem_questions_junior_no_new_legacy_licensed
+  check (grade_band <> '初三' or source_kind <> 'licensed_local')
+  not valid;
+
+drop index if exists public.chem_questions_junior_adaptive_pool_idx;
+create index chem_questions_junior_adaptive_pool_idx
+  on public.chem_questions (
+    textbook_version, knowledge_id, same_type_key, level, id
+  )
+  where grade_band = '初三'
+    and source_kind = 'user_provided_local'
+    and review_status = 'approved'
+    and scope_status = 'IN'
+    and usable_for_review;
+
+drop index if exists public.chem_questions_junior_release_mother_uidx;
+create unique index chem_questions_junior_release_mother_uidx
+  on public.chem_questions (source_release_id, mother_id)
+  where grade_band = '初三' and source_kind = 'user_provided_local';
+
+drop index if exists public.chem_questions_junior_release_source_item_uidx;
+create unique index chem_questions_junior_release_source_item_uidx
+  on public.chem_questions (source_release_id, source_item_key)
+  where grade_band = '初三' and source_kind = 'user_provided_local';
+
+drop index if exists public.chem_questions_junior_release_parent_source_item_uidx;
+create unique index chem_questions_junior_release_parent_source_item_uidx
+  on public.chem_questions (source_release_id, parent_source_item_key)
+  where grade_band = '初三' and source_kind = 'user_provided_local';
+
+drop index if exists public.chem_questions_junior_release_fingerprint_uidx;
+create unique index chem_questions_junior_release_fingerprint_uidx
+  on public.chem_questions (source_release_id, content_fingerprint)
+  where grade_band = '初三' and source_kind = 'user_provided_local';
+
+drop index if exists public.chem_questions_junior_release_revision_uidx;
+create unique index chem_questions_junior_release_revision_uidx
+  on public.chem_questions (source_release_id, question_revision_token)
+  where grade_band = '初三' and source_kind = 'user_provided_local';
+
+create table if not exists app_private.chem_junior_source_release_rights (
   release_id uuid primary key
     references app_private.chem_question_source_releases(id) on delete cascade,
-  textbook_version text not null
-    check (textbook_version in ('苏教版', '人教版', '通用')),
-  knowledge_ids text[] not null,
+  rights_status text not null
+    default 'user_provided_private_use_unverified_for_redistribution'
+    check (rights_status = 'user_provided_private_use_unverified_for_redistribution'),
+  redistribution_allowed boolean not null default false
+    check (redistribution_allowed = false),
+  attested_manifest_sha256 text not null
+    check (attested_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  attested_card_manifest_sha256 text not null
+    check (attested_card_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  attestation_actor text not null
+    check (length(btrim(attestation_actor)) between 1 and 160),
+  attested_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
-  check (cardinality(knowledge_ids) between 3 and 200)
+  updated_at timestamptz not null default now()
 );
 
-create table if not exists app_private.chem_junior_source_release_provenance (
+alter table app_private.chem_junior_source_release_rights enable row level security;
+revoke all on table app_private.chem_junior_source_release_rights
+  from public, anon, authenticated, service_role;
+
+comment on table app_private.chem_junior_source_release_rights is
+  'Private release-level rights truth for junior user-provided sources. Rows attest private in-app use only and never imply verified redistribution permission.';
+comment on column app_private.chem_junior_source_release_rights.rights_status is
+  'Exact legal-operational status: user provided for private use; redistribution rights remain unverified.';
+comment on column app_private.chem_junior_source_release_rights.redistribution_allowed is
+  'Fail-closed redistribution flag. This contract requires false.';
+comment on column app_private.chem_junior_source_release_rights.attested_manifest_sha256 is
+  'Exact server-computed question-ledger manifest covered by this private-use attestation; a different release revision requires a new attestation.';
+comment on column app_private.chem_junior_source_release_rights.attested_card_manifest_sha256 is
+  'Exact server-computed student-visible knowledge-card manifest covered by this private-use attestation.';
+comment on column app_private.chem_junior_source_release_rights.attestation_actor is
+  'Server-side workflow actor that recorded the private-use rights status; not a licensor or legal approval.';
+
+create table if not exists app_private.chem_junior_knowledge_card_bindings (
   release_id uuid not null
     references app_private.chem_question_source_releases(id) on delete cascade,
-  textbook_version text not null
-    check (textbook_version in ('苏教版', '人教版', '通用')),
-  knowledge_id text not null
-    references public.chem_skills(id) on delete restrict,
-  source_id text not null check (length(btrim(source_id)) between 3 and 160),
-  source_locator text not null check (length(btrim(source_locator)) between 3 and 500),
-  source_sha256 text not null check (source_sha256 ~ '^[0-9a-f]{64}$'),
-  verification_status text not null default 'pending_review'
-    check (verification_status in ('pending_review', 'verified')),
-  verification_actor text,
-  reviewed_at timestamptz,
+  textbook_version text not null check (textbook_version = '科粤版'),
+  knowledge_id text not null references public.chem_skills(id) on delete restrict,
+  card_id text not null references public.chem_knowledge_cards(id) on delete restrict,
+  card_sha256 text not null check (card_sha256 ~ '^[0-9a-f]{64}$'),
+  fingerprint_contract text not null
+    default 'sha256_utf8_length_framed_student_card_payload_v1'
+    check (fingerprint_contract = 'sha256_utf8_length_framed_student_card_payload_v1'),
+  canonical_source_id text not null check (length(btrim(canonical_source_id)) between 3 and 160),
+  canonical_source_sha256 text not null check (canonical_source_sha256 ~ '^[0-9a-f]{64}$'),
+  source_verification_status text not null
+    check (source_verification_status = 'visually_verified'),
+  verification_actor text not null
+    check (length(btrim(verification_actor)) between 1 and 160),
+  verified_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  primary key (release_id, knowledge_id)
+  primary key (release_id, knowledge_id),
+  unique (release_id, card_id)
 );
 
-alter table app_private.chem_junior_source_release_specs enable row level security;
-alter table app_private.chem_junior_source_release_provenance enable row level security;
-revoke all on table app_private.chem_junior_source_release_specs
-  from public, anon, authenticated, service_role;
-revoke all on table app_private.chem_junior_source_release_provenance
+alter table app_private.chem_junior_knowledge_card_bindings enable row level security;
+revoke all on table app_private.chem_junior_knowledge_card_bindings
   from public, anon, authenticated, service_role;
 
--- The Edge function must not receive SELECT privilege on either private
--- provenance or release ledgers. Expose only the minimum identifiers and one
--- release-readiness bit required by the junior fail-closed gate.
+comment on table app_private.chem_junior_knowledge_card_bindings is
+  'Private immutable binding between one junior release route, its exact student-visible knowledge card payload, and the visually verified canonical source evidence.';
+
+create or replace function app_private.chem_guard_attested_junior_source_provenance()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_old_release_id uuid;
+  v_new_release_id uuid;
+begin
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-source-original-release', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-h3-original-release', 0)
+  );
+
+  if pg_catalog.current_setting('app.chem_junior_release_lifecycle', true) = 'on' then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  v_old_release_id := case when tg_op in ('UPDATE', 'DELETE') then old.release_id else null end;
+  v_new_release_id := case when tg_op in ('INSERT', 'UPDATE') then new.release_id else null end;
+  if exists (
+    select 1
+    from app_private.chem_junior_source_release_rights as rights
+    where rights.release_id = v_old_release_id
+       or rights.release_id = v_new_release_id
+  ) then
+    raise exception 'attested junior source provenance is immutable; reset the complete staged release or create a new release';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+drop trigger if exists chem_guard_attested_junior_source_provenance
+  on app_private.chem_junior_source_release_provenance;
+create trigger chem_guard_attested_junior_source_provenance
+before insert or update or delete on app_private.chem_junior_source_release_provenance
+for each row execute function app_private.chem_guard_attested_junior_source_provenance();
+
+revoke all on function app_private.chem_guard_attested_junior_source_provenance()
+  from public, anon, authenticated, service_role;
+
+create or replace function app_private.chem_guard_attested_junior_card_binding()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_old_release_id uuid;
+  v_new_release_id uuid;
+begin
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-source-original-release', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-h3-original-release', 0)
+  );
+
+  if pg_catalog.current_setting('app.chem_junior_release_lifecycle', true) = 'on' then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  v_old_release_id := case when tg_op in ('UPDATE', 'DELETE') then old.release_id else null end;
+  v_new_release_id := case when tg_op in ('INSERT', 'UPDATE') then new.release_id else null end;
+  if exists (
+    select 1
+    from app_private.chem_junior_source_release_rights as rights
+    where rights.release_id = v_old_release_id
+       or rights.release_id = v_new_release_id
+  ) then
+    raise exception 'attested junior knowledge-card binding is immutable; reset the complete staged release or create a new release';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+drop trigger if exists chem_guard_attested_junior_card_binding
+  on app_private.chem_junior_knowledge_card_bindings;
+create trigger chem_guard_attested_junior_card_binding
+before insert or update or delete on app_private.chem_junior_knowledge_card_bindings
+for each row execute function app_private.chem_guard_attested_junior_card_binding();
+
+revoke all on function app_private.chem_guard_attested_junior_card_binding()
+  from public, anon, authenticated, service_role;
+
+create or replace function app_private.chem_junior_card_manifest_field(p_value text)
+returns text
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select pg_catalog.octet_length(
+    pg_catalog.convert_to(coalesce(p_value, ''), 'UTF8')
+  )::text || ':' || coalesce(p_value, '');
+$$;
+
+revoke all on function app_private.chem_junior_card_manifest_field(text)
+  from public, anon, authenticated, service_role;
+
+create or replace function app_private.chem_junior_knowledge_card_sha256(
+  p_card public.chem_knowledge_cards
+)
+returns text
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select pg_catalog.encode(
+    extensions.digest(
+      pg_catalog.convert_to(
+        app_private.chem_junior_card_manifest_field(p_card.id)
+        || app_private.chem_junior_card_manifest_field(p_card.skill_id)
+        || app_private.chem_junior_card_manifest_field(p_card.title)
+        || app_private.chem_junior_card_manifest_field(p_card.core)
+        || app_private.chem_junior_card_manifest_field(p_card.detail)
+        || app_private.chem_junior_card_manifest_field(
+          case when pg_catalog.jsonb_typeof(p_card.steps) = 'array'
+            then pg_catalog.jsonb_array_length(p_card.steps)::text else '' end
+        )
+        || case when pg_catalog.jsonb_typeof(p_card.steps) = 'array' then coalesce((
+            select pg_catalog.string_agg(
+              app_private.chem_junior_card_manifest_field(item.value),
+              '' order by item.ordinality
+            )
+            from pg_catalog.jsonb_array_elements_text(p_card.steps)
+              with ordinality as item(value, ordinality)
+          ), '') else '' end
+        || app_private.chem_junior_card_manifest_field(
+          case when pg_catalog.jsonb_typeof(p_card.common_mistakes) = 'array'
+            then pg_catalog.jsonb_array_length(p_card.common_mistakes)::text else '' end
+        )
+        || case when pg_catalog.jsonb_typeof(p_card.common_mistakes) = 'array' then coalesce((
+            select pg_catalog.string_agg(
+              app_private.chem_junior_card_manifest_field(item.value),
+              '' order by item.ordinality
+            )
+            from pg_catalog.jsonb_array_elements_text(p_card.common_mistakes)
+              with ordinality as item(value, ordinality)
+          ), '') else '' end
+        || app_private.chem_junior_card_manifest_field(p_card.micro_example)
+        || app_private.chem_junior_card_manifest_field(
+          case when p_card.structured_content = '{}'::jsonb then '' else p_card.structured_content::text end
+        )
+        || app_private.chem_junior_card_manifest_field(p_card.review_status),
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
+  );
+$$;
+
+revoke all on function app_private.chem_junior_knowledge_card_sha256(public.chem_knowledge_cards)
+  from public, anon, authenticated, service_role;
+
+create or replace function app_private.chem_junior_knowledge_card_manifest_sha256(
+  p_release_id uuid
+)
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  select pg_catalog.encode(
+    extensions.digest(
+      pg_catalog.convert_to(
+        pg_catalog.string_agg(
+          app_private.chem_junior_card_manifest_field(binding.knowledge_id)
+          || app_private.chem_junior_card_manifest_field(binding.card_id)
+          || app_private.chem_junior_card_manifest_field(binding.card_sha256)
+          || app_private.chem_junior_card_manifest_field(binding.canonical_source_id)
+          || app_private.chem_junior_card_manifest_field(binding.canonical_source_sha256),
+          '' order by binding.knowledge_id
+        ),
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
+  )
+  from app_private.chem_junior_knowledge_card_bindings as binding
+  where binding.release_id = p_release_id;
+$$;
+
+revoke all on function app_private.chem_junior_knowledge_card_manifest_sha256(uuid)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.chem_bind_junior_knowledge_card(
+  p_release_id uuid,
+  p_knowledge_id text,
+  p_card_id text,
+  p_expected_card_sha256 text,
+  p_canonical_source_id text,
+  p_canonical_source_sha256 text,
+  p_verification_actor text
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_card public.chem_knowledge_cards%rowtype;
+  v_card_sha256 text;
+  v_approved_count integer;
+begin
+  if p_release_id is null
+    or length(btrim(coalesce(p_knowledge_id, ''))) = 0
+    or length(btrim(coalesce(p_card_id, ''))) = 0
+    or coalesce(p_expected_card_sha256, '') !~ '^[0-9a-f]{64}$'
+    or length(btrim(coalesce(p_canonical_source_id, ''))) not between 3 and 160
+    or coalesce(p_canonical_source_sha256, '') !~ '^[0-9a-f]{64}$'
+    or p_verification_actor is distinct from 'codex-knowledge-card-source-qa'
+  then
+    raise exception 'invalid junior knowledge-card binding';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-source-original-release', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-h3-original-release', 0)
+  );
+
+  perform release_row.id
+  from app_private.chem_question_source_releases as release_row
+  join app_private.chem_junior_source_release_specs as spec
+    on spec.release_id = release_row.id
+   and spec.textbook_version = '科粤版'
+   and p_knowledge_id = any(spec.knowledge_ids)
+  where release_row.id = p_release_id
+    and release_row.grade_band = '初三'
+    and release_row.textbook_version = '科粤版'
+    and release_row.status = 'staged'
+    and release_row.revision_contract = 'v3_junior_native_text'
+    and release_row.activated_at is null
+    and release_row.retired_at is null
+  for update of release_row, spec;
+
+  if not found or exists (
+    select 1 from app_private.chem_junior_source_release_rights as rights
+    where rights.release_id = p_release_id
+  ) then
+    raise exception 'junior knowledge cards may be bound only before rights attestation on a staged 科粤版 release';
+  end if;
+
+  perform provenance.knowledge_id
+  from app_private.chem_junior_source_release_provenance as provenance
+  where provenance.release_id = p_release_id
+    and provenance.textbook_version = '科粤版'
+    and provenance.knowledge_id = p_knowledge_id
+    and provenance.source_id = btrim(p_canonical_source_id)
+    and provenance.source_sha256 = p_canonical_source_sha256
+    and provenance.verification_status = 'verified'
+    and provenance.verification_actor = 'codex-source-provenance-qa'
+    and provenance.reviewed_at is not null
+  for share;
+
+  if not found then
+    raise exception 'junior knowledge-card source must match the independently verified release provenance';
+  end if;
+
+  select card.*
+  into v_card
+  from public.chem_knowledge_cards as card
+  where card.id = p_card_id
+    and card.skill_id = p_knowledge_id
+    and card.review_status = 'approved'
+    and pg_catalog.length(pg_catalog.btrim(card.title)) > 0
+    and pg_catalog.length(pg_catalog.btrim(card.core)) > 0
+    and pg_catalog.length(pg_catalog.btrim(card.detail)) > 0
+    and pg_catalog.length(pg_catalog.btrim(card.micro_example)) > 0
+    and pg_catalog.jsonb_typeof(card.steps) = 'array'
+    and pg_catalog.jsonb_typeof(card.common_mistakes) = 'array'
+  for update;
+
+  if not found then
+    raise exception 'junior knowledge card is missing, ambiguous, or not approved';
+  end if;
+
+  select count(*)::integer
+  into v_approved_count
+  from public.chem_knowledge_cards as card
+  where card.skill_id = p_knowledge_id
+    and card.review_status = 'approved';
+  if v_approved_count <> 1 then
+    raise exception 'junior release requires exactly one approved card per knowledge route';
+  end if;
+
+  v_card_sha256 := app_private.chem_junior_knowledge_card_sha256(v_card);
+  if v_card_sha256 is distinct from p_expected_card_sha256 then
+    raise exception 'junior knowledge-card audit digest does not match the exact current student payload';
+  end if;
+
+  insert into app_private.chem_junior_knowledge_card_bindings (
+    release_id, textbook_version, knowledge_id, card_id, card_sha256,
+    canonical_source_id, canonical_source_sha256,
+    source_verification_status, verification_actor, verified_at, updated_at
+  ) values (
+    p_release_id, '科粤版', p_knowledge_id, p_card_id, v_card_sha256,
+    btrim(p_canonical_source_id), p_canonical_source_sha256,
+    'visually_verified', btrim(p_verification_actor), now(), now()
+  )
+  on conflict (release_id, knowledge_id) do update set
+    card_id = excluded.card_id,
+    card_sha256 = excluded.card_sha256,
+    canonical_source_id = excluded.canonical_source_id,
+    canonical_source_sha256 = excluded.canonical_source_sha256,
+    source_verification_status = excluded.source_verification_status,
+    verification_actor = excluded.verification_actor,
+    verified_at = excluded.verified_at,
+    updated_at = now();
+
+  return v_card_sha256;
+end;
+$$;
+
+revoke all on function public.chem_bind_junior_knowledge_card(uuid,text,text,text,text,text,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.chem_bind_junior_knowledge_card(uuid,text,text,text,text,text,text)
+  to service_role;
+
+create or replace function app_private.chem_lock_junior_knowledge_card_statement()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  -- A BEFORE STATEMENT trigger runs before UPDATE has acquired any tuple lock.
+  -- Keep the same global order as release/bind/runtime RPCs so INSERT or UPDATE
+  -- cannot introduce a phantom second approved card during their exact count.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-source-original-release', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-h3-original-release', 0)
+  );
+  return null;
+end;
+$$;
+
+revoke all on function app_private.chem_lock_junior_knowledge_card_statement()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists chem_lock_junior_knowledge_card_statement
+  on public.chem_knowledge_cards;
+create trigger chem_lock_junior_knowledge_card_statement
+before insert or update on public.chem_knowledge_cards
+for each statement execute function app_private.chem_lock_junior_knowledge_card_statement();
+
+create or replace function app_private.chem_guard_bound_junior_knowledge_card()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  -- The statement-level lock trigger above has already serialized UPDATE.
+  -- This row trigger performs only the immutable-binding check; taking a
+  -- global advisory lock here would invert the RPC lock order after UPDATE or
+  -- DELETE already holds a tuple lock.
+  if exists (
+    select 1
+    from app_private.chem_junior_knowledge_card_bindings as binding
+    join app_private.chem_question_source_releases as release_row
+      on release_row.id = binding.release_id
+    where binding.card_id = old.id
+      and (
+        release_row.status in ('active', 'retired')
+        or exists (
+          select 1
+          from app_private.chem_junior_source_release_rights as rights
+          where rights.release_id = binding.release_id
+        )
+      )
+  ) then
+    raise exception 'an attested, active or retired junior release knowledge card is immutable; create a new card and release';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+drop trigger if exists chem_guard_bound_junior_knowledge_card
+  on public.chem_knowledge_cards;
+create trigger chem_guard_bound_junior_knowledge_card
+before update or delete on public.chem_knowledge_cards
+for each row execute function app_private.chem_guard_bound_junior_knowledge_card();
+
+revoke all on function app_private.chem_guard_bound_junior_knowledge_card()
+  from public, anon, authenticated, service_role;
+
+create or replace function app_private.chem_junior_knowledge_card_binding_matches(
+  p_release_id uuid,
+  p_textbook_version text,
+  p_knowledge_id text
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p_textbook_version = '科粤版'
+    and (
+      select count(*)
+      from public.chem_knowledge_cards as approved_card
+      where approved_card.skill_id = p_knowledge_id
+        and approved_card.review_status = 'approved'
+    ) = 1
+    and exists (
+      select 1
+      from app_private.chem_junior_knowledge_card_bindings as binding
+      join public.chem_knowledge_cards as card
+        on card.id = binding.card_id
+       and card.skill_id = binding.knowledge_id
+      where binding.release_id = p_release_id
+        and binding.textbook_version = p_textbook_version
+        and binding.knowledge_id = p_knowledge_id
+        and binding.card_sha256 = app_private.chem_junior_knowledge_card_sha256(card)
+        and binding.source_verification_status = 'visually_verified'
+        and coalesce(binding.canonical_source_sha256, '') ~ '^[0-9a-f]{64}$'
+        and binding.verified_at is not null
+        and binding.verification_actor = 'codex-knowledge-card-source-qa'
+        and card.review_status = 'approved'
+        and exists (
+          select 1
+          from app_private.chem_junior_source_release_provenance as source_provenance
+          where source_provenance.release_id = binding.release_id
+            and source_provenance.textbook_version = binding.textbook_version
+            and source_provenance.knowledge_id = binding.knowledge_id
+            and source_provenance.source_id = binding.canonical_source_id
+            and source_provenance.source_sha256 = binding.canonical_source_sha256
+            and source_provenance.verification_status = 'verified'
+            and source_provenance.verification_actor = 'codex-source-provenance-qa'
+            and source_provenance.reviewed_at is not null
+        )
+    );
+$$;
+
+revoke all on function app_private.chem_junior_knowledge_card_binding_matches(uuid,text,text)
+  from public, anon, authenticated, service_role;
+
+create or replace function app_private.chem_junior_knowledge_card_is_ready(
+  p_textbook_version text,
+  p_knowledge_id text
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p_textbook_version = '科粤版'
+    and exists (
+      select 1
+      from app_private.chem_junior_knowledge_provenance as provenance
+      join app_private.chem_question_source_releases as release_row
+        on release_row.id = provenance.source_release_id
+      join app_private.chem_junior_source_release_rights as rights
+        on rights.release_id = release_row.id
+      join app_private.chem_junior_knowledge_card_bindings as binding
+        on binding.release_id = release_row.id
+       and binding.textbook_version = provenance.textbook_version
+       and binding.knowledge_id = provenance.knowledge_id
+      join public.chem_knowledge_cards as card
+        on card.id = binding.card_id
+       and card.skill_id = binding.knowledge_id
+      where provenance.textbook_version = p_textbook_version
+        and provenance.knowledge_id = p_knowledge_id
+        and provenance.verification_status = 'verified'
+        and provenance.reviewed_at is not null
+        and release_row.grade_band = '初三'
+        and release_row.textbook_version = p_textbook_version
+        and release_row.status = 'active'
+        and release_row.verification_status = 'full_visual_verified'
+        and release_row.verification_manifest_sha256 = release_row.manifest_sha256
+        and release_row.revision_contract = 'v3_junior_native_text'
+        and release_row.verified_at is not null
+        and release_row.activated_at is not null
+        and app_private.chem_junior_knowledge_card_binding_matches(
+          release_row.id,
+          p_textbook_version,
+          p_knowledge_id
+        )
+        and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+        and rights.redistribution_allowed = false
+        and rights.attested_manifest_sha256 = release_row.manifest_sha256
+        and rights.attested_card_manifest_sha256 =
+          app_private.chem_junior_knowledge_card_manifest_sha256(release_row.id)
+        and rights.attested_at is not null
+        and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
+        and binding.card_sha256 = app_private.chem_junior_knowledge_card_sha256(card)
+        and binding.source_verification_status = 'visually_verified'
+        and binding.verified_at is not null
+        and binding.verification_actor = 'codex-knowledge-card-source-qa'
+        and card.review_status = 'approved'
+    );
+$$;
+
+revoke all on function app_private.chem_junior_knowledge_card_is_ready(text,text)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.chem_attest_junior_source_release_private_use(
+  p_release_id uuid,
+  p_attestation_actor text
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_release app_private.chem_question_source_releases%rowtype;
+  v_spec app_private.chem_junior_source_release_specs%rowtype;
+  v_question_count integer;
+  v_item_count integer;
+  v_computed_manifest text;
+  v_card_binding_count integer;
+  v_card_manifest text;
+begin
+  if p_release_id is null
+    or length(btrim(coalesce(p_attestation_actor, ''))) not between 1 and 160
+  then
+    raise exception 'invalid junior private-use rights attestation';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-source-original-release', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-h3-original-release', 0)
+  );
+
+  select release_row.*
+  into v_release
+  from app_private.chem_question_source_releases as release_row
+  join app_private.chem_junior_source_release_specs as spec
+    on spec.release_id = release_row.id
+   and spec.textbook_version = release_row.textbook_version
+  where release_row.id = p_release_id
+    and release_row.grade_band = '初三'
+    and release_row.textbook_version = '科粤版'
+    and release_row.status = 'staged'
+    and release_row.revision_contract = 'v3_junior_native_text'
+    and release_row.activated_at is null
+    and release_row.retired_at is null
+  for update of release_row, spec;
+
+  if not found
+    or coalesce(v_release.manifest_sha256, '') !~ '^[0-9a-f]{64}$'
+  then
+    raise exception 'junior rights may be attested only for a staged 科粤版 release';
+  end if;
+
+  -- PostgreSQL cannot assign two composite row variables from one SELECT INTO
+  -- list.  The joined lock above already protects both rows; load the frozen
+  -- spec separately after that lock has been acquired.
+  select spec.*
+  into v_spec
+  from app_private.chem_junior_source_release_specs as spec
+  where spec.release_id = p_release_id
+    and spec.textbook_version = v_release.textbook_version;
+
+  if not found then
+    raise exception 'junior rights attestation is missing its frozen release spec';
+  end if;
+
+  perform rights.release_id
+  from app_private.chem_junior_source_release_rights as rights
+  where rights.release_id = p_release_id
+  for update;
+
+  perform question.id
+  from public.chem_questions as question
+  where question.source_release_id = p_release_id
+  order by question.id
+  for update;
+
+  perform item.question_id
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id
+  order by item.question_id
+  for update;
+
+  perform asset.asset_path
+  from app_private.chem_question_assets as asset
+  join public.chem_questions as question on question.id = asset.question_id
+  where question.source_release_id = p_release_id
+  order by asset.asset_path
+  for update of asset;
+
+  select count(*)::integer
+  into v_question_count
+  from public.chem_questions as question
+  where question.source_release_id = p_release_id;
+
+  select count(*)::integer
+  into v_item_count
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id;
+
+  if v_question_count <> v_release.expected_question_count
+    or v_item_count <> v_release.expected_question_count
+    or exists (
+      select 1
+      from app_private.chem_question_assets as asset
+      join public.chem_questions as question on question.id = asset.question_id
+      where question.source_release_id = p_release_id
+    )
+    or exists (
+      select 1
+      from public.chem_questions as question
+      left join app_private.chem_question_source_release_items as item
+        on item.release_id = question.source_release_id
+       and item.question_id = question.id
+      where question.source_release_id = p_release_id
+        and (
+          item.question_id is null
+          or question.grade_band <> '初三'
+          or question.textbook_version <> '科粤版'
+          or question.source_kind <> 'user_provided_local'
+          or item.item_sha256 is distinct from
+            app_private.chem_junior_native_release_item_sha256(
+              question,
+              item.canonical_source_id
+            )
+        )
+    )
+  then
+    raise exception 'junior rights attestation requires the complete, zero-asset, server-verified item ledger';
+  end if;
+
+  select pg_catalog.encode(
+    extensions.digest(
+      pg_catalog.convert_to(
+        pg_catalog.string_agg(item.item_sha256, E'\n' order by item.question_id),
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
+  )
+  into v_computed_manifest
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id;
+
+  if v_computed_manifest is distinct from v_release.manifest_sha256 then
+    raise exception 'junior rights attestation manifest does not match the sealed server ledger';
+  end if;
+
+  perform provenance.knowledge_id
+  from app_private.chem_junior_source_release_provenance as provenance
+  where provenance.release_id = p_release_id
+  order by provenance.knowledge_id
+  for update;
+
+  perform binding.knowledge_id
+  from app_private.chem_junior_knowledge_card_bindings as binding
+  where binding.release_id = p_release_id
+  order by binding.knowledge_id
+  for update;
+
+  perform card.id
+  from app_private.chem_junior_knowledge_card_bindings as binding
+  join public.chem_knowledge_cards as card on card.id = binding.card_id
+  where binding.release_id = p_release_id
+  order by card.id
+  for update of card;
+
+  select count(*)::integer
+  into v_card_binding_count
+  from app_private.chem_junior_knowledge_card_bindings as binding
+  where binding.release_id = p_release_id;
+
+  if v_card_binding_count <> cardinality(v_spec.knowledge_ids)
+    or exists (
+      select 1
+      from app_private.chem_junior_knowledge_card_bindings as binding
+      left join public.chem_knowledge_cards as card on card.id = binding.card_id
+      where binding.release_id = p_release_id
+        and (
+          binding.textbook_version <> '科粤版'
+          or not (binding.knowledge_id = any(v_spec.knowledge_ids))
+          or card.id is null
+          or card.skill_id is distinct from binding.knowledge_id
+          or card.review_status <> 'approved'
+          or binding.card_sha256 is distinct from
+            app_private.chem_junior_knowledge_card_sha256(card)
+          or binding.source_verification_status <> 'visually_verified'
+          or coalesce(binding.canonical_source_sha256, '') !~ '^[0-9a-f]{64}$'
+          or binding.verified_at is null
+          or binding.verification_actor <> 'codex-knowledge-card-source-qa'
+          or not exists (
+            select 1
+            from app_private.chem_junior_source_release_provenance as source_provenance
+            where source_provenance.release_id = binding.release_id
+              and source_provenance.textbook_version = binding.textbook_version
+              and source_provenance.knowledge_id = binding.knowledge_id
+              and source_provenance.source_id = binding.canonical_source_id
+              and source_provenance.source_sha256 = binding.canonical_source_sha256
+              and source_provenance.verification_status = 'verified'
+              and source_provenance.verification_actor = 'codex-source-provenance-qa'
+              and source_provenance.reviewed_at is not null
+          )
+        )
+    )
+    or exists (
+      select 1
+      from pg_catalog.unnest(v_spec.knowledge_ids) as required(knowledge_id)
+      where (
+        select count(*)
+        from public.chem_knowledge_cards as card
+        where card.skill_id = required.knowledge_id
+          and card.review_status = 'approved'
+      ) <> 1
+    )
+  then
+    raise exception 'junior rights attestation requires one exact, source-verified student card per knowledge route';
+  end if;
+
+  v_card_manifest := app_private.chem_junior_knowledge_card_manifest_sha256(p_release_id);
+  if coalesce(v_card_manifest, '') !~ '^[0-9a-f]{64}$' then
+    raise exception 'junior knowledge-card manifest is invalid';
+  end if;
+
+  insert into app_private.chem_junior_source_release_rights (
+    release_id,
+    rights_status,
+    redistribution_allowed,
+    attested_manifest_sha256,
+    attested_card_manifest_sha256,
+    attestation_actor,
+    attested_at,
+    updated_at
+  ) values (
+    p_release_id,
+    'user_provided_private_use_unverified_for_redistribution',
+    false,
+    v_computed_manifest,
+    v_card_manifest,
+    btrim(p_attestation_actor),
+    now(),
+    now()
+  )
+  on conflict (release_id) do update set
+    rights_status = excluded.rights_status,
+    redistribution_allowed = false,
+    attested_manifest_sha256 = excluded.attested_manifest_sha256,
+    attested_card_manifest_sha256 = excluded.attested_card_manifest_sha256,
+    attestation_actor = excluded.attestation_actor,
+    attested_at = excluded.attested_at,
+    updated_at = now();
+end;
+$$;
+
+revoke all on function public.chem_attest_junior_source_release_private_use(uuid,text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.chem_attest_junior_source_release_private_use(uuid,text)
+  to service_role;
+
+comment on function public.chem_attest_junior_source_release_private_use(uuid,text) is
+  'Service-role-only attestation of private user-provided use, bound to the exact sealed server question ledger and student-visible knowledge-card manifest. It always records redistribution_allowed=false and cannot assert a license.';
+
+create or replace function app_private.chem_require_junior_rights_before_activation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.grade_band = '初三' and new.status = 'active' then
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('chem-source-original-release', 0)
+    );
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('chem-h3-original-release', 0)
+    );
+    perform binding.knowledge_id
+    from app_private.chem_junior_knowledge_card_bindings as binding
+    where binding.release_id = new.id
+    order by binding.knowledge_id
+    for share;
+    perform card.id
+    from app_private.chem_junior_knowledge_card_bindings as binding
+    join public.chem_knowledge_cards as card on card.id = binding.card_id
+    where binding.release_id = new.id
+    order by card.id
+    for share of card;
+  end if;
+  if new.grade_band = '初三'
+    and new.status = 'active'
+    and (
+      case
+        when tg_op = 'INSERT' then true
+        else (
+          old.status is distinct from 'active'
+          or old.grade_band is distinct from new.grade_band
+          or old.textbook_version is distinct from new.textbook_version
+        )
+      end
+    )
+    and (
+      new.textbook_version is distinct from '科粤版'
+      or not exists (
+        select 1
+        from app_private.chem_junior_source_release_rights as rights
+        where rights.release_id = new.id
+          and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+          and rights.redistribution_allowed = false
+          and rights.attested_manifest_sha256 = new.manifest_sha256
+          and rights.attested_card_manifest_sha256 =
+            app_private.chem_junior_knowledge_card_manifest_sha256(new.id)
+          and rights.attested_at is not null
+          and length(btrim(rights.attestation_actor)) > 0
+      )
+      or exists (
+        select 1
+        from app_private.chem_junior_source_release_specs as spec
+        cross join lateral pg_catalog.unnest(spec.knowledge_ids) as required(knowledge_id)
+        where spec.release_id = new.id
+          and not app_private.chem_junior_knowledge_card_binding_matches(
+            new.id,
+            new.textbook_version,
+            required.knowledge_id
+          )
+      )
+      or not exists (
+        select 1
+        from app_private.chem_junior_source_release_specs as spec
+        where spec.release_id = new.id
+          and spec.textbook_version = new.textbook_version
+          and cardinality(spec.knowledge_ids) between 3 and 200
+      )
+    )
+  then
+    raise exception 'junior activation requires the private-use rights contract and redistribution_allowed=false';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists chem_require_junior_rights_before_activation
+  on app_private.chem_question_source_releases;
+create trigger chem_require_junior_rights_before_activation
+before insert or update on app_private.chem_question_source_releases
+for each row execute function app_private.chem_require_junior_rights_before_activation();
+
+revoke all on function app_private.chem_require_junior_rights_before_activation()
+  from public, anon, authenticated, service_role;
+
+comment on function app_private.chem_require_junior_rights_before_activation() is
+  'Fail-closed trigger gate: a junior 科粤版 release cannot become active without the exact private-use, no-redistribution rights row.';
+
+-- Runtime provenance readiness must re-check the truthful source-kind and
+-- private-use rights contract.  Historical junior licensed_local releases are
+-- deliberately retained as audit evidence, but they must never make either a
+-- future knowledge preview or a formal adaptive day look ready.
 create or replace function public.chem_junior_verified_provenance_rows(
   p_textbook_version text,
   p_knowledge_ids text[]
@@ -252,407 +1160,292 @@ as $$
     provenance.verification_status,
     (
       release.grade_band = '初三'
-      and release.textbook_version = provenance.textbook_version
+      and release.textbook_version = '科粤版'
+      and provenance.textbook_version = '科粤版'
       and release.status = 'active'
       and release.verification_status = 'full_visual_verified'
       and release.verification_manifest_sha256 = release.manifest_sha256
+      and app_private.chem_junior_knowledge_card_is_ready(
+        '科粤版',
+        provenance.knowledge_id
+      )
+      and exists (
+        select 1
+        from app_private.chem_junior_source_release_rights as rights
+        where rights.release_id = release.id
+          and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+          and rights.redistribution_allowed = false
+          and rights.attested_manifest_sha256 = release.manifest_sha256
+          and rights.attested_card_manifest_sha256 =
+            app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+          and rights.attested_at is not null
+          and length(btrim(rights.attestation_actor)) > 0
+      )
+      and exists (
+        select 1
+        from public.chem_questions as question
+        where question.source_release_id = release.id
+          and question.grade_band = '初三'
+          and question.textbook_version = '科粤版'
+          and question.source_kind = 'user_provided_local'
+          and question.knowledge_id = provenance.knowledge_id
+          and question.skill_id = provenance.knowledge_id
+          and question.review_status = 'approved'
+          and question.scope_status = 'IN'
+          and question.usable_for_review
+      )
     ) as source_release_ready
   from app_private.chem_junior_knowledge_provenance as provenance
   join app_private.chem_question_source_releases as release
     on release.id = provenance.source_release_id
-  where length(btrim(coalesce(p_textbook_version, ''))) between 1 and 80
+  where p_textbook_version = '科粤版'
     and cardinality(p_knowledge_ids) between 1 and 20
-    and provenance.textbook_version = btrim(p_textbook_version)
+    and provenance.textbook_version = '科粤版'
     and provenance.knowledge_id = any(p_knowledge_ids)
   order by provenance.knowledge_id;
 $$;
 
-revoke all on function public.chem_junior_verified_provenance_rows(text, text[])
+revoke all on function public.chem_junior_verified_provenance_rows(text,text[])
   from public, anon, authenticated, service_role;
-grant execute on function public.chem_junior_verified_provenance_rows(text, text[])
+grant execute on function public.chem_junior_verified_provenance_rows(text,text[])
   to service_role;
 
-comment on function public.chem_junior_verified_provenance_rows(text, text[]) is
-  'Server-only minimal allowlist for junior textbook provenance; never exposes private locators, hashes, manifests, or source assets.';
+comment on function public.chem_junior_verified_provenance_rows(text,text[]) is
+  'Server-only runtime readiness for a current 科粤版 user-provided release with exact private-use/no-redistribution rights; historical licensed_local evidence never becomes ready.';
 
--- A junior licensed original must use one canonical id for both the adaptive
--- knowledge route and the shared skill-state ledger.
-alter table public.chem_questions
-  drop constraint if exists chem_questions_junior_source_contract;
+-- The client cannot reproduce PostgreSQL JSONB and Unicode digest semantics
+-- safely.  A private importer may therefore prepare with a unique temporary
+-- 64-hex manifest, stage every item, then ask this RPC to seal the authoritative
+-- server-computed manifest before provenance and visual verification.
+create or replace function public.chem_seal_junior_source_release_manifest(
+  p_release_id uuid
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_release app_private.chem_question_source_releases%rowtype;
+  v_question_count integer;
+  v_item_count integer;
+  v_manifest text;
+  v_updated integer;
+begin
+  if p_release_id is null then
+    raise exception 'invalid junior release identity';
+  end if;
 
-alter table public.chem_questions
-  add constraint chem_questions_junior_source_contract
-  check (
-    grade_band <> '初三'
-    or source_kind <> 'licensed_local'
-    or (
-      textbook_version is not null and length(btrim(textbook_version)) > 0
-      and knowledge_id is not null and length(btrim(knowledge_id)) > 0
-      and skill_id = knowledge_id
-      and same_type_key is not null and length(btrim(same_type_key)) > 0
-      and source_item_key is not null and length(btrim(source_item_key)) >= 16
-      and parent_source_item_key is not null and length(btrim(parent_source_item_key)) >= 16
-      and content_fingerprint is not null
-      and content_fingerprint ~ '^[0-9a-f]{64}$'
-      and question_revision_token is not null
-      and question_revision_token ~ '^[0-9a-f]{64}$'
-      and source_release_id is not null
-      and review_status = 'approved'
-      and scope_status = 'IN'
-      and render_mode = 'native'
-      and coalesce(btrim(image_url), '') = ''
-      and asset_refs = '[]'::jsonb
-      and not usable_for_class_quiz
-      and not usable_for_exam_sprint
-      and not usable_for_demo
-    )
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-source-original-release', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('chem-h3-original-release', 0)
+  );
+
+  select release_row.*
+  into v_release
+  from app_private.chem_question_source_releases as release_row
+  where release_row.id = p_release_id
+    and release_row.grade_band = '初三'
+    and release_row.textbook_version = '科粤版'
+    and release_row.status = 'staged'
+    and release_row.revision_contract = 'v3_junior_native_text'
+  for update;
+
+  if not found
+    or v_release.verification_status <> 'pending'
+    or v_release.verification_manifest_sha256 is not null
+    or v_release.verification_actor is not null
+    or v_release.verified_at is not null
+    or v_release.activated_at is not null
+    or v_release.retired_at is not null
+  then
+    raise exception 'only an unverified staged 科粤版 junior release can be sealed';
+  end if;
+
+  perform rights.release_id
+  from app_private.chem_junior_source_release_rights as rights
+  where rights.release_id = p_release_id
+  for update;
+
+  perform question.id
+  from public.chem_questions as question
+  where question.source_release_id = p_release_id
+  order by question.id
+  for update;
+
+  perform item.question_id
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id
+  order by item.question_id
+  for update;
+
+  select count(*)::integer
+  into v_question_count
+  from public.chem_questions as question
+  where question.source_release_id = p_release_id;
+
+  select count(*)::integer
+  into v_item_count
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id;
+
+  if v_question_count <> v_release.expected_question_count
+    or v_item_count <> v_release.expected_question_count
+  then
+    raise exception 'junior release cannot be sealed before question and ledger counts reach expected_question_count';
+  end if;
+
+  if exists (
+    select 1
+    from public.chem_questions as question
+    left join app_private.chem_question_source_release_items as item
+      on item.release_id = question.source_release_id
+     and item.question_id = question.id
+    where question.source_release_id = p_release_id
+      and (
+        item.question_id is null
+        or question.grade_band <> '初三'
+        or question.textbook_version <> '科粤版'
+        or question.source_kind <> 'user_provided_local'
+        or item.item_sha256 is distinct from
+          app_private.chem_junior_native_release_item_sha256(
+            question,
+            item.canonical_source_id
+          )
+      )
+  ) then
+    raise exception 'junior release ledger does not match the staged server-computed item digests';
+  end if;
+
+  select pg_catalog.encode(
+    extensions.digest(
+      pg_catalog.convert_to(
+        pg_catalog.string_agg(item.item_sha256, E'\n' order by item.question_id),
+        'UTF8'
+      ),
+      'sha256'
+    ),
+    'hex'
   )
-  not valid;
+  into v_manifest
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id;
 
-create unique index if not exists chem_questions_junior_release_mother_uidx
-  on public.chem_questions (source_release_id, mother_id)
-  where grade_band = '初三' and source_kind = 'licensed_local';
-
-create unique index if not exists chem_questions_junior_release_source_item_uidx
-  on public.chem_questions (source_release_id, source_item_key)
-  where grade_band = '初三' and source_kind = 'licensed_local';
-
-create unique index if not exists chem_questions_junior_release_parent_source_item_uidx
-  on public.chem_questions (source_release_id, parent_source_item_key)
-  where grade_band = '初三' and source_kind = 'licensed_local';
-
-create unique index if not exists chem_questions_junior_release_fingerprint_uidx
-  on public.chem_questions (source_release_id, content_fingerprint)
-  where grade_band = '初三' and source_kind = 'licensed_local';
-
-create unique index if not exists chem_questions_junior_release_revision_uidx
-  on public.chem_questions (source_release_id, question_revision_token)
-  where grade_band = '初三' and source_kind = 'licensed_local';
-
--- The original content-mutation trigger predates the junior identity fields.
--- Rebuild its column list so an activated or answered junior original cannot
--- silently change textbook, route, same-type family, or parent source identity.
-drop trigger if exists chem_questions_guard_source_content_update
-  on public.chem_questions;
-create trigger chem_questions_guard_source_content_update
-before update of
-  id,
-  mother_id,
-  skill_id,
-  knowledge_id,
-  concept_key,
-  level,
-  grade_band,
-  textbook_version,
-  stem,
-  options,
-  correct_option,
-  explanation,
-  scaffold,
-  source_kind,
-  source_info,
-  asset_refs,
-  render_mode,
-  image_url,
-  same_type_key,
-  source_item_key,
-  parent_source_item_key,
-  content_fingerprint,
-  question_revision_token,
-  source_release_id
-on public.chem_questions
-for each row execute function app_private.chem_guard_source_question_content_mutation();
-
--- Native junior originals deliberately have no binary assets.  Their own
--- digest contract therefore binds every delivered field and every adaptive
--- source identity directly, including the four fields added after the legacy
--- image-primary digest was designed.
-create or replace function app_private.chem_junior_native_revision_sha256(
-  p_question public.chem_questions
-)
-returns text
-language sql
-immutable
-parallel safe
-set search_path = ''
-as $$
-  select pg_catalog.encode(
-    extensions.digest(
-      pg_catalog.convert_to(
-        app_private.chem_release_manifest_field(p_question.id)
-        || app_private.chem_release_manifest_field(p_question.mother_id)
-        || app_private.chem_release_manifest_field(p_question.skill_id)
-        || app_private.chem_release_manifest_field(p_question.knowledge_id)
-        || app_private.chem_release_manifest_field(p_question.concept_key)
-        || app_private.chem_release_manifest_field(p_question.level::text)
-        || app_private.chem_release_manifest_field(p_question.grade_band)
-        || app_private.chem_release_manifest_field(p_question.textbook_version)
-        || app_private.chem_release_manifest_field(p_question.stem)
-        || app_private.chem_release_manifest_field(p_question.options->>0)
-        || app_private.chem_release_manifest_field(p_question.options->>1)
-        || app_private.chem_release_manifest_field(p_question.options->>2)
-        || app_private.chem_release_manifest_field(p_question.options->>3)
-        || app_private.chem_release_manifest_field(p_question.correct_option::text)
-        || app_private.chem_release_manifest_field(p_question.explanation)
-        || app_private.chem_release_manifest_field(p_question.scaffold)
-        || app_private.chem_release_manifest_field(p_question.review_status)
-        || app_private.chem_release_manifest_field(p_question.scope_status)
-        || app_private.chem_release_manifest_field(p_question.source_kind)
-        || app_private.chem_release_manifest_field(p_question.render_mode)
-        || app_private.chem_release_manifest_field(p_question.image_url)
-        || app_private.chem_release_manifest_field(p_question.asset_refs::text)
-        || app_private.chem_release_manifest_field(p_question.same_type_key)
-        || app_private.chem_release_manifest_field(p_question.source_item_key)
-        || app_private.chem_release_manifest_field(p_question.parent_source_item_key)
-        || app_private.chem_release_manifest_field(p_question.content_fingerprint)
-        || app_private.chem_release_manifest_field(p_question.source_release_id::text)
-        || app_private.chem_release_manifest_field(p_question.source_info::text),
-        'UTF8'
-      ),
-      'sha256'
-    ),
-    'hex'
-  );
-$$;
-
-create or replace function app_private.chem_junior_native_release_item_sha256(
-  p_question public.chem_questions,
-  p_canonical_source_id text
-)
-returns text
-language sql
-immutable
-parallel safe
-set search_path = ''
-as $$
-  select pg_catalog.encode(
-    extensions.digest(
-      pg_catalog.convert_to(
-        app_private.chem_release_manifest_field(p_question.id)
-        || app_private.chem_release_manifest_field(p_question.mother_id)
-        || app_private.chem_release_manifest_field(p_question.skill_id)
-        || app_private.chem_release_manifest_field(p_question.knowledge_id)
-        || app_private.chem_release_manifest_field(p_question.concept_key)
-        || app_private.chem_release_manifest_field(p_question.level::text)
-        || app_private.chem_release_manifest_field(p_question.grade_band)
-        || app_private.chem_release_manifest_field(p_question.textbook_version)
-        || app_private.chem_release_manifest_field(p_question.stem)
-        || app_private.chem_release_manifest_field(p_question.options->>0)
-        || app_private.chem_release_manifest_field(p_question.options->>1)
-        || app_private.chem_release_manifest_field(p_question.options->>2)
-        || app_private.chem_release_manifest_field(p_question.options->>3)
-        || app_private.chem_release_manifest_field(p_question.correct_option::text)
-        || app_private.chem_release_manifest_field(p_question.explanation)
-        || app_private.chem_release_manifest_field(p_question.scaffold)
-        || app_private.chem_release_manifest_field(p_question.review_status)
-        || app_private.chem_release_manifest_field(p_question.scope_status)
-        || app_private.chem_release_manifest_field(p_question.source_kind)
-        || app_private.chem_release_manifest_field(p_question.render_mode)
-        || app_private.chem_release_manifest_field(p_question.image_url)
-        || app_private.chem_release_manifest_field(p_question.asset_refs::text)
-        || app_private.chem_release_manifest_field(p_question.same_type_key)
-        || app_private.chem_release_manifest_field(p_question.source_item_key)
-        || app_private.chem_release_manifest_field(p_question.parent_source_item_key)
-        || app_private.chem_release_manifest_field(p_question.content_fingerprint)
-        || app_private.chem_release_manifest_field(p_question.question_revision_token)
-        || app_private.chem_release_manifest_field(p_question.source_release_id::text)
-        || app_private.chem_release_manifest_field(p_question.source_info::text)
-        || app_private.chem_release_manifest_field(p_canonical_source_id)
-        || app_private.chem_release_manifest_field(
-          'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-        )
-        || app_private.chem_release_manifest_field(
-          'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-        ),
-        'UTF8'
-      ),
-      'sha256'
-    ),
-    'hex'
-  );
-$$;
-
-revoke all on function app_private.chem_junior_native_revision_sha256(public.chem_questions)
-  from public, anon, authenticated, service_role;
-revoke all on function app_private.chem_junior_native_release_item_sha256(public.chem_questions,text)
-  from public, anon, authenticated, service_role;
-
--- Deny every generic or direct mutation path for junior source releases.
--- The dedicated SECURITY DEFINER lifecycle enables this transaction-local
--- guard only around its own validated statements.  Private assets are never
--- insertable for junior; reset may only delete legacy contamination.
-create or replace function app_private.chem_guard_junior_release_lifecycle()
-returns trigger
-language plpgsql
-set search_path = ''
-as $$
-begin
-  if (
-      (tg_op = 'INSERT' and new.grade_band = '初三')
-      or (tg_op = 'DELETE' and old.grade_band = '初三')
-      or (tg_op = 'UPDATE' and (old.grade_band = '初三' or new.grade_band = '初三'))
+  if coalesce(v_manifest, '') !~ '^[0-9a-f]{64}$'
+    or exists (
+      select 1
+      from app_private.chem_question_source_releases as other_release
+      where other_release.manifest_sha256 = v_manifest
+        and other_release.id <> p_release_id
     )
-    and coalesce(pg_catalog.current_setting('app.chem_junior_release_lifecycle', true), '') <> 'on'
   then
-    raise exception 'junior source releases may change only through the dedicated server lifecycle';
+    raise exception 'sealed junior release manifest is invalid or belongs to another release';
   end if;
-  return case when tg_op = 'DELETE' then old else new end;
+
+  if exists (
+    select 1
+    from app_private.chem_junior_source_release_rights as rights
+    where rights.release_id = p_release_id
+      and rights.attested_manifest_sha256 is distinct from v_manifest
+  ) then
+    raise exception 'sealed junior release differs from its attested manifest; prepare a full reset and attest the new revision';
+  end if;
+
+  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'on', true);
+  update app_private.chem_question_source_releases as release_row
+  set manifest_sha256 = v_manifest,
+      verification_status = 'pending',
+      verification_manifest_sha256 = null,
+      verification_actor = null,
+      verified_at = null
+  where release_row.id = p_release_id
+    and release_row.status = 'staged'
+    and release_row.verification_status = 'pending'
+    and release_row.activated_at is null
+    and release_row.retired_at is null;
+  get diagnostics v_updated = row_count;
+  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'off', true);
+
+  if v_updated <> 1 then
+    raise exception 'junior manifest sealing affected %, expected 1', v_updated;
+  end if;
+
+  return v_manifest;
 end;
 $$;
 
-create or replace function app_private.chem_guard_junior_question_lifecycle()
+revoke all on function public.chem_seal_junior_source_release_manifest(uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.chem_seal_junior_source_release_manifest(uuid)
+  to service_role;
+
+comment on function public.chem_seal_junior_source_release_manifest(uuid) is
+  'Service-role-only server manifest seal for a complete, unverified staged 科粤版 junior release. The digest is SHA-256 of item_sha256 values joined by newline in question_id order.';
+
+-- Mechanically copied from the prior effective definitions. Only the
+
+-- explicitly audited textbook/source-kind/rights predicates are changed.
+
+create or replace function app_private.chem_guard_source_question_content_mutation()
 returns trigger
 language plpgsql
+security definer
 set search_path = ''
 as $$
+declare
+  v_source_kind text := case when tg_op = 'INSERT' then new.source_kind else old.source_kind end;
+  v_release_id uuid := case when tg_op = 'INSERT' then new.source_release_id else old.source_release_id end;
+  v_question_id text := case when tg_op = 'INSERT' then new.id else old.id end;
+  v_touches_source_identity boolean := case
+    when tg_op = 'INSERT' then new.source_kind in ('licensed_local', 'user_provided_local') or new.source_release_id is not null
+    when tg_op = 'DELETE' then old.source_kind in ('licensed_local', 'user_provided_local') or old.source_release_id is not null
+    else old.source_kind in ('licensed_local', 'user_provided_local')
+      or new.source_kind in ('licensed_local', 'user_provided_local')
+      or old.source_release_id is not null
+      or new.source_release_id is not null
+  end;
 begin
-  if (
-      (
-        tg_op = 'INSERT'
-        and (
-          new.grade_band = '初三'
-          or exists (
-            select 1
-            from app_private.chem_question_source_releases as release_row
-            where release_row.id = new.source_release_id and release_row.grade_band = '初三'
-          )
-        )
+  if v_touches_source_identity then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('chem-h3-original-release', 0));
+    if tg_op = 'UPDATE' and (
+      new.id is distinct from old.id
+      or new.source_kind is distinct from old.source_kind
+      or new.source_release_id is distinct from old.source_release_id
+    ) then
+      raise exception 'source question identity cannot be changed; insert a new staged revision instead';
+    end if;
+    if tg_op = 'INSERT' and (
+      new.source_kind not in ('licensed_local', 'user_provided_local')
+      or new.source_release_id is null
+      or not exists (
+      select 1
+      from app_private.chem_question_source_releases r
+      where r.id = v_release_id and r.status = 'staged'
       )
-      or (
-        tg_op = 'DELETE'
-        and (
-          old.grade_band = '初三'
-          or exists (
-            select 1
-            from app_private.chem_question_source_releases as release_row
-            where release_row.id = old.source_release_id and release_row.grade_band = '初三'
-          )
-        )
+    ) then
+      raise exception 'source-backed questions can only be inserted into a staged release';
+    end if;
+    if tg_op <> 'INSERT' and (
+      exists (
+        select 1 from public.chem_attempt_answers aa where aa.question_id = v_question_id
       )
-      or (
-        tg_op = 'UPDATE'
-        and (
-          old.grade_band = '初三'
-          or new.grade_band = '初三'
-          or exists (
-            select 1
-            from app_private.chem_question_source_releases as release_row
-            where release_row.grade_band = '初三'
-              and release_row.id in (old.source_release_id, new.source_release_id)
-          )
-        )
+      or exists (
+        select 1
+        from app_private.chem_question_source_releases r
+        where r.id = v_release_id and r.status in ('active','retired')
       )
-    )
-    and coalesce(pg_catalog.current_setting('app.chem_junior_release_lifecycle', true), '') <> 'on'
-  then
-    raise exception 'junior source questions may change only through the dedicated server lifecycle';
+    ) then
+      raise exception 'an activated or answered source-backed question is immutable; create a new revision instead';
+    end if;
   end if;
-  return case when tg_op = 'DELETE' then old else new end;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
 end;
 $$;
-
-create or replace function app_private.chem_guard_junior_release_item_lifecycle()
-returns trigger
-language plpgsql
-set search_path = ''
-as $$
-begin
-  if (
-      (tg_op = 'INSERT' and exists (
-        select 1 from app_private.chem_question_source_releases as release_row
-        where release_row.id = new.release_id and release_row.grade_band = '初三'
-      ))
-      or (tg_op = 'DELETE' and exists (
-        select 1 from app_private.chem_question_source_releases as release_row
-        where release_row.id = old.release_id and release_row.grade_band = '初三'
-      ))
-      or (tg_op = 'UPDATE' and exists (
-        select 1 from app_private.chem_question_source_releases as release_row
-        where release_row.grade_band = '初三'
-          and release_row.id in (old.release_id, new.release_id)
-      ))
-    )
-    and coalesce(pg_catalog.current_setting('app.chem_junior_release_lifecycle', true), '') <> 'on'
-  then
-    raise exception 'junior release items may change only through the dedicated server lifecycle';
-  end if;
-  return case when tg_op = 'DELETE' then old else new end;
-end;
-$$;
-
-create or replace function app_private.chem_guard_junior_private_asset_lifecycle()
-returns trigger
-language plpgsql
-set search_path = ''
-as $$
-begin
-  if (
-      (tg_op = 'INSERT' and exists (
-        select 1
-        from public.chem_questions as question
-        join app_private.chem_question_source_releases as release_row
-          on release_row.id = question.source_release_id
-        where question.id = new.question_id and release_row.grade_band = '初三'
-      ))
-      or (tg_op = 'DELETE' and exists (
-        select 1
-        from public.chem_questions as question
-        join app_private.chem_question_source_releases as release_row
-          on release_row.id = question.source_release_id
-        where question.id = old.question_id and release_row.grade_band = '初三'
-      ))
-      or (tg_op = 'UPDATE' and exists (
-        select 1
-        from public.chem_questions as question
-        join app_private.chem_question_source_releases as release_row
-          on release_row.id = question.source_release_id
-        where question.id in (old.question_id, new.question_id)
-          and release_row.grade_band = '初三'
-      ))
-    )
-    and (
-      tg_op <> 'DELETE'
-      or coalesce(pg_catalog.current_setting('app.chem_junior_release_lifecycle', true), '') <> 'on'
-    )
-  then
-    raise exception 'junior native-text releases cannot contain private assets';
-  end if;
-  return case when tg_op = 'DELETE' then old else new end;
-end;
-$$;
-
-drop trigger if exists chem_guard_junior_release_lifecycle
-  on app_private.chem_question_source_releases;
-create trigger chem_guard_junior_release_lifecycle
-before insert or update or delete on app_private.chem_question_source_releases
-for each row execute function app_private.chem_guard_junior_release_lifecycle();
-
-drop trigger if exists chem_guard_junior_question_lifecycle
-  on public.chem_questions;
-create trigger chem_guard_junior_question_lifecycle
-before insert or update or delete on public.chem_questions
-for each row execute function app_private.chem_guard_junior_question_lifecycle();
-
-drop trigger if exists chem_guard_junior_release_item_lifecycle
-  on app_private.chem_question_source_release_items;
-create trigger chem_guard_junior_release_item_lifecycle
-before insert or update or delete on app_private.chem_question_source_release_items
-for each row execute function app_private.chem_guard_junior_release_item_lifecycle();
-
-drop trigger if exists chem_guard_junior_private_asset_lifecycle
-  on app_private.chem_question_assets;
-create trigger chem_guard_junior_private_asset_lifecycle
-before insert or update or delete on app_private.chem_question_assets
-for each row execute function app_private.chem_guard_junior_private_asset_lifecycle();
-
-revoke all on function app_private.chem_guard_junior_release_lifecycle()
-  from public, anon, authenticated, service_role;
-revoke all on function app_private.chem_guard_junior_question_lifecycle()
-  from public, anon, authenticated, service_role;
-revoke all on function app_private.chem_guard_junior_release_item_lifecycle()
-  from public, anon, authenticated, service_role;
-revoke all on function app_private.chem_guard_junior_private_asset_lifecycle()
-  from public, anon, authenticated, service_role;
 
 create or replace function public.chem_prepare_junior_source_release(
   p_release_id uuid,
@@ -671,7 +1464,7 @@ declare
 begin
   if p_release_id is null
     or coalesce(p_manifest_sha256, '') !~ '^[0-9a-f]{64}$'
-    or coalesce(p_textbook_version, '') not in ('苏教版', '人教版', '通用')
+    or p_textbook_version is distinct from '科粤版'
     or coalesce(cardinality(p_knowledge_ids), 0) not between 3 and 200
     or coalesce(p_expected_question_count, 0) not between 21 and 2000
   then
@@ -798,6 +1591,9 @@ declare
   v_textbook_version text;
   v_knowledge_ids text[];
   v_expected integer;
+  v_manifest_sha256 text;
+  v_staged_item_count integer;
+  v_staged_manifest text;
   v_fingerprint text;
   v_revision_token text;
   v_item_sha256 text;
@@ -918,8 +1714,9 @@ begin
   select
     spec.textbook_version,
     spec.knowledge_ids,
-    release_row.expected_question_count
-  into v_textbook_version, v_knowledge_ids, v_expected
+    release_row.expected_question_count,
+    release_row.manifest_sha256
+  into v_textbook_version, v_knowledge_ids, v_expected, v_manifest_sha256
   from app_private.chem_question_source_releases as release_row
   join app_private.chem_junior_source_release_specs as spec
     on spec.release_id = release_row.id
@@ -943,6 +1740,32 @@ begin
   then
     raise exception 'junior source item is outside the staged textbook knowledge spec';
   end if;
+
+  -- A full ledger whose server-computed digest equals the release manifest is
+  -- sealed.  Freeze it here so a later stage call cannot invalidate the
+  -- authoritative manifest; prepare is the explicit full-reset path.
+  select
+    count(*)::integer,
+    pg_catalog.encode(
+      extensions.digest(
+        pg_catalog.convert_to(
+          pg_catalog.string_agg(item.item_sha256, E'\n' order by item.question_id),
+          'UTF8'
+        ),
+        'sha256'
+      ),
+      'hex'
+    )
+  into v_staged_item_count, v_staged_manifest
+  from app_private.chem_question_source_release_items as item
+  where item.release_id = p_release_id;
+
+  if v_staged_item_count = v_expected
+    and v_staged_manifest is not distinct from v_manifest_sha256
+  then
+    raise exception 'a sealed junior source release cannot be changed; prepare a full reset instead';
+  end if;
+
   if exists (
     select 1
     from public.chem_questions as question
@@ -1028,7 +1851,7 @@ begin
     nullif(btrim(coalesce(p_item->>'scaffold', '')), ''),
     'approved',
     'IN',
-    'licensed_local',
+    'user_provided_local',
     pg_catalog.jsonb_build_object(
       'title', btrim(p_item->>'source_title'),
       'exam', btrim(p_item->>'source_exam'),
@@ -1106,172 +1929,6 @@ begin
 end;
 $$;
 
-create or replace function public.chem_stage_junior_source_release_provenance(
-  p_release_id uuid,
-  p_knowledge_id text,
-  p_source_id text,
-  p_source_locator text,
-  p_source_sha256 text
-)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_textbook_version text;
-  v_knowledge_ids text[];
-begin
-  if p_release_id is null
-    or length(btrim(coalesce(p_knowledge_id, ''))) not between 1 and 160
-    or length(btrim(coalesce(p_source_id, ''))) not between 3 and 160
-    or length(btrim(coalesce(p_source_locator, ''))) not between 3 and 500
-    or coalesce(p_source_sha256, '') !~ '^[0-9a-f]{64}$'
-    or concat_ws(' ', p_source_id, p_source_locator)
-      ~* '([a-z]:[\\/]|file:[\\/]|\\\\\\\\|/(users|home)/|appdata)'
-  then
-    raise exception 'invalid junior source provenance';
-  end if;
-
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('chem-source-original-release', 0)
-  );
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('chem-h3-original-release', 0)
-  );
-
-  select spec.textbook_version, spec.knowledge_ids
-  into v_textbook_version, v_knowledge_ids
-  from app_private.chem_question_source_releases as release_row
-  join app_private.chem_junior_source_release_specs as spec
-    on spec.release_id = release_row.id
-   and spec.textbook_version = release_row.textbook_version
-  where release_row.id = p_release_id
-    and release_row.grade_band = '初三'
-    and release_row.status = 'staged'
-    and release_row.revision_contract = 'v3_junior_native_text'
-  for update of release_row, spec;
-
-  if not found or not (btrim(p_knowledge_id) = any(v_knowledge_ids)) then
-    raise exception 'junior provenance is outside the staged textbook knowledge spec';
-  end if;
-
-  insert into app_private.chem_junior_source_release_provenance (
-    release_id,
-    textbook_version,
-    knowledge_id,
-    source_id,
-    source_locator,
-    source_sha256,
-    verification_status,
-    verification_actor,
-    reviewed_at,
-    updated_at
-  ) values (
-    p_release_id,
-    v_textbook_version,
-    btrim(p_knowledge_id),
-    btrim(p_source_id),
-    btrim(p_source_locator),
-    p_source_sha256,
-    'pending_review',
-    null,
-    null,
-    now()
-  )
-  on conflict (release_id, knowledge_id) do update set
-    textbook_version = excluded.textbook_version,
-    source_id = excluded.source_id,
-    source_locator = excluded.source_locator,
-    source_sha256 = excluded.source_sha256,
-    verification_status = 'pending_review',
-    verification_actor = null,
-    reviewed_at = null,
-    updated_at = now();
-
-  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'on', true);
-  update app_private.chem_question_source_releases as release_row
-  set verification_status = 'pending',
-      verification_manifest_sha256 = null,
-      verification_actor = null,
-      verified_at = null
-  where release_row.id = p_release_id;
-  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'off', true);
-end;
-$$;
-
-create or replace function public.chem_verify_junior_source_release_provenance(
-  p_release_id uuid,
-  p_knowledge_id text,
-  p_source_sha256 text,
-  p_verification_actor text
-)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_updated integer;
-begin
-  if p_release_id is null
-    or length(btrim(coalesce(p_knowledge_id, ''))) not between 1 and 160
-    or coalesce(p_source_sha256, '') !~ '^[0-9a-f]{64}$'
-    or p_verification_actor is distinct from 'codex-source-provenance-qa'
-  then
-    raise exception 'invalid junior provenance verification';
-  end if;
-
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('chem-source-original-release', 0)
-  );
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('chem-h3-original-release', 0)
-  );
-
-  perform provenance.knowledge_id
-  from app_private.chem_junior_source_release_provenance as provenance
-  join app_private.chem_question_source_releases as release_row
-    on release_row.id = provenance.release_id
-   and release_row.grade_band = '初三'
-   and release_row.status = 'staged'
-  join app_private.chem_junior_source_release_specs as spec
-    on spec.release_id = release_row.id
-   and spec.textbook_version = provenance.textbook_version
-   and provenance.knowledge_id = any(spec.knowledge_ids)
-  where provenance.release_id = p_release_id
-    and provenance.knowledge_id = btrim(p_knowledge_id)
-    and provenance.source_sha256 = p_source_sha256
-  for update of release_row, provenance, spec;
-
-  if not found then
-    raise exception 'staged junior provenance and source digest do not match';
-  end if;
-
-  update app_private.chem_junior_source_release_provenance as provenance
-  set verification_status = 'verified',
-      verification_actor = p_verification_actor,
-      reviewed_at = now(),
-      updated_at = now()
-  where provenance.release_id = p_release_id
-    and provenance.knowledge_id = btrim(p_knowledge_id)
-    and provenance.source_sha256 = p_source_sha256;
-  get diagnostics v_updated = row_count;
-  if v_updated <> 1 then
-    raise exception 'junior provenance verification affected %, expected 1', v_updated;
-  end if;
-
-  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'on', true);
-  update app_private.chem_question_source_releases as release_row
-  set verification_status = 'pending',
-      verification_manifest_sha256 = null,
-      verification_actor = null,
-      verified_at = null
-  where release_row.id = p_release_id;
-  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'off', true);
-end;
-$$;
-
 create or replace function app_private.chem_assert_junior_source_release(
   p_release_id uuid,
   p_manifest_sha256 text,
@@ -1342,6 +1999,7 @@ begin
   for update of release_row, spec;
 
   if not found
+    or v_textbook_version is distinct from '科粤版'
     or v_status <> 'staged'
     or v_expected not between 21 and 2000
     or cardinality(v_knowledge_ids) not between 3 and 200
@@ -1357,6 +2015,72 @@ begin
     )
   then
     raise exception 'junior release is missing, not staged, or not bound to its verified manifest';
+  end if;
+
+  perform rights.release_id
+  from app_private.chem_junior_source_release_rights as rights
+  where rights.release_id = p_release_id
+  for update;
+
+  perform source_provenance.knowledge_id
+  from app_private.chem_junior_source_release_provenance as source_provenance
+  where source_provenance.release_id = p_release_id
+  order by source_provenance.knowledge_id
+  for update;
+
+  perform binding.knowledge_id
+  from app_private.chem_junior_knowledge_card_bindings as binding
+  where binding.release_id = p_release_id
+  order by binding.knowledge_id
+  for update;
+
+  perform card.id
+  from app_private.chem_junior_knowledge_card_bindings as binding
+  join public.chem_knowledge_cards as card on card.id = binding.card_id
+  where binding.release_id = p_release_id
+  order by card.id
+  for update of card;
+
+  if (
+    select count(*)
+    from app_private.chem_junior_knowledge_card_bindings as binding
+    where binding.release_id = p_release_id
+  ) <> cardinality(v_knowledge_ids)
+    or exists (
+      select 1
+      from app_private.chem_junior_knowledge_card_bindings as binding
+      where binding.release_id = p_release_id
+        and (
+          binding.textbook_version is distinct from v_textbook_version
+          or not (binding.knowledge_id = any(v_knowledge_ids))
+        )
+    )
+    or exists (
+      select 1
+      from pg_catalog.unnest(v_knowledge_ids) as required(knowledge_id)
+      where not app_private.chem_junior_knowledge_card_binding_matches(
+        p_release_id,
+        v_textbook_version,
+        required.knowledge_id
+      )
+    )
+  then
+    raise exception 'junior release knowledge cards no longer match the exact source-verified binding contract';
+  end if;
+
+  if not exists (
+    select 1
+    from app_private.chem_junior_source_release_rights as rights
+    where rights.release_id = p_release_id
+      and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+      and rights.redistribution_allowed = false
+      and rights.attested_manifest_sha256 = p_manifest_sha256
+      and rights.attested_card_manifest_sha256 =
+        app_private.chem_junior_knowledge_card_manifest_sha256(p_release_id)
+      and rights.attested_at is not null
+      and length(btrim(rights.attestation_actor)) > 0
+  ) then
+    raise exception 'junior release is missing the private-use, no-redistribution rights contract';
   end if;
 
   -- The parent row lock blocks new FK children.  Deterministic child locks
@@ -1452,7 +2176,7 @@ begin
         or skill.grade_band <> '初三'
         or not skill.active
         or question.level not between 1 and skill.max_level
-        or question.source_kind <> 'licensed_local'
+        or question.source_kind <> 'user_provided_local'
         or question.review_status <> 'approved'
         or question.scope_status <> 'IN'
         or question.usable_for_review
@@ -1709,110 +2433,6 @@ begin
 end;
 $$;
 
-revoke all on function app_private.chem_assert_junior_source_release(uuid,text,boolean)
-  from public, anon, authenticated, service_role;
-
-create or replace function public.chem_preflight_junior_source_release(
-  p_release_id uuid,
-  p_manifest_sha256 text
-)
-returns table (
-  release_status text,
-  verification_status text,
-  questions integer,
-  items integer,
-  private_assets integer,
-  verified_provenance integer,
-  manifest_matches boolean,
-  ready boolean
-)
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  perform app_private.chem_assert_junior_source_release(
-    p_release_id,
-    p_manifest_sha256,
-    false
-  );
-
-  return query
-  select
-    release_row.status,
-    release_row.verification_status,
-    (
-      select count(*)::integer
-      from public.chem_questions as question
-      where question.source_release_id = p_release_id
-    ),
-    (
-      select count(*)::integer
-      from app_private.chem_question_source_release_items as item
-      where item.release_id = p_release_id
-    ),
-    (
-      select count(*)::integer
-      from app_private.chem_question_assets as asset
-      join public.chem_questions as question on question.id = asset.question_id
-      where question.source_release_id = p_release_id
-    ),
-    (
-      select count(*)::integer
-      from app_private.chem_junior_source_release_provenance as provenance
-      where provenance.release_id = p_release_id
-        and provenance.verification_status = 'verified'
-    ),
-    release_row.manifest_sha256 = p_manifest_sha256,
-    true
-  from app_private.chem_question_source_releases as release_row
-  where release_row.id = p_release_id
-    and release_row.grade_band = '初三';
-end;
-$$;
-
-create or replace function public.chem_mark_junior_source_release_full_visual_verified(
-  p_release_id uuid,
-  p_manifest_sha256 text,
-  p_verification_actor text
-)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_updated integer;
-begin
-  if p_verification_actor is distinct from 'codex-full-visual-qa' then
-    raise exception 'verification actor is not the server-owned full visual QA identity';
-  end if;
-
-  perform app_private.chem_assert_junior_source_release(
-    p_release_id,
-    p_manifest_sha256,
-    false
-  );
-
-  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'on', true);
-  update app_private.chem_question_source_releases as release_row
-  set verification_status = 'full_visual_verified',
-      verification_manifest_sha256 = p_manifest_sha256,
-      verification_actor = p_verification_actor,
-      verified_at = now()
-  where release_row.id = p_release_id
-    and release_row.grade_band = '初三'
-    and release_row.status = 'staged'
-    and release_row.manifest_sha256 = p_manifest_sha256
-    and release_row.revision_contract = 'v3_junior_native_text';
-  get diagnostics v_updated = row_count;
-  if v_updated <> 1 then
-    raise exception 'junior visual verification affected %, expected 1', v_updated;
-  end if;
-  perform pg_catalog.set_config('app.chem_junior_release_lifecycle', 'off', true);
-end;
-$$;
-
 create or replace function public.chem_activate_junior_source_release(
   p_release_id uuid,
   p_manifest_sha256 text
@@ -1905,7 +2525,7 @@ begin
       updated_at = now()
   where question.grade_band = '初三'
     and question.textbook_version = v_textbook_version
-    and question.source_kind = 'licensed_local'
+    and question.source_kind = 'user_provided_local'
     and question.usable_for_review
     and question.source_release_id is distinct from p_release_id;
 
@@ -1996,7 +2616,7 @@ begin
     from public.chem_questions as question
     where question.grade_band = '初三'
       and question.textbook_version = v_textbook_version
-      and question.source_kind = 'licensed_local'
+      and question.source_kind = 'user_provided_local'
       and question.usable_for_review
       and question.source_release_id = p_release_id
   ) <> v_expected
@@ -2005,7 +2625,7 @@ begin
       from public.chem_questions as question
       where question.grade_band = '初三'
         and question.textbook_version = v_textbook_version
-        and question.source_kind = 'licensed_local'
+        and question.source_kind = 'user_provided_local'
         and question.usable_for_review
         and question.source_release_id is distinct from p_release_id
     )
@@ -2030,98 +2650,6 @@ begin
 end;
 $$;
 
-revoke all on function public.chem_prepare_junior_source_release(uuid,text,text,text[],integer)
-  from public, anon, authenticated, service_role;
-revoke all on function public.chem_stage_junior_source_release_item(uuid,jsonb)
-  from public, anon, authenticated, service_role;
-revoke all on function public.chem_stage_junior_source_release_provenance(uuid,text,text,text,text)
-  from public, anon, authenticated, service_role;
-revoke all on function public.chem_verify_junior_source_release_provenance(uuid,text,text,text)
-  from public, anon, authenticated, service_role;
-revoke all on function public.chem_preflight_junior_source_release(uuid,text)
-  from public, anon, authenticated, service_role;
-revoke all on function public.chem_mark_junior_source_release_full_visual_verified(uuid,text,text)
-  from public, anon, authenticated, service_role;
-revoke all on function public.chem_activate_junior_source_release(uuid,text)
-  from public, anon, authenticated, service_role;
-
-grant execute on function public.chem_prepare_junior_source_release(uuid,text,text,text[],integer)
-  to service_role;
-grant execute on function public.chem_stage_junior_source_release_item(uuid,jsonb)
-  to service_role;
-grant execute on function public.chem_stage_junior_source_release_provenance(uuid,text,text,text,text)
-  to service_role;
-grant execute on function public.chem_verify_junior_source_release_provenance(uuid,text,text,text)
-  to service_role;
-grant execute on function public.chem_preflight_junior_source_release(uuid,text)
-  to service_role;
-grant execute on function public.chem_mark_junior_source_release_full_visual_verified(uuid,text,text)
-  to service_role;
-grant execute on function public.chem_activate_junior_source_release(uuid,text)
-  to service_role;
-
-comment on function public.chem_prepare_junior_source_release(uuid,text,text,text[],integer) is
-  'Service-only idempotent reset/prepare entrypoint for one confirmed-textbook junior native-text release.';
-comment on function public.chem_stage_junior_source_release_item(uuid,jsonb) is
-  'Service-only one-original staging entrypoint; computes immutable content, revision and ledger digests server-side.';
-comment on function public.chem_activate_junior_source_release(uuid,text) is
-  'Atomically retires only the old release for this junior textbook, swaps verified provenance, and enables exactly the new manifest.';
-
-alter table public.chem_junior_session_steps
-  drop constraint if exists chem_junior_session_steps_skill_matches_knowledge;
-
-alter table public.chem_junior_session_steps
-  add constraint chem_junior_session_steps_skill_matches_knowledge
-  check (skill_id = knowledge_id);
-
-alter table public.chem_junior_session_steps
-  drop constraint if exists chem_junior_session_steps_snapshot_contract;
-
-alter table public.chem_junior_session_steps
-  add constraint chem_junior_session_steps_snapshot_contract
-  check (
-    jsonb_typeof(question_snapshot) = 'object'
-    and question_snapshot ?& array[
-      'questionId',
-      'motherId',
-      'skillId',
-      'knowledgeId',
-      'level',
-      'stem',
-      'options',
-      'correctOption',
-      'explanation',
-      'sourceReleaseId',
-      'sameTypeKey',
-      'sourceItemKey',
-      'parentSourceItemKey',
-      'contentFingerprint',
-      'revisionToken',
-      'renderMode',
-      'routeKind',
-      'routeReason'
-    ]
-    and jsonb_typeof(question_snapshot -> 'options') = 'array'
-    and jsonb_typeof(question_snapshot -> 'correctOption') = 'number'
-  )
-  not valid;
-
--- The selector already avoids these five source identities.  Database-level
--- uniqueness closes the race between two simultaneous "next question" calls.
-create unique index if not exists chem_junior_session_steps_session_mother_uidx
-  on public.chem_junior_session_steps (session_id, mother_id);
-
-create unique index if not exists chem_junior_session_steps_session_source_item_uidx
-  on public.chem_junior_session_steps (session_id, source_item_key);
-
-create unique index if not exists chem_junior_session_steps_session_parent_source_item_uidx
-  on public.chem_junior_session_steps (session_id, parent_source_item_key);
-
-create unique index if not exists chem_junior_session_steps_session_fingerprint_uidx
-  on public.chem_junior_session_steps (session_id, content_fingerprint);
-
--- Lock one answer and record only conservative in-progress state.  A single
--- correct answer must never establish a verified mastery level.
 create or replace function public.chem_junior_record_step(
   p_session_id uuid,
   p_student_id uuid,
@@ -2305,6 +2833,10 @@ begin
     join public.chem_knowledge_cards as card
       on card.skill_id = required.skill_id
      and card.review_status = 'approved'
+     and app_private.chem_junior_knowledge_card_is_ready(
+       v_session.textbook_version,
+       required.skill_id
+     )
     group by required.skill_id
     having count(card.id) = 1
   ) as exactly_one_card;
@@ -2342,7 +2874,7 @@ begin
 
   if v_question.grade_band is distinct from '初三'
     or v_question.textbook_version is distinct from v_session.textbook_version
-    or v_question.source_kind is distinct from 'licensed_local'
+    or v_question.source_kind is distinct from 'user_provided_local'
     or v_question.review_status is distinct from 'approved'
     or v_question.scope_status is distinct from 'IN'
     or v_question.usable_for_review is distinct from true
@@ -2413,6 +2945,15 @@ begin
   select release.*
   into v_release
   from app_private.chem_question_source_releases as release
+  join app_private.chem_junior_source_release_rights as rights
+    on rights.release_id = release.id
+   and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+   and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+   and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
   where release.id = v_question.source_release_id
     and release.id = v_provenance.source_release_id
     and release.grade_band = '初三'
@@ -2424,7 +2965,7 @@ begin
     and release.verified_at is not null
     and pg_catalog.length(pg_catalog.btrim(coalesce(release.verification_actor, ''))) > 0
     and release.activated_at is not null
-  for share;
+  for share of release, rights;
 
   if not found then
     raise exception 'junior source release is not active and fully verified';
@@ -2545,9 +3086,6 @@ begin
 end;
 $$;
 
--- Finalization is the only place where junior mastery may be established.  It
--- is transactionally coupled to the unified attempt and answer snapshots, so
--- every audience reads the same evidence and retries are harmless.
 create or replace function public.chem_junior_finalize_session(
   p_session_id uuid,
   p_student_id uuid
@@ -2715,6 +3253,10 @@ begin
     join public.chem_knowledge_cards as card
       on card.skill_id = required.skill_id
      and card.review_status = 'approved'
+     and app_private.chem_junior_knowledge_card_is_ready(
+       v_session.textbook_version,
+       required.skill_id
+     )
     group by required.skill_id
     having count(card.id) = 1
   ) as exactly_one_card;
@@ -2772,6 +3314,15 @@ begin
 
   perform release.id
   from app_private.chem_question_source_releases as release
+  join app_private.chem_junior_source_release_rights as rights
+    on rights.release_id = release.id
+   and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+   and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+   and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
   where release.id in (
     select provenance.source_release_id
     from app_private.chem_junior_knowledge_provenance as provenance
@@ -2795,7 +3346,7 @@ begin
     where step.session_id = p_session_id
   )
   order by release.id
-  for share of release;
+  for share of release, rights;
 
   -- Every current or recovery knowledge route must still resolve to one
   -- verified provenance row on an active, fully verified native release.
@@ -2826,7 +3377,16 @@ begin
    and release.revision_contract = 'v3_junior_native_text'
    and release.verified_at is not null
    and pg_catalog.length(pg_catalog.btrim(coalesce(release.verification_actor, ''))) > 0
-   and release.activated_at is not null;
+   and release.activated_at is not null
+  join app_private.chem_junior_source_release_rights as rights
+    on rights.release_id = release.id
+   and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+   and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+   and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0;
   get diagnostics v_verified_provenance_count = row_count;
   if v_verified_provenance_count <> v_required_skill_count then
     raise exception 'junior verified provenance is no longer active';
@@ -2856,11 +3416,20 @@ begin
    and release.verified_at is not null
    and pg_catalog.length(pg_catalog.btrim(coalesce(release.verification_actor, ''))) > 0
    and release.activated_at is not null
+  join app_private.chem_junior_source_release_rights as rights
+    on rights.release_id = release.id
+   and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+   and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+   and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
   where step.session_id = p_session_id
     and step.answered_at is not null
     and question.grade_band = '初三'
     and question.textbook_version = v_session.textbook_version
-    and question.source_kind = 'licensed_local'
+    and question.source_kind = 'user_provided_local'
     and question.review_status = 'approved'
     and question.scope_status = 'IN'
     and question.usable_for_review
@@ -3054,7 +3623,7 @@ begin
         end,
         'explanation', coalesce(nullif(step.question_snapshot ->> 'explanation', ''), question.explanation),
         'scaffold', coalesce(step.question_snapshot ->> 'scaffold', question.scaffold),
-        'sourceKind', 'licensed_local',
+        'sourceKind', 'user_provided_local',
         'sourceReleaseId', coalesce(
           nullif(step.question_snapshot ->> 'sourceReleaseId', ''),
           question.source_release_id::text
@@ -3101,8 +3670,23 @@ begin
     join app_private.chem_question_source_releases as release
       on release.id = provenance.source_release_id
       and release.grade_band = '初三'
+      and release.textbook_version = v_session.textbook_version
       and release.status = 'active'
       and release.verification_status = 'full_visual_verified'
+      and release.verification_manifest_sha256 = release.manifest_sha256
+      and release.revision_contract = 'v3_junior_native_text'
+      and release.verified_at is not null
+      and pg_catalog.length(pg_catalog.btrim(coalesce(release.verification_actor, ''))) > 0
+      and release.activated_at is not null
+    join app_private.chem_junior_source_release_rights as rights
+      on rights.release_id = release.id
+      and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+      and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+      and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
   ),
   foundation_levels as (
     select provenance.skill_id, min(question.level)::smallint as foundation_level
@@ -3113,7 +3697,7 @@ begin
       and question.knowledge_id = provenance.skill_id
       and question.grade_band = '初三'
       and question.textbook_version = v_session.textbook_version
-      and question.source_kind = 'licensed_local'
+      and question.source_kind = 'user_provided_local'
       and question.review_status = 'approved'
       and question.scope_status = 'IN'
       and question.usable_for_review
@@ -3134,7 +3718,7 @@ begin
       and question.knowledge_id = step.knowledge_id
       and question.grade_band = '初三'
       and question.textbook_version = v_session.textbook_version
-      and question.source_kind = 'licensed_local'
+      and question.source_kind = 'user_provided_local'
       and question.review_status = 'approved'
       and question.scope_status = 'IN'
       and question.usable_for_review
@@ -3288,76 +3872,6 @@ begin
 end;
 $$;
 
-revoke all on function public.chem_junior_record_step(uuid, uuid, uuid, smallint, boolean, integer, text)
-  from public, anon, authenticated;
-revoke all on function public.chem_junior_finalize_session(uuid, uuid)
-  from public, anon, authenticated;
-
-grant execute on function public.chem_junior_record_step(uuid, uuid, uuid, smallint, boolean, integer, text)
-  to service_role;
-grant execute on function public.chem_junior_finalize_session(uuid, uuid)
-  to service_role;
-
--- The service role is intentionally powerful, so code convention alone is
--- not an atomic-entry guarantee.  Only chem_junior_issue_step opens this
--- transaction-local insert gate, and answer recording may never rewrite the
--- issued identity, route or immutable question snapshot.
-create or replace function app_private.chem_guard_junior_session_step_mutation()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if tg_op = 'INSERT' then
-    if pg_catalog.current_setting('app.chem_junior_step_issue', true) is distinct from 'on' then
-      raise exception 'junior session steps may be inserted only by the atomic issue RPC';
-    end if;
-    return new;
-  end if;
-
-  if tg_op = 'UPDATE' then
-    if pg_catalog.current_setting('app.chem_junior_step_answer', true) is distinct from 'on' then
-      raise exception 'junior session steps may be answered only by the atomic record-step RPC';
-    end if;
-    if new.id is distinct from old.id
-      or new.session_id is distinct from old.session_id
-      or new.sequence is distinct from old.sequence
-      or new.question_id is distinct from old.question_id
-      or new.mother_id is distinct from old.mother_id
-      or new.skill_id is distinct from old.skill_id
-      or new.knowledge_id is distinct from old.knowledge_id
-      or new.same_type_key is distinct from old.same_type_key
-      or new.source_item_key is distinct from old.source_item_key
-      or new.parent_source_item_key is distinct from old.parent_source_item_key
-      or new.content_fingerprint is distinct from old.content_fingerprint
-      or new.level is distinct from old.level
-      or new.route_kind is distinct from old.route_kind
-      or new.route_reason is distinct from old.route_reason
-      or new.question_snapshot is distinct from old.question_snapshot
-      or new.created_at is distinct from old.created_at
-    then
-      raise exception 'junior issued identity, route and snapshot are immutable';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists chem_junior_session_steps_guard_mutation
-  on public.chem_junior_session_steps;
-create trigger chem_junior_session_steps_guard_mutation
-before insert or update on public.chem_junior_session_steps
-for each row execute function app_private.chem_guard_junior_session_step_mutation();
-
-revoke all on function app_private.chem_guard_junior_session_step_mutation()
-  from public, anon, authenticated, service_role;
-
--- Issue one native junior original only after re-locking every mutable row
--- that authorizes it.  The RPC returns identifiers only: question content is
--- never part of an error or database response, and the Edge function may
--- shape its already selected row only after this transaction succeeds.
 create or replace function public.chem_junior_issue_step(
   p_session_id uuid,
   p_student_id uuid,
@@ -3536,7 +4050,7 @@ begin
 
   if v_question.grade_band <> '初三'
     or v_question.textbook_version is distinct from v_session.textbook_version
-    or v_question.source_kind <> 'licensed_local'
+    or v_question.source_kind <> 'user_provided_local'
     or v_question.review_status <> 'approved'
     or v_question.scope_status <> 'IN'
     or not v_question.usable_for_review
@@ -3597,6 +4111,15 @@ begin
   select release.*
   into v_release
   from app_private.chem_question_source_releases as release
+  join app_private.chem_junior_source_release_rights as rights
+    on rights.release_id = release.id
+   and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+   and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+   and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
   where release.id = v_question.source_release_id
     and release.grade_band = '初三'
     and release.textbook_version = v_session.textbook_version
@@ -3607,7 +4130,7 @@ begin
     and release.verified_at is not null
     and length(pg_catalog.btrim(coalesce(release.verification_actor, ''))) > 0
     and release.activated_at is not null
-  for share;
+  for share of release, rights;
 
   if not found then
     raise exception 'junior source release is not active and fully verified';
@@ -3690,6 +4213,10 @@ begin
     join public.chem_knowledge_cards as card
       on card.skill_id = required.skill_id
      and card.review_status = 'approved'
+     and app_private.chem_junior_knowledge_card_is_ready(
+       v_session.textbook_version,
+       required.skill_id
+     )
     group by required.skill_id
     having count(card.id) = 1
   ) as exactly_one_card;
@@ -3787,10 +4314,6 @@ begin
 end;
 $$;
 
--- Revalidate an unanswered step before Edge resumes it.  Like issuance, this
--- returns only identifiers after locking the full current authorization chain;
--- retirement, provenance withdrawal, blocking or content drift therefore
--- produces no question-bearing database response.
 create or replace function public.chem_junior_validate_issued_step(
   p_session_id uuid,
   p_student_id uuid,
@@ -3939,7 +4462,7 @@ begin
 
   if v_question.grade_band <> '初三'
     or v_question.textbook_version is distinct from v_session.textbook_version
-    or v_question.source_kind <> 'licensed_local'
+    or v_question.source_kind <> 'user_provided_local'
     or v_question.review_status <> 'approved'
     or v_question.scope_status <> 'IN'
     or not v_question.usable_for_review
@@ -3997,6 +4520,15 @@ begin
   select release.*
   into v_release
   from app_private.chem_question_source_releases as release
+  join app_private.chem_junior_source_release_rights as rights
+    on rights.release_id = release.id
+   and rights.rights_status = 'user_provided_private_use_unverified_for_redistribution'
+   and rights.redistribution_allowed = false
+  and rights.attested_manifest_sha256 = release.manifest_sha256
+   and rights.attested_card_manifest_sha256 =
+     app_private.chem_junior_knowledge_card_manifest_sha256(release.id)
+  and rights.attested_at is not null
+   and pg_catalog.length(pg_catalog.btrim(rights.attestation_actor)) > 0
   where release.id = v_question.source_release_id
     and release.grade_band = '初三'
     and release.textbook_version = v_session.textbook_version
@@ -4007,7 +4539,7 @@ begin
     and release.verified_at is not null
     and length(pg_catalog.btrim(coalesce(release.verification_actor, ''))) > 0
     and release.activated_at is not null
-  for share;
+  for share of release, rights;
 
   if not found then
     raise exception 'junior issued source release is no longer active and verified';
@@ -4083,6 +4615,10 @@ begin
     join public.chem_knowledge_cards as card
       on card.skill_id = required.skill_id
      and card.review_status = 'approved'
+     and app_private.chem_junior_knowledge_card_is_ready(
+       v_session.textbook_version,
+       required.skill_id
+     )
     group by required.skill_id
     having count(card.id) = 1
   ) as exactly_one_card;
@@ -4138,20 +4674,42 @@ begin
   return query select v_step.id, v_question.id;
 end;
 $$;
-
-revoke all on function public.chem_junior_issue_step(uuid, uuid, text, smallint, text, text, jsonb)
+revoke all on function app_private.chem_guard_source_question_content_mutation()
   from public, anon, authenticated, service_role;
-revoke all on function public.chem_junior_validate_issued_step(uuid, uuid, uuid)
+revoke all on function app_private.chem_assert_junior_source_release(uuid,text,boolean)
   from public, anon, authenticated, service_role;
 
-grant execute on function public.chem_junior_issue_step(uuid, uuid, text, smallint, text, text, jsonb)
+revoke all on function public.chem_prepare_junior_source_release(uuid,text,text,text[],integer)
+  from public, anon, authenticated, service_role;
+revoke all on function public.chem_stage_junior_source_release_item(uuid,jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.chem_activate_junior_source_release(uuid,text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.chem_junior_record_step(uuid,uuid,uuid,smallint,boolean,integer,text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.chem_junior_finalize_session(uuid,uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.chem_junior_issue_step(uuid,uuid,text,smallint,text,text,jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.chem_junior_validate_issued_step(uuid,uuid,uuid)
+  from public, anon, authenticated, service_role;
+
+grant execute on function public.chem_prepare_junior_source_release(uuid,text,text,text[],integer)
   to service_role;
-grant execute on function public.chem_junior_validate_issued_step(uuid, uuid, uuid)
+grant execute on function public.chem_stage_junior_source_release_item(uuid,jsonb)
+  to service_role;
+grant execute on function public.chem_activate_junior_source_release(uuid,text)
+  to service_role;
+grant execute on function public.chem_junior_record_step(uuid,uuid,uuid,smallint,boolean,integer,text)
+  to service_role;
+grant execute on function public.chem_junior_finalize_session(uuid,uuid)
+  to service_role;
+grant execute on function public.chem_junior_issue_step(uuid,uuid,text,smallint,text,text,jsonb)
+  to service_role;
+grant execute on function public.chem_junior_validate_issued_step(uuid,uuid,uuid)
   to service_role;
 
-comment on function public.chem_junior_issue_step(uuid, uuid, text, smallint, text, text, jsonb) is
-  'Server-only atomic junior issue gate; returns identifiers only after locking and validating session, current native question, textbook provenance and active source release.';
-comment on function public.chem_junior_validate_issued_step(uuid, uuid, uuid) is
-  'Server-only atomic resume gate; returns identifiers only and fails closed when a session, source release, provenance row, question digest or immutable snapshot changed.';
+comment on column public.chem_questions.source_kind is
+  'Content origin contract. licensed_local is reserved for explicitly licensed high-school releases; user_provided_local is private user-supplied material with no verified redistribution claim.';
 
 commit;

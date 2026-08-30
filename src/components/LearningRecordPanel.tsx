@@ -145,14 +145,16 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
     </summary>
     <div className="record-skill-detail">
       {skill.learnedTopics.length > 0 && <div className="record-topics"><b>已进入课堂/复习范围</b><div>{skill.learnedTopics.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div></div>}
-      <section className="record-knowledge" data-evidence-scope={skill.knowledgeEvidenceScope}><div className="record-subhead"><div><span>完整回忆</span><h4>本模块具体包含</h4></div><small>模块目录帮助找回主线，逐点证据随对应题目累积</small></div>
-        {skill.knowledgeSections.length ? <div className="record-knowledge-grid">{skill.knowledgeSections.map((section) => <article key={section.id}><header><b><ChemText>{section.title}</ChemText></b>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</header><ul>{section.points.map((point) => <li key={point.id}><span><ChemText>{point.title}</ChemText></span>{point.rule && <p><ChemText>{point.rule}</ChemText></p>}</li>)}</ul></article>)}</div>
-          : <div className="record-empty compact"><BookOpenCheck /><b>知识目录正在逐项校对</b><p>当前先依据已经保存的真实作答查看学习证据。</p></div>}
+      <section className="record-knowledge" data-evidence-scope={skill.knowledgeEvidenceScope}><div className="record-subhead"><div><span>{skill.exposure === 'future' ? '后续路线' : '完整回忆'}</span><h4>{skill.exposure === 'future' ? '知识内容从预习页进入' : '本模块具体包含'}</h4></div><small>{skill.exposure === 'future' ? '学习档案不提前展开未来教材内容' : '模块目录帮助找回主线，逐点证据随对应题目累积'}</small></div>
+        {skill.exposure === 'future'
+          ? <div className="record-empty compact"><Clock3 /><b>请从对应日期的“提前预习”进入</b><p>那里只展示审核后的知识卡；正式题目仍要等到计划当天。</p></div>
+          : skill.knowledgeSections.length ? <div className="record-knowledge-grid">{skill.knowledgeSections.map((section) => <article key={section.id}><header><b><ChemText>{section.title}</ChemText></b>{section.summary && <p><ChemText>{section.summary}</ChemText></p>}</header><ul>{section.points.map((point) => <li key={point.id}><span><ChemText>{point.title}</ChemText></span>{point.rule && <p><ChemText>{point.rule}</ChemText></p>}</li>)}</ul></article>)}</div>
+            : <div className="record-empty compact"><BookOpenCheck /><b>知识目录正在逐项校对</b><p>当前先依据已经保存的真实作答查看学习证据。</p></div>}
       </section>
 
       <section className="record-evidence"><div className="record-subhead"><div><span>真实证据</span><h4>做过什么题、怎样作答、怎样订正</h4></div><small>{skill.recentQuestionsTruncated ? `当前显示最近 ${skill.recentQuestions.length} 道（已读取 ${total} 道）` : total ? `已读取 ${total} 道作答` : '完成对应练习后自动保存'}</small></div>
         {skill.recentQuestionsTruncated && <p className="record-history-note compact"><Clock3 />当前显示最近记录，更早的真实作答仍保留在学习档案中。</p>}
-        {skill.recentQuestions.length ? <div className="record-question-list">{skill.recentQuestions.map((question, index) => <QuestionEvidence key={`${question.questionId}-${question.answeredAt}-${index}`} question={question} index={index} gradeBand={gradeBand} />)}</div>
+        {skill.recentQuestions.length ? <div className="record-question-list">{skill.recentQuestions.map((question, index) => <QuestionEvidence key={`${question.evidenceId}-${question.answeredAt}-${index}`} question={question} index={index} gradeBand={gradeBand} />)}</div>
           : <div className="record-empty compact"><CircleDashed /><b>真实作答证据即将在这里累积</b><p>完成一次对应练习后，题目、选择、订正和解析会一起保存到这里。</p></div>}
       </section>
 
@@ -162,14 +164,14 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
 }
 
 function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
-  const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
+  const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && Boolean(question.questionId) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
   const nativeStem = <p className="record-question-stem"><ChemText>{question.stem}</ChemText></p>
   const explanationParagraphs = splitAnswerExplanation(question.explanation || '')
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">
     <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p><ChemText>{question.stem}</ChemText></p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
     <div className="record-question-body">
       <QuestionHistoryStatus question={question} />
-      {showsLicensedReviewSource ? <QuestionSourceMedia question={{ id: question.questionId, stem: question.stem, options: question.options, sourceInfo: question.sourceInfo, assetRefs: (question.assetRefs ?? []).filter((asset) => asset.kind !== 'analysis_image'), renderMode: question.renderMode }} enabled deferLoad readOnly showSource={false} nativeContent={nativeStem} /> : <>{question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}{nativeStem}</>}
+      {showsLicensedReviewSource ? <QuestionSourceMedia question={{ id: question.questionId!, stem: question.stem, options: question.options, sourceInfo: question.sourceInfo, assetRefs: (question.assetRefs ?? []).filter((asset) => asset.kind !== 'analysis_image'), renderMode: question.renderMode }} enabled deferLoad readOnly showSource={false} nativeContent={nativeStem} /> : <>{question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}{nativeStem}</>}
       {question.options.length > 0 && <ol className="record-option-list">{question.options.map((option, optionIndex) => <li key={`${optionIndex}-${option}`} className={`${optionIndex === question.selectedOption ? 'selected' : ''} ${optionIndex === question.correctOption ? 'correct' : ''}`}><span>{String.fromCharCode(65 + optionIndex)}</span><p><ChemText>{option}</ChemText></p>{optionIndex === question.selectedOption && <small>学生选择</small>}{optionIndex === question.correctOption && <small>正确答案</small>}</li>)}</ol>}
       <div className="record-answer-row"><div><span>学生选择</span><b><AnswerText question={question} optionIndex={question.selectedOption} /></b></div><div><span>正确答案</span><b><AnswerText question={question} optionIndex={question.correctOption} /></b></div><div><span>作答状态</span><b>{question.correct ? '答对，继续保持' : '回看思路，再做同类题'}</b></div></div>
       <div className="record-explanation"><b>解析与订正</b><div className="answer-explanation">{explanationParagraphs.length > 0 ? explanationParagraphs.map((item, paragraphIndex) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${paragraphIndex}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>) : <p className="is-unlabeled">这道题的解析正在校对，校对完成后会在这里补齐。</p>}</div></div>

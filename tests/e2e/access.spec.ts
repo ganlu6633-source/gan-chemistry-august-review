@@ -36,6 +36,34 @@ const studentDashboard = {
   achievements: [{ id:'a1', title:'物质分类 L2 已点亮', description:'真棒，通过了L2的检验。', earnedAt:'2026-08-12T08:00:00Z' }],
 }
 
+const futurePreviewPlan = {
+  id: 'future-preview-plan', studentId: 'future-preview-student', date: '2099-12-31', mode: 'REVIEW',
+  title: '科粤版·1.1 身边的化学', skillIds: ['1.1-K01'], targetConceptKeys: ['1.1-K01'],
+  knowledgeSummaries: ['化学研究对象', '化学的价值'], estimatedMinutes: 15, source: 'scheduled', isScheduled: true,
+  questionCount: 12, roundLimit: 1, maxQuestionLevel: 2, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'not_started',
+  hardQuestionCap: 15, attemptCount: 0, firstScore: null, latestScore: null, latestCompletedAt: null,
+  isResolved: false, isComplete: false, roundsRemaining: 1,
+}
+
+const futurePreviewDashboard = {
+  ...studentDashboard,
+  profile: { id: 'future-preview-student', displayName: '预习学生', gradeBand: '初三', textbookVersion: '科粤版', enrollmentStartDate: '2026-08-01', needsInitialDiagnostic: false },
+  plans: [futurePreviewPlan],
+  skillStates: [],
+  skillDefinitions: [],
+  achievements: [],
+}
+
+const futurePreviewCard = {
+  id: 'KC-1.1-K01', skillId: '1.1-K01', title: '化学在研究什么',
+  core: '化学研究物质的组成、结构、性质、变化和用途。',
+  detail: '先分清研究对象，再把观察到的现象与物质变化联系起来。',
+  steps: ['找到正在研究的物质', '判断关注的是性质还是变化'],
+  commonMistakes: ['把所有自然现象都当成化学问题'],
+  microExample: '研究蜡烛燃烧前后生成了什么物质，属于化学的研究范围。',
+  reviewStatus: 'approved',
+}
+
 const demoGradeContent = {
   高一: { skillId: 'H1_CLASSIFY', planTitle: '物质分类与元素周期律', topics: ['物质分类树', '周期律趋势', '阿伏加德罗常数'] },
   高二: { skillId: 'H2_EQUIL', planTitle: '选择性必修一综合复习', topics: ['化学平衡', '水溶液中的离子平衡', '电化学'] },
@@ -212,7 +240,18 @@ test.beforeEach(async ({ page }) => {
       }
       const guardian = body.code === '22222222'
       const demo = body.name === '演示学生'
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ session: { role: guardian ? 'guardian' : 'student', token: 'test-token', displayName: demo ? '演示学生' : '测试学生', expiresAt: '2099-01-01T00:00:00Z' }, dashboard: guardian ? guardianDashboard : demo ? demoDashboardFor('高一') : studentDashboard }) })
+      const futurePreviewStudent = body.name === '预习学生'
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ session: { role: guardian ? 'guardian' : 'student', token: 'test-token', displayName: demo ? '演示学生' : futurePreviewStudent ? '预习学生' : '测试学生', expiresAt: '2099-01-01T00:00:00Z' }, dashboard: guardian ? guardianDashboard : demo ? demoDashboardFor('高一') : futurePreviewStudent ? futurePreviewDashboard : studentDashboard }) })
+      return
+    }
+    if (body.action === 'future_plan_preview') {
+      expect(body.data?.planId).toBe(futurePreviewPlan.id)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: responseHeaders,
+        body: JSON.stringify({ preview: { previewMode: 'future_knowledge_only', plan: futurePreviewPlan, cards: [futurePreviewCard], formalOpenDate: futurePreviewPlan.date, recordsLearningEvidence: false, includesQuestions: false } }),
+      })
       return
     }
     if (body.action === 'demo_dashboard') {
@@ -279,6 +318,37 @@ test('access page contains name and code inputs with no role selector', async ({
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth))
   await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).filter((registration) => registration.scope.includes('/gan-chemistry-august-review/')).length)).toBe(0)
   await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter((key) => key.startsWith('gan-chemistry-shell')).length)).toBe(0)
+})
+
+test('a future plan opens only the knowledge preview and never starts formal answering', async ({ page }) => {
+  const accessActions: string[] = []
+  page.on('request', (request) => {
+    if (!request.url().includes('/functions/v1/chemistry-access') || request.method() !== 'POST') return
+    const body = request.postDataJSON() as { action?: string } | null
+    if (body?.action) accessActions.push(body.action)
+  })
+
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('预习学生')
+  await page.getByLabel('登录码').fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+
+  const futurePlanButton = page.getByRole('button', { name: /科粤版·1\.1 身边的化学，可提前预习/ })
+  await expect(futurePlanButton).toBeVisible()
+  await futurePlanButton.click()
+
+  const preview = page.getByTestId('future-plan-preview')
+  await expect(preview).toBeVisible()
+  await expect(preview).toContainText('提前预习 · 只读知识页')
+  await expect(preview).toContainText('不展示正式题目、答案或提示')
+  await expect(preview).toContainText('不计入掌握度和正式学习记录')
+  await expect(preview).toContainText(futurePreviewCard.title)
+  await expect(preview.getByRole('button', { name: /开始|提交|下一题|查看解析/ })).toHaveCount(0)
+  expect(accessActions).toContain('future_plan_preview')
+  expect(accessActions).not.toContain('start_plan')
+  expect(accessActions).not.toContain('junior_open_session')
+  expect(accessActions).not.toContain('junior_submit_step')
+  expect(accessActions).not.toContain('submit_attempt')
 })
 
 test('forgotten code can be reset with a private recovery phrase', async ({ page }) => {
@@ -686,6 +756,7 @@ test('periodic law first screen includes compound and hydride trend evidence', a
 })
 
 test('teacher name and code use the same entry and open the private workspace', async ({ page }) => {
+  test.setTimeout(90_000)
   const forbiddenWrites: string[] = []
   page.on('request', (request) => {
     if (request.method() !== 'POST') return

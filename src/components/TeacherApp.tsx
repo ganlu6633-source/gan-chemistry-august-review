@@ -251,7 +251,7 @@ type QuestionAuditRow = {
   scaffold?: string | null
   review_status: 'draft' | 'needs_review' | 'approved' | 'retired'
   scope_status: string
-  source_kind: 'teacher_original' | 'licensed_local' | 'original_variant'
+  source_kind: 'teacher_original' | 'licensed_local' | 'user_provided_local' | 'original_variant'
   source_info?: QuestionSourceInfo | null
   asset_refs?: Array<QuestionAssetRef & { path?: string }>
   render_mode?: 'native' | 'image_assist' | 'image_primary'
@@ -277,6 +277,25 @@ const reviewStatusLabel: Record<QuestionAuditRow['review_status'], string> = {
   needs_review: '待人工复核',
   approved: '已批准',
   retired: '已停用',
+}
+
+const sourceKindBaseLabel: Record<QuestionAuditRow['source_kind'], string> = {
+  teacher_original: '教师原创',
+  licensed_local: '已授权本地原题',
+  user_provided_local: '用户提供的本地资料',
+  original_variant: '原创变式',
+}
+
+function sourceKindAuditLabel(question: QuestionAuditRow) {
+  if (question.grade_band === '初三' && question.source_kind === 'licensed_local') {
+    return '历史旧标签（授权未核验，不下发）'
+  }
+  return sourceKindBaseLabel[question.source_kind]
+}
+
+function questionDeliveryAuditLabel(question: QuestionAuditRow) {
+  if (question.grade_band === '初三' && question.source_kind === 'licensed_local') return '历史证据/当前不下发'
+  return question.usable_for_review ? '复习中' : '未下发'
 }
 
 export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }) {
@@ -331,7 +350,7 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
       <div className="audit-hero"><MessageSquareText /><div><b>{dashboard.pendingQuestions} 道题等待人工复核</b><p>只有题面完整、答案唯一、原解析匹配、教材与考试范围正确且视觉校验通过，才允许进入正式复习。</p></div></div>
       <div className="question-audit-filters" aria-label="题库筛选">
         <label>年级<select value={gradeBand} onChange={(event) => { setGradeBand(event.target.value as '' | GradeBand); setPage(1) }}><option value="">全部</option><option value="初三">初三</option><option value="高一">高一</option><option value="高二">高二</option><option value="高三">高三</option></select></label>
-        <label>来源<select value={sourceKind} onChange={(event) => { setSourceKind(event.target.value as '' | QuestionAuditRow['source_kind']); setPage(1) }}><option value="">全部</option><option value="licensed_local">本地资料原题</option><option value="teacher_original">教师原创</option><option value="original_variant">原创变式</option></select></label>
+        <label>来源<select value={sourceKind} onChange={(event) => { setSourceKind(event.target.value as '' | QuestionAuditRow['source_kind']); setPage(1) }}><option value="">全部</option><option value="licensed_local">本地原题标签（高中已授权；初三历史未核验）</option><option value="user_provided_local">用户提供的本地资料</option><option value="teacher_original">教师原创</option><option value="original_variant">原创变式</option></select></label>
         <label>状态<select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value as '' | QuestionAuditRow['review_status']); setPage(1) }}><option value="">全部</option><option value="needs_review">待人工复核</option><option value="approved">已批准</option><option value="retired">已停用</option><option value="draft">草稿</option></select></label>
         <b>{total} 道</b>
       </div>
@@ -342,14 +361,16 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
           const sourceQuestion = { id: question.id, stem: question.stem, options: question.options, sourceInfo: question.source_info, assetRefs: refs, renderMode: question.render_mode }
           const releaseManaged = Boolean(question.source_release_id)
           const explanationParagraphs = splitAnswerExplanation(question.explanation)
+          const licensedHighSchoolSource = question.source_kind === 'licensed_local' && ['高一', '高二', '高三'].includes(question.grade_band)
+          const nativeJuniorSource = question.grade_band === '初三' && question.source_kind === 'user_provided_local'
           return <details className="question-audit-card" key={question.id}>
-            <summary><div><span>{question.grade_band} · {question.skill_id} · L{question.level}</span><b><ChemText>{question.stem}</ChemText></b><small>{reviewStatusLabel[question.review_status]} · {question.scope_status} · {question.source_kind === 'licensed_local' ? '原题' : question.source_kind}</small></div><strong>{question.usable_for_review ? '复习中' : '未下发'}</strong></summary>
+            <summary><div><span>{question.grade_band} · {question.skill_id} · L{question.level}</span><b><ChemText>{question.stem}</ChemText></b><small>{reviewStatusLabel[question.review_status]} · {question.scope_status} · {sourceKindAuditLabel(question)}</small></div><strong>{questionDeliveryAuditLabel(question)}</strong></summary>
             <div className="question-audit-detail">
-              {question.source_kind === 'licensed_local' && ['高一', '高二', '高三'].includes(question.grade_band)
+              {licensedHighSchoolSource
                 ? <QuestionSourceMedia question={sourceQuestion} enabled deferLoad readOnly feedback />
                 : <div className="question-audit-native"><h3>题干</h3><p><ChemText>{question.stem}</ChemText></p></div>}
-              <section><h3>文字辅助稿与答案</h3><p className="question-audit-transcript-note">复杂公式、结构式与装置图以原题图为准。</p><ol className="question-audit-options">{question.options.map((option, index) => <li className={index === question.correct_option ? 'is-answer' : ''} key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}</b><ChemText>{option}</ChemText>{index === question.correct_option && <span>正确答案</span>}</li>)}</ol></section>
-              <section className="question-audit-analysis"><h3>文字解析（原解析图为最终依据）</h3><div className="answer-explanation">{explanationParagraphs.map((item, paragraphIndex) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${paragraphIndex}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>)}</div>{question.scaffold && <small>提示：<ChemText>{question.scaffold}</ChemText></small>}</section>
+              <section><h3>{nativeJuniorSource ? '原生文字题面与答案' : '文字辅助稿与答案'}</h3><p className="question-audit-transcript-note">{licensedHighSchoolSource ? '复杂公式、结构式与装置图以原题图为准。' : nativeJuniorSource ? '初三题库使用原生文字题面，不依赖原题图或本地路径；只有整套发布完成核验后才会下发。' : '该题使用当前审核文字题面。'}</p><ol className="question-audit-options">{question.options.map((option, index) => <li className={index === question.correct_option ? 'is-answer' : ''} key={`${index}-${option}`}><b>{String.fromCharCode(65 + index)}</b><ChemText>{option}</ChemText>{index === question.correct_option && <span>正确答案</span>}</li>)}</ol></section>
+              <section className="question-audit-analysis"><h3>{licensedHighSchoolSource ? '文字解析（原解析图为最终依据）' : nativeJuniorSource ? '文字解析（整套发布核验后下发）' : '审核文字解析'}</h3><div className="answer-explanation">{explanationParagraphs.map((item, paragraphIndex) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${paragraphIndex}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<ChemText>{item.text}</ChemText></p>)}</div>{question.scaffold && <small>提示：<ChemText>{question.scaffold}</ChemText></small>}</section>
               <dl className="question-audit-metadata"><div><dt>母题</dt><dd>{question.mother_id}</dd></div><div><dt>细概念</dt><dd>{question.knowledge_id || question.concept_key || '待标注'}</dd></div>{question.grade_band === '初三' && <><div><dt>教材</dt><dd>{question.textbook_version || '待标注'}</dd></div><div><dt>同类题键</dt><dd>{question.same_type_key || '待标注'}</dd></div><div><dt>来源题键</dt><dd>{question.source_item_key ? `${question.source_item_key.slice(0, 16)}…` : '缺失'}</dd></div><div><dt>父来源题键</dt><dd>{question.parent_source_item_key ? `${question.parent_source_item_key.slice(0, 16)}…` : '缺失'}</dd></div></>}<div><dt>内容指纹</dt><dd>{question.content_fingerprint ? `${question.content_fingerprint.slice(0, 12)}…` : '缺失'}</dd></div><div><dt>图片</dt><dd>{refs.filter((ref) => ref.kind !== 'analysis_image').length} 张题面 · {refs.filter((ref) => ref.kind === 'analysis_image').length} 张解析</dd></div></dl>
               {releaseManaged && <p className="question-release-lock">该题属于已锁定的完整原题版本；可在这里逐项检查，但不能单题修改。需调整时应校对并发布整套新版本。</p>}
               <div className="audit-actions"><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'approved')}>批准</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'needs_review')}>待复核</button><button disabled={busy === question.id || releaseManaged} onClick={() => void review(question.id, 'retired')}>停用</button></div>

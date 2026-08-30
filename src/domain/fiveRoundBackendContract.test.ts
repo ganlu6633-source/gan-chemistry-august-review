@@ -47,7 +47,7 @@ describe('five-round review backend contract', () => {
 
   it('rebuilds and verifies the exact adaptive five-question set on submit', () => {
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.order("id")')
-    expect(accessFunction).toContain('const expectedPayload = await startPlanPayload(targetId, String(plan.id))')
+    expect(accessFunction).toContain('const expectedPayload = await startPlanPayload(targetId, String(plan.id), { studentOpen: true, includeAnswerLocks: true })')
     expect(accessFunction).toContain('expectedQuestionIdSet.has(questionId)')
     expect(accessFunction).toContain('不属于系统刚刚生成的自适应题组')
   })

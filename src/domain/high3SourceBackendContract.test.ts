@@ -95,11 +95,12 @@ describe('high-school source-backed REVIEW backend contract', () => {
   })
 
   it('keeps source citations and original analysis scans out of learner history records', () => {
-    expect(accessFunction).toContain('sourceKind: historical.sourceKind')
-    expect(accessFunction).toContain('sourceInfo: null')
+    expect(accessFunction).toContain('const juniorEvidence = gradeBand === "初三"')
+    expect(accessFunction).toContain('sourceKind: juniorEvidence ? null : historical.sourceKind')
+    expect(accessFunction).toContain('sourceInfo: juniorEvidence ? null : historical.sourceInfo')
+    expect(accessFunction).toContain('assetRefs: juniorEvidence ? [] : historical.assetRefs')
+    expect(accessFunction).toContain('renderMode: juniorEvidence ? "native" : historical.renderMode')
     expect(accessFunction).toContain('assetRefs: questionAssetRefs(source.assetRefs || source.asset_refs, false)')
-    expect(accessFunction).toContain('assetRefs: historical.assetRefs')
-    expect(accessFunction).toContain('renderMode: historical.renderMode')
     expect(accessFunction).toContain('mode: String(attemptById.get(String(answer.attempt_id))?.mode || "REVIEW")')
   })
 })

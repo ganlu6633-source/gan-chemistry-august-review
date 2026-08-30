@@ -202,3 +202,18 @@
 .source-image-zoom img{max-height:none}
 .source-image-dialog>div>img{width:auto;min-width:100%;max-width:none;max-height:none}
 @media(max-width:430px){.source-image-dialog>div>img{width:auto;min-width:max(100%,900px);max-width:none;max-height:none}}
+
+/* Future plans open as a separate, knowledge-only preview. The visual language
+   stays deliberately different from the formal quiz path so a student cannot
+   mistake reading ahead for recorded learning evidence. */
+.plan-day.is-future-preview{border-color:#b9cde6;background:linear-gradient(145deg,#f6f8ff,#f2f9fb)}
+.plan-day.is-future-preview:hover{border-color:#6f92bf;box-shadow:0 10px 24px rgba(47,91,139,.1)}
+.plan-day.is-future-preview em{background:#e7eef9;color:#3d5f8b}
+.future-plan-preview{padding-bottom:28px}
+.future-preview-banner{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:start;margin:17px 0;padding:20px 22px;border:1px solid #96b8dd;border-radius:20px;background:linear-gradient(135deg,#eff4ff,#eef9f8);color:#294f70;box-shadow:0 12px 30px rgba(29,73,116,.08)}
+.future-preview-banner>svg{width:42px;height:42px;padding:9px;border-radius:13px;background:#fff;color:#4475aa;box-shadow:0 7px 18px rgba(34,81,128,.11)}
+.future-preview-banner h2{margin:4px 0 6px;color:#173a59;font-size:clamp(21px,3vw,29px)}
+.future-preview-banner p{margin:0;color:#486980;font-size:13px;line-height:1.75}
+.future-preview-boundary{display:flex;align-items:flex-start;gap:8px;margin:18px 0 0;padding:12px 14px;border-radius:12px;background:#fff7df;color:#745a21;font-size:12px;line-height:1.65}
+.future-preview-boundary svg{flex:0 0 auto;margin-top:2px}
+@media(max-width:700px){.future-preview-banner{grid-template-columns:1fr;padding:17px}.future-preview-banner>svg{width:38px;height:38px}.future-plan-preview .stage-actions{flex-direction:column-reverse}}

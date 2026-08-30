@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, CircleHelp, Clock3, Trophy } from 'lucide-react'
-import type { JuniorAdaptivePayload, QuestionFeedback, SessionIdentity, StudentDashboardData } from '../domain/types'
+import type { JuniorAdaptivePayload, JuniorQuestionFeedback, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { submitJuniorAdaptiveStep } from '../lib/api'
 import { ChemText } from './ChemText'
@@ -21,7 +21,7 @@ export function JuniorAdaptiveSession({
   const [completedDashboard, setCompletedDashboard] = useState<StudentDashboardData | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [uncertain, setUncertain] = useState(false)
-  const [feedback, setFeedback] = useState<QuestionFeedback | null>(null)
+  const [feedback, setFeedback] = useState<JuniorQuestionFeedback | null>(null)
   const [startedAt, setStartedAt] = useState(Date.now())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

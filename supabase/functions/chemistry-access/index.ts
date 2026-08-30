@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { selectAdaptiveQuestions } from "./adaptive.ts";
 import { effectiveReviewRoundLimit, FORMAL_REVIEW_DAILY_QUESTION_CAP, isFormalHighSchoolReview, validFormalReviewQuestionCount, validFormalReviewRoundLimit } from "./review-daily-policy.ts";
 import { selectJuniorNextQuestion, type JuniorAdaptiveCandidate, type JuniorAdaptiveHistory, type JuniorRouteKind } from "./junior-adaptive.ts";
+import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
+import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
 import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
 
 const supabase = createClient(
@@ -15,6 +17,8 @@ const allowedOrigins = new Set([
   "http://localhost:4173",
   "http://localhost:5173",
 ]);
+const JUNIOR_TEXTBOOK_VERSION = "科粤版";
+const JUNIOR_SOURCE_KIND = "user_provided_local";
 
 function cors(req: Request) {
   const requested = req.headers.get("origin") || "";
@@ -161,6 +165,24 @@ const planShape = (
     isResolved, isComplete, roundsRemaining: isComplete ? 0 : Math.max(0, roundLimit - attempts.length),
   };
 };
+
+function juniorStudentPlanShape(
+  row: Record<string, unknown>,
+  attemptRows: Array<Record<string, unknown>> = [],
+  juniorSession?: Record<string, unknown>,
+  profile?: ReviewProfileContext,
+  options: { failClosedOnUnsafeCopy?: boolean } = {},
+) {
+  const shaped = planShape(row, attemptRows, juniorSession, profile);
+  const withoutSource = Object.fromEntries(Object.entries(shaped).filter(([key]) => key !== "source"));
+  if (futurePreviewInstructionalTextIsSafe([withoutSource.title, withoutSource.knowledgeSummaries])) {
+    return withoutSource;
+  }
+  if (options.failClosedOnUnsafeCopy) {
+    throw new RequestError(422, "初三计划标题或知识摘要仍含来源标签、内部编号或本地定位信息，完成清理前不能正式开课。");
+  }
+  return { ...withoutSource, title: "初三学习计划（内容清理中）", knowledgeSummaries: [] };
+}
 
 function planTargetConceptKeys(row: Record<string, unknown>) {
   if (!Array.isArray(row.target_concept_keys)) return [];
@@ -367,58 +389,50 @@ function questionFeedbackShape(
   };
 }
 
-const KNOWLEDGE_VISUAL_KINDS = new Set(["tree", "flow", "cycle", "compare", "network", "balance"]);
-
-function nonEmptyKnowledgeString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0;
+function juniorQuestionFeedbackShape(
+  row: Record<string, unknown>,
+  stepId: string,
+  selectedOption: number,
+  answerMeta: { uncertain?: boolean; durationSec?: number } = {},
+) {
+  const correctOption = Number(row.correct_option);
+  return {
+    // The step UUID is the student's opaque answer capability.  Question,
+    // mother, concept and source-ledger identifiers remain server-only.
+    stepId,
+    selectedOption,
+    uncertain: answerMeta.uncertain === true,
+    durationSec: Number.isFinite(answerMeta.durationSec) ? Number(answerMeta.durationSec) : 0,
+    correct: selectedOption === correctOption,
+    correctOption,
+    explanation: String(row.explanation || ""),
+    scaffold: row.scaffold ? String(row.scaffold) : null,
+    analysisAssetRefs: [],
+    revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
+  };
 }
 
-function validKnowledgeTreeNode(value: unknown, depth = 0): boolean {
+function validKnowledgeTreeNode(
+  value: unknown,
+  depth = 0,
+  state: { nodes: number } = { nodes: 0 },
+): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value) || depth > 8) return false;
+  state.nodes += 1;
+  if (state.nodes > MAX_KNOWLEDGE_TREE_NODES) return false;
   const node = value as Record<string, unknown>;
   if (!nonEmptyKnowledgeString(node.label) || !nonEmptyKnowledgeString(node.rule)) return false;
   for (const key of ["examples", "visualSteps"] as const) {
     if (node[key] !== undefined
-      && (!Array.isArray(node[key]) || !(node[key] as unknown[]).every(nonEmptyKnowledgeString))) return false;
+      && (!Array.isArray(node[key])
+        || node[key].length > MAX_KNOWLEDGE_LIST_ITEMS
+        || !(node[key] as unknown[]).every(nonEmptyKnowledgeString))) return false;
   }
   if (node.caution !== undefined && !nonEmptyKnowledgeString(node.caution)) return false;
   if (node.children !== undefined
     && (!Array.isArray(node.children)
-      || !(node.children as unknown[]).every((child) => validKnowledgeTreeNode(child, depth + 1)))) return false;
-  return true;
-}
-
-function validKnowledgeVisual(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const visual = value as Record<string, unknown>;
-  const kind = String(visual.kind || "");
-  if (!KNOWLEDGE_VISUAL_KINDS.has(kind) || !nonEmptyKnowledgeString(visual.title)) return false;
-  if (kind === "tree") {
-    const validTree = (node: unknown, depth = 0): boolean => {
-      if (!node || typeof node !== "object" || Array.isArray(node) || depth > 8) return false;
-      const branch = node as Record<string, unknown>;
-      return nonEmptyKnowledgeString(branch.label)
-        && (branch.children === undefined
-          || (Array.isArray(branch.children)
-            && (branch.children as unknown[]).every((child) => validTree(child, depth + 1))));
-    };
-    if (!validTree(visual.tree)) return false;
-  }
-  if (["flow", "cycle"].includes(kind)) {
-    if (!Array.isArray(visual.steps) || !visual.steps.length
-      || !(visual.steps as unknown[]).every((step) => step && typeof step === "object"
-        && !Array.isArray(step) && nonEmptyKnowledgeString((step as Record<string, unknown>).label))) return false;
-  }
-  if (["compare", "network", "balance"].includes(kind)) {
-    if (!Array.isArray(visual.groups) || !visual.groups.length
-      || !(visual.groups as unknown[]).every((group) => {
-        if (!group || typeof group !== "object" || Array.isArray(group)) return false;
-        const row = group as Record<string, unknown>;
-        return nonEmptyKnowledgeString(row.label)
-          && Array.isArray(row.items) && row.items.length > 0
-          && (row.items as unknown[]).every(nonEmptyKnowledgeString);
-      })) return false;
-  }
+      || node.children.length > MAX_KNOWLEDGE_LIST_ITEMS
+      || !(node.children as unknown[]).every((child) => validKnowledgeTreeNode(child, depth + 1, state)))) return false;
   return true;
 }
 
@@ -427,38 +441,159 @@ function validStructuredKnowledgeContent(value: unknown): boolean {
   const content = value as Record<string, unknown>;
   if (!Number.isInteger(Number(content.version)) || Number(content.version) < 1) return false;
   if (!nonEmptyKnowledgeString(content.intro)) return false;
-  if (!Array.isArray(content.sections) || !content.sections.length) return false;
+  if (!Array.isArray(content.sections) || !content.sections.length
+    || content.sections.length > MAX_KNOWLEDGE_LIST_ITEMS) return false;
+  const treeState = { nodes: 0 };
   if (!(content.sections as unknown[]).every((section) => {
     if (!section || typeof section !== "object" || Array.isArray(section)) return false;
     const row = section as Record<string, unknown>;
     return nonEmptyKnowledgeString(row.title)
+      && (row.summary === undefined || nonEmptyKnowledgeString(row.summary))
       && Array.isArray(row.items) && row.items.length > 0
-      && (row.items as unknown[]).every((item) => validKnowledgeTreeNode(item));
+      && row.items.length <= MAX_KNOWLEDGE_LIST_ITEMS
+      && (row.items as unknown[]).every((item) => validKnowledgeTreeNode(item, 0, treeState));
   })) return false;
-  if (content.rootTree !== undefined && !validKnowledgeTreeNode(content.rootTree)) return false;
+  if (content.rootTree !== undefined && !validKnowledgeTreeNode(content.rootTree, 0, treeState)) return false;
   if (content.visualSummary !== undefined && !validKnowledgeVisual(content.visualSummary)) return false;
   if (content.overview !== undefined
-    && (!Array.isArray(content.overview) || !(content.overview as unknown[]).every(nonEmptyKnowledgeString))) return false;
+    && (!Array.isArray(content.overview)
+      || content.overview.length > MAX_KNOWLEDGE_LIST_ITEMS
+      || !(content.overview as unknown[]).every(nonEmptyKnowledgeString))) return false;
   if (content.checkpoints !== undefined
-    && (!Array.isArray(content.checkpoints) || !(content.checkpoints as unknown[]).every(nonEmptyKnowledgeString))) return false;
+    && (!Array.isArray(content.checkpoints)
+      || content.checkpoints.length > MAX_KNOWLEDGE_LIST_ITEMS
+      || !(content.checkpoints as unknown[]).every(nonEmptyKnowledgeString))) return false;
   if (content.workedExamples !== undefined
     && (!Array.isArray(content.workedExamples)
+      || content.workedExamples.length > MAX_KNOWLEDGE_LIST_ITEMS
       || !(content.workedExamples as unknown[]).every((example) => {
         if (!example || typeof example !== "object" || Array.isArray(example)) return false;
         const row = example as Record<string, unknown>;
         return nonEmptyKnowledgeString(row.substance)
           && nonEmptyKnowledgeString(row.path)
-          && Array.isArray(row.labels) && (row.labels as unknown[]).every(nonEmptyKnowledgeString);
+          && Array.isArray(row.labels)
+          && row.labels.length <= MAX_KNOWLEDGE_LIST_ITEMS
+          && (row.labels as unknown[]).every(nonEmptyKnowledgeString);
       }))) return false;
+  if (content.scopeNote !== undefined && !nonEmptyKnowledgeString(content.scopeNote)) return false;
   return true;
 }
 
-const cardShape = (row: Record<string, unknown>) => ({
-  id: row.id, skillId: row.skill_id, title: row.title, core: row.core, detail: row.detail,
-  steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
-  structuredContent: row.structured_content && Object.keys(row.structured_content as Record<string, unknown>).length ? row.structured_content : undefined,
-  asset: row.asset, reviewStatus: row.review_status,
-});
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function validOptionalStructuredKnowledgeContent(value: unknown) {
+  if (value === null || value === undefined) return true;
+  if (!isPlainRecord(value)) return false;
+  return Object.keys(value).length === 0 || validStructuredKnowledgeContent(value);
+}
+
+const cardShape = (row: Record<string, unknown>) => {
+  const structured = isPlainRecord(row.structured_content)
+    && Object.keys(row.structured_content).length
+    && validStructuredKnowledgeContent(row.structured_content)
+    ? row.structured_content
+    : undefined;
+  return {
+    id: row.id, skillId: row.skill_id, title: row.title, core: row.core, detail: row.detail,
+    steps: row.steps || [], commonMistakes: row.common_mistakes || [], microExample: row.micro_example,
+    structuredContent: structured,
+    asset: row.asset, reviewStatus: row.review_status,
+  };
+};
+
+function futurePreviewStringList(value: unknown) {
+  return Array.isArray(value) ? value.map(String) : undefined;
+}
+
+function futurePreviewTreeNode(value: unknown): Record<string, unknown> {
+  const row = value as Record<string, unknown>;
+  const result: Record<string, unknown> = { label: row.label, rule: row.rule };
+  if (Array.isArray(row.examples)) result.examples = futurePreviewStringList(row.examples);
+  if (Array.isArray(row.visualSteps)) result.visualSteps = futurePreviewStringList(row.visualSteps);
+  if (typeof row.caution === "string") result.caution = row.caution;
+  if (Array.isArray(row.children)) result.children = row.children.map(futurePreviewTreeNode);
+  return result;
+}
+
+function futurePreviewVisualTreeNode(value: unknown): Record<string, unknown> {
+  const row = value as Record<string, unknown>;
+  const result: Record<string, unknown> = { label: row.label };
+  if (Array.isArray(row.children)) result.children = row.children.map(futurePreviewVisualTreeNode);
+  return result;
+}
+
+function futurePreviewVisualGroup(value: unknown): Record<string, unknown> {
+  const row = value as Record<string, unknown>;
+  return { label: row.label, items: futurePreviewStringList(row.items) || [] };
+}
+
+function futurePreviewVisualSummary(value: unknown): Record<string, unknown> {
+  const row = value as Record<string, unknown>;
+  const result: Record<string, unknown> = { kind: row.kind, title: row.title };
+  if (typeof row.center === "string") result.center = row.center;
+  if (Array.isArray(row.steps)) result.steps = row.steps.map((step) => {
+    const item = step as Record<string, unknown>;
+    return { label: item.label, ...(typeof item.caption === "string" ? { caption: item.caption } : {}) };
+  });
+  if (Array.isArray(row.groups)) result.groups = row.groups.map(futurePreviewVisualGroup);
+  if (row.tree && typeof row.tree === "object" && !Array.isArray(row.tree)) result.tree = futurePreviewVisualTreeNode(row.tree);
+  if (Array.isArray(row.axes)) result.axes = row.axes.map(futurePreviewVisualGroup);
+  return result;
+}
+
+function futurePreviewStructuredContent(value: unknown): Record<string, unknown> {
+  const row = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {
+    version: row.version,
+    intro: row.intro,
+    sections: (row.sections as unknown[]).map((section) => {
+      const item = section as Record<string, unknown>;
+      return {
+        title: item.title,
+        ...(typeof item.summary === "string" ? { summary: item.summary } : {}),
+        items: (item.items as unknown[]).map(futurePreviewTreeNode),
+      };
+    }),
+  };
+  if (Array.isArray(row.overview)) result.overview = futurePreviewStringList(row.overview);
+  if (row.visualSummary && typeof row.visualSummary === "object" && !Array.isArray(row.visualSummary)) {
+    result.visualSummary = futurePreviewVisualSummary(row.visualSummary);
+  }
+  if (row.rootTree && typeof row.rootTree === "object" && !Array.isArray(row.rootTree)) result.rootTree = futurePreviewTreeNode(row.rootTree);
+  if (Array.isArray(row.workedExamples)) result.workedExamples = row.workedExamples.map((example) => {
+    const item = example as Record<string, unknown>;
+    return { substance: item.substance, path: item.path, labels: futurePreviewStringList(item.labels) || [] };
+  });
+  if (Array.isArray(row.checkpoints)) result.checkpoints = futurePreviewStringList(row.checkpoints);
+  if (typeof row.scopeNote === "string") result.scopeNote = row.scopeNote;
+  return result;
+}
+
+const studentProvenanceFreeCardShape = (row: Record<string, unknown>) => {
+  const shaped = cardShape(row);
+  const structured = isPlainRecord(shaped.structuredContent)
+    && validStructuredKnowledgeContent(shaped.structuredContent)
+    ? futurePreviewStructuredContent(shaped.structuredContent)
+    : undefined;
+  // Provenance is retained in the protected database and teacher audit chain.
+  // A future student preview receives only instructional fields and never a
+  // local path, source label, source-basis note, or source asset locator.
+  return { ...shaped, structuredContent: structured, asset: undefined };
+};
+
+function studentInstructionalCardTextIsSafe(card: Record<string, unknown>) {
+  return futurePreviewInstructionalTextIsSafe([
+    card.title,
+    card.core,
+    card.detail,
+    card.steps,
+    card.commonMistakes,
+    card.microExample,
+    card.structuredContent,
+  ]);
+}
 const videoRecommendationShape = (row: Record<string, unknown>) => ({
   id: row.id,
   studentId: row.student_id,
@@ -550,7 +685,7 @@ function curriculumSkillScope(gradeBand: string, cohort: string, allSkillIds: st
     if (cohort === "high1_completed") return [...foundation, "H1_REDOX"];
     if (cohort === "high1_current") return foundation;
   }
-  if (gradeBand === "初三" || gradeBand === "高二" || gradeBand === "高三") return allSkillIds;
+  if (gradeBand === "高二" || gradeBand === "高三") return allSkillIds;
   return [];
 }
 
@@ -573,7 +708,12 @@ function learnedSkillIds(
       if (allowed.has(String(skillId))) learned.add(String(skillId));
     }
   }
-  for (const state of states) if (allowed.has(String(state.skill_id))) learned.add(String(state.skill_id));
+  for (const state of states) {
+    if (!allowed.has(String(state.skill_id))) continue;
+    if (gradeBand !== "初三" || Number(state.verified_level) > 0 || state.last_reviewed_at) {
+      learned.add(String(state.skill_id));
+    }
+  }
   for (const answer of answers) if (allowed.has(String(answer.skill_id))) learned.add(String(answer.skill_id));
   return learned;
 }
@@ -671,7 +811,7 @@ function historicalQuestion(
 function cardKnowledgeSections(cards: Array<Record<string, unknown>>) {
   const sections: Array<{ id: string; title: string; summary?: string; points: Array<{ id: string; title: string; rule: string }> }> = [];
   for (const card of cards) {
-    const structured = card.structured_content as Record<string, unknown> | null;
+    const structured = (card.structuredContent || card.structured_content) as Record<string, unknown> | null;
     const rawSections = Array.isArray(structured?.sections) ? structured.sections as Array<Record<string, unknown>> : [];
     if (!rawSections.length) {
       const steps = Array.isArray(card.steps) ? card.steps.map(String) : [];
@@ -700,8 +840,20 @@ function cardKnowledgeSections(cards: Array<Record<string, unknown>>) {
   return sections;
 }
 
+function studentLearningRecordKnowledgeSections(cards: Array<Record<string, unknown>>) {
+  const studentSafeCards = cards.flatMap((card) => {
+    const structured = card.structured_content;
+    if (!validOptionalStructuredKnowledgeContent(structured)) return [];
+    const shaped = studentProvenanceFreeCardShape(card);
+    return studentInstructionalCardTextIsSafe(shaped) ? [shaped] : [];
+  });
+  return cardKnowledgeSections(studentSafeCards);
+}
+
 async function studentLearningRecord(studentId: string) {
-  const profile = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", studentId).single();
+  const profile = await supabase.from("chem_students_v2")
+    .select("grade_band,textbook_version,record_status,metadata")
+    .eq("id", studentId).single();
   if (profile.error) throw profile.error;
   const gradeBand = String(profile.data.grade_band);
   const demoProfile = (profile.data.metadata as Record<string, unknown> | null)?.demo === true;
@@ -711,7 +863,9 @@ async function studentLearningRecord(studentId: string) {
   const [skillsResult, statesResult, plansResult, attemptsResult, cardsResult] = await Promise.all([
     supabase.from("chem_skills").select("id,title,module_id,max_level").eq("active", true).eq("grade_band", gradeBand).order("module_id"),
     supabase.from("chem_student_skill_state").select("skill_id,verified_level,candidate_level,stability,next_review_at,last_reviewed_at,teacher_intervention").eq("student_id", studentId),
-    supabase.from("chem_learning_plans").select("id,plan_date,title,skill_ids,knowledge_summaries").eq("student_id", studentId).order("plan_date"),
+    supabase.from("chem_learning_plans")
+      .select("id,plan_date,title,skill_ids,knowledge_summaries,delivery_mode,junior_curriculum_day_id")
+      .eq("student_id", studentId).order("plan_date"),
     supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at,mode", { count: "exact" }).eq("student_id", studentId).order("completed_at", { ascending: false }).limit(attemptHistoryLimit),
     supabase.from("chem_knowledge_cards").select("id,skill_id,title,core,steps,structured_content").eq("review_status", "approved"),
   ]);
@@ -747,6 +901,24 @@ async function studentLearningRecord(studentId: string) {
   const learnedIds = learnedSkillIds(skills, states, plans, answers, gradeBand, cohort, confirmedSkillIds);
   const now = Date.now();
   const today = shanghaiDate();
+  const juniorContentReachedIds = gradeBand === "初三"
+    ? skills.map((skill) => String(skill.id)).filter((skillId) =>
+      answers.some((answer) => String(answer.skill_id) === skillId)
+      || plans.some((plan) => String(plan.plan_date || "") <= today
+        && plan.delivery_mode === "junior_adaptive"
+        && Boolean(plan.junior_curriculum_day_id)
+        && Array.isArray(plan.skill_ids)
+        && plan.skill_ids.map(String).includes(skillId)))
+    : [];
+  let juniorContentReadyIds = new Set<string>();
+  if (juniorContentReachedIds.length
+    && profile.data.record_status === "active"
+    && String(profile.data.textbook_version || "").trim() === JUNIOR_TEXTBOOK_VERSION) {
+    juniorContentReadyIds = await juniorIndividuallyVerifiedProvenanceIds(
+      juniorContentReachedIds,
+      JUNIOR_TEXTBOOK_VERSION,
+    );
+  }
 
   const recordSkills = skills.map((skill) => {
     const skillId = String(skill.id);
@@ -754,18 +926,32 @@ async function studentLearningRecord(studentId: string) {
     const verifiedLevel = Number(state?.verified_level) || 0;
     const maxLevel = Number(skill.max_level) || 1;
     const skillAnswers = answers.filter((answer) => String(answer.skill_id) === skillId);
-    const allQuestionEvidence = skillAnswers.map((answer) => {
+    const allQuestionEvidence = skillAnswers.map((answer, answerIndex) => {
       const question = questionById.get(String(answer.question_id));
       const historical = historicalQuestion(answer, question);
       if (demoProfile && historical.sourceKind === "licensed_local") return [];
+      if (gradeBand === "初三" && !juniorStudentVisibleSourceTextIsSafe([
+        historical.stem,
+        historical.options,
+        historical.explanation,
+      ])) return [];
+      const juniorEvidence = gradeBand === "初三";
       return [{
-        questionId: String(answer.question_id), motherId: String(answer.mother_id || question?.mother_id || ""), level: Number(answer.level),
+        evidenceId: `${String(answer.attempt_id)}:${String(answer.created_at)}:${answerIndex}`,
+        ...(juniorEvidence ? {} : {
+          questionId: String(answer.question_id),
+          motherId: String(answer.mother_id || question?.mother_id || ""),
+        }),
+        level: Number(answer.level),
         stem: historical.stem, options: historical.options,
         selectedOption: Number(answer.selected_option), correctOption: historical.correctOption, explanation: historical.explanation,
-        imageUrl: historical.imageUrl, correct: Boolean(answer.correct), uncertain: Boolean(answer.uncertain),
-        sourceKind: historical.sourceKind, sourceInfo: historical.sourceInfo,
-        assetRefs: historical.assetRefs, renderMode: historical.renderMode,
-        revisionToken: historical.revisionToken,
+        imageUrl: juniorEvidence ? null : historical.imageUrl,
+        correct: Boolean(answer.correct), uncertain: Boolean(answer.uncertain),
+        sourceKind: juniorEvidence ? null : historical.sourceKind,
+        sourceInfo: juniorEvidence ? null : historical.sourceInfo,
+        assetRefs: juniorEvidence ? [] : historical.assetRefs,
+        renderMode: juniorEvidence ? "native" : historical.renderMode,
+        revisionToken: juniorEvidence ? null : historical.revisionToken,
         mode: String(attemptById.get(String(answer.attempt_id))?.mode || "REVIEW"),
         durationSec: Number(answer.duration_sec) || 0, answeredAt: String(answer.created_at),
         snapshotAvailable: historical.snapshotAvailable, currentQuestionStatus: historical.currentQuestionStatus,
@@ -773,8 +959,12 @@ async function studentLearningRecord(studentId: string) {
     }).flat();
     const questionEvidence = allQuestionEvidence.slice(0, recentQuestionsPerSkillLimit);
     const cards = (cardsResult.data || []).filter((card) => String(card.skill_id) === skillId);
+    const isLearned = learnedIds.has(skillId);
+    const contentReached = gradeBand === "初三" ? juniorContentReadyIds.has(skillId) : isLearned;
     const singleSkillPlans = plans.filter((plan) => String(plan.plan_date) <= today && Array.isArray(plan.skill_ids) && plan.skill_ids.length === 1 && String(plan.skill_ids[0]) === skillId);
-    const learnedTopics = [...new Set(singleSkillPlans.flatMap((plan) => (plan.knowledge_summaries || []).map(String)))];
+    const learnedTopics = [...new Set(singleSkillPlans
+      .flatMap((plan) => (plan.knowledge_summaries || []).map(String))
+      .filter((topic) => futurePreviewInstructionalTextIsSafe([topic])))];
     const nextPlanRow = plans.find((plan) => plan.plan_date >= today && (plan.skill_ids || []).includes(skillId));
     const nextReview = state?.next_review_at ? new Date(String(state.next_review_at)).getTime() : Number.POSITIVE_INFINITY;
     const retentionStatus = state?.stability === "recovered" ? "recovered"
@@ -786,17 +976,28 @@ async function studentLearningRecord(studentId: string) {
       skillId, title: String(skill.title), moduleId: String(skill.module_id), maxLevel, verifiedLevel,
       candidateLevel: state?.candidate_level === null || state?.candidate_level === undefined ? null : Number(state.candidate_level),
       evidenceStatus: verifiedLevel >= maxLevel ? "full" : verifiedLevel > 0 ? "partial" : "unlit",
-      exposure: learnedIds.has(skillId) ? "learned" : "future", retentionStatus,
+      exposure: isLearned ? "learned" : "future", retentionStatus,
       lastReviewedAt: state?.last_reviewed_at ? String(state.last_reviewed_at) : null,
       nextReviewAt: state?.next_review_at ? String(state.next_review_at) : null,
       teacherIntervention: Boolean(state?.teacher_intervention), attemptCount,
       answeredQuestionCount: skillAnswers.length,
       correctQuestionCount: skillAnswers.filter((answer) => answer.correct).length,
       uniqueMotherCount: new Set(skillAnswers.map((answer) => String(answer.mother_id))).size,
-      learnedTopics, knowledgeSections: cardKnowledgeSections(cards), recentQuestions: questionEvidence,
+      learnedTopics,
+      // The learning record is an evidence archive, not an alternate preview
+      // endpoint. Future skills expose only their route/status; their teaching
+      // content can be read only through future_plan_preview and its full gates.
+      knowledgeSections: contentReached ? studentLearningRecordKnowledgeSections(cards) : [],
+      recentQuestions: questionEvidence,
       knowledgeEvidenceScope: "module_directory_only",
       recentQuestionsTruncated: allQuestionEvidence.length > recentQuestionsPerSkillLimit,
-      nextPlan: nextPlanRow ? { id: String(nextPlanRow.id), date: String(nextPlanRow.plan_date), title: String(nextPlanRow.title) } : null,
+      nextPlan: nextPlanRow ? {
+        id: String(nextPlanRow.id),
+        date: String(nextPlanRow.plan_date),
+        title: futurePreviewInstructionalTextIsSafe([nextPlanRow.title])
+          ? String(nextPlanRow.title)
+          : "后续学习计划（内容清理中）",
+      } : null,
     };
   });
   const attemptsTotal = attemptsResult.count ?? attempts.length;
@@ -853,23 +1054,109 @@ function juniorPlanMatchesSessionContract(
     && Number(plan.question_count) === Number(session.initial_question_target)
     && Number(session.initial_question_target) === 12
     && Number(plan.round_limit) === 1
-    && String(session.textbook_version || "") === textbookVersion
-    && String(curriculum.textbook_version || "") === textbookVersion
+    && textbookVersion === JUNIOR_TEXTBOOK_VERSION
+    && String(session.textbook_version || "") === JUNIOR_TEXTBOOK_VERSION
+    && String(curriculum.textbook_version || "") === JUNIOR_TEXTBOOK_VERSION
     && curriculum.release_status === "ready";
 }
 
 function juniorSourceQuestionIsSafe(row: Record<string, unknown>) {
-  const text = [
+  return juniorStudentVisibleSourceTextIsSafe([
     row.stem,
     ...(Array.isArray(row.options) ? row.options : []),
     row.explanation,
     row.scaffold,
-  ].map((value) => String(value || "")).join("\n");
+  ]);
+}
+
+function studentVisibleText(values: unknown[]) {
+  const maxDepth = 16;
+  const maxNodes = 5_000;
+  const maxCollectionWidth = 500;
+  const maxStringLength = 20_000;
+  const maxTotalCharacters = 200_000;
+  const leaves: string[] = [];
+  let complete = true;
+  let visited = 0;
+  let totalCharacters = 0;
+  const stack: Array<{ value: unknown; depth: number }> = [];
+  if (values.length > maxCollectionWidth) complete = false;
+  for (let index = Math.min(values.length, maxCollectionWidth) - 1; index >= 0; index -= 1) {
+    stack.push({ value: values[index], depth: 0 });
+  }
+  while (complete && stack.length > 0) {
+    const { value, depth } = stack.pop()!;
+    visited += 1;
+    if (depth > maxDepth || visited > maxNodes) {
+      complete = false;
+      break;
+    }
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string") {
+      if (value.length > maxStringLength || totalCharacters + value.length > maxTotalCharacters) {
+        complete = false;
+        break;
+      }
+      leaves.push(value);
+      totalCharacters += value.length;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.length > maxCollectionWidth) {
+        complete = false;
+        break;
+      }
+      for (let index = value.length - 1; index >= 0; index -= 1) {
+        stack.push({ value: value[index], depth: depth + 1 });
+      }
+      continue;
+    }
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const children: unknown[] = [];
+      let width = 0;
+      for (const key in record) {
+        if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+        width += 1;
+        if (width > maxCollectionWidth) {
+          complete = false;
+          break;
+        }
+        children.push(record[key]);
+      }
+      if (!complete) break;
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        stack.push({ value: children[index], depth: depth + 1 });
+      }
+      continue;
+    }
+    const text = String(value);
+    if (text.length > maxStringLength || totalCharacters + text.length > maxTotalCharacters) {
+      complete = false;
+      break;
+    }
+    leaves.push(text);
+    totalCharacters += text.length;
+  }
+  return { text: leaves.join("\n"), complete };
+}
+
+function juniorStudentVisibleSourceTextIsSafe(values: unknown[]) {
+  const scan = studentVisibleText(values);
+  if (!scan.complete) return false;
+  const text = scan.text;
   // The actual provenance remains in the protected release and canonical
   // library. A source label must never leak through either the question or
   // the feedback explanation/scaffold. Generic exam labels add no learning
   // value here, so ambiguous wording is rejected rather than guessed safe.
-  return !/(?:(?:【|\[)[^】\]]{0,60}(?:20\d{2}|中考|期中|期末|模拟|真题|质检|检测|省|市|县|学校|中学))|(?:来源|出处|选自|题源)\s*[:：]?[^\n]{0,80}|(?:20\d{2}\s*年)?[^\n]{0,30}(?:中考(?:真题)?|期中(?:考试)?|期末(?:考试)?|模拟(?:题|考试)?|真题|质检(?:题)?|检测题))/u.test(text);
+  return !/(?:(?:【|\[)[^】\]]{0,60}(?:20\d{2}|中考|期中|期末|模拟|真题|质检|检测|省|市|县|学校|中学))|(?:来源|出处|选自|题源)\s*[:：]?[^\n]{0,80}|(?:20\d{2}\s*年)?[^\n]{0,30}(?:中考(?:真题)?|期中(?:考试)?|期末(?:考试)?|模拟(?:题|考试)?|真题|质检(?:题)?|检测题)|SRC-[0-9A-F]{8,}|[A-Z]:[\\/])/u.test(text);
+}
+
+const FUTURE_PREVIEW_PROVENANCE_LABEL_PATTERN = /(?:(?:数据|图片|材料|试题)?来源|出处|题源)\s*[:：][^\n]{0,120}|选自\s*[:：]?[^\n]{1,120}|SRC-[0-9A-F]{8,}|[A-Z]:[\\/]|(?:https?|file):\/\/|\\\\|\/(?:Users|home)\/|\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu;
+
+function futurePreviewInstructionalTextIsSafe(values: unknown[]) {
+  const scan = studentVisibleText(values);
+  return scan.complete && !FUTURE_PREVIEW_PROVENANCE_LABEL_PATTERN.test(scan.text);
 }
 
 function juniorNativeQuestionIsSafe(row: Record<string, unknown>) {
@@ -904,8 +1191,9 @@ function juniorIssuedQuestionMatchesContract(
   const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
   return juniorNativeQuestionIsSafe(row)
     && String(row.grade_band || "") === "初三"
-    && String(row.textbook_version || "") === textbookVersion
-    && String(row.source_kind || "") === "licensed_local"
+    && textbookVersion === JUNIOR_TEXTBOOK_VERSION
+    && String(row.textbook_version || "") === JUNIOR_TEXTBOOK_VERSION
+    && String(row.source_kind || "") === JUNIOR_SOURCE_KIND
     && String(row.review_status || "") === "approved"
     && String(row.scope_status || "") === "IN"
     && row.usable_for_review === true
@@ -917,7 +1205,7 @@ function juniorIssuedQuestionMatchesContract(
     && String(snapshot.conceptKey || "") === String(row.concept_key || "")
     && Number(snapshot.level) === Number(row.level)
     && String(snapshot.gradeBand || "") === "初三"
-    && String(snapshot.textbookVersion || "") === textbookVersion
+    && String(snapshot.textbookVersion || "") === JUNIOR_TEXTBOOK_VERSION
     && String(snapshot.stem || "") === String(row.stem || "")
     && sameJson(snapshot.options, row.options)
     && Number(snapshot.correctOption) === Number(row.correct_option)
@@ -925,7 +1213,7 @@ function juniorIssuedQuestionMatchesContract(
     && String(snapshot.scaffold || "") === String(row.scaffold || "")
     && String(snapshot.reviewStatus || "") === "approved"
     && String(snapshot.scopeStatus || "") === "IN"
-    && String(snapshot.sourceKind || "") === "licensed_local"
+    && String(snapshot.sourceKind || "") === JUNIOR_SOURCE_KIND
     && String(snapshot.renderMode || "") === "native"
     && !String(snapshot.imageUrl || "").trim()
     && Array.isArray(snapshot.assetRefs)
@@ -943,10 +1231,8 @@ function juniorQuestionShape(row: Record<string, unknown>) {
     throw new RequestError(422, "初中原题尚未满足原生文字、安全去来源和完整选项门禁，已停止下发并通知甘老师。");
   }
   return {
-    id: row.id, motherId: row.mother_id, skillId: row.skill_id, conceptKey: row.concept_key || null, level: row.level,
+    skillId: row.skill_id, level: row.level,
     gradeBand: row.grade_band, stem: row.stem, options: row.options,
-    reviewStatus: row.review_status, scopeStatus: row.scope_status, sourceKind: row.source_kind,
-    imageUrl: null, sourceInfo: null, assetRefs: [], renderMode: "native",
     revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
   };
 }
@@ -964,7 +1250,7 @@ function juniorIssuedQuestionSnapshot(
     conceptKey: row.concept_key ?? null,
     level: row.level,
     gradeBand: row.grade_band,
-    textbookVersion: row.textbook_version,
+    textbookVersion: JUNIOR_TEXTBOOK_VERSION,
     stem: row.stem,
     options: row.options,
     correctOption: row.correct_option,
@@ -972,7 +1258,7 @@ function juniorIssuedQuestionSnapshot(
     scaffold: row.scaffold ?? null,
     reviewStatus: row.review_status,
     scopeStatus: row.scope_status,
-    sourceKind: row.source_kind,
+    sourceKind: JUNIOR_SOURCE_KIND,
     renderMode: row.render_mode,
     imageUrl: row.image_url ?? null,
     assetRefs: row.asset_refs,
@@ -1147,20 +1433,35 @@ async function juniorVerifiedProvenance(skillIds: string[], textbookVersion: str
   });
   if (provenanceResult.error) throw provenanceResult.error;
   const provenanceRows = (provenanceResult.data || []) as Array<Record<string, unknown>>;
-  const releaseByKnowledge = new Map<string, string>();
+  const releaseByKnowledge = juniorVerifiedReleaseByKnowledge(provenanceRows, skillIds, textbookVersion);
   for (const skillId of skillIds) {
-    const rows = provenanceRows.filter((row) => String(row.knowledge_id) === skillId
-      && String(row.textbook_version) === textbookVersion
-      && row.verification_status === "verified"
-      && row.source_release_ready === true
-      && validUuid(String(row.source_release_id || "")));
-    if (rows.length !== 1) {
+    if (!releaseByKnowledge.has(skillId)) {
       return { ready: false, reason: `“${skillId}”没有唯一、已核验且绑定初三正式发布的教材来源。`, releaseByKnowledge };
     }
-    releaseByKnowledge.set(skillId, String(rows[0].source_release_id));
   }
 
   return { ready: true, reason: "", releaseByKnowledge };
+}
+
+async function juniorIndividuallyVerifiedProvenanceIds(skillIds: string[], textbookVersion: string) {
+  const readyIds = new Set<string>();
+  // The private provenance RPC intentionally accepts at most 20 IDs per call.
+  // Learning records can eventually contain far more, so validate bounded
+  // batches and merge only the individual routes that have one exact row.
+  for (const batch of juniorProvenanceBatches(skillIds)) {
+    const provenanceResult = await supabase.rpc("chem_junior_verified_provenance_rows", {
+      p_textbook_version: textbookVersion,
+      p_knowledge_ids: batch,
+    });
+    if (provenanceResult.error) throw provenanceResult.error;
+    const releaseByKnowledge = juniorVerifiedReleaseByKnowledge(
+      (provenanceResult.data || []) as Array<Record<string, unknown>>,
+      batch,
+      textbookVersion,
+    );
+    for (const skillId of releaseByKnowledge.keys()) readyIds.add(skillId);
+  }
+  return readyIds;
 }
 
 async function juniorDayReadiness(curriculum: Record<string, unknown>) {
@@ -1169,13 +1470,15 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
     return { ready: false, reason: "当天没有配置三个互不重复的知识点。", questions: [] as Array<Record<string, unknown>> };
   }
   const textbookVersion = String(curriculum.textbook_version || "").trim();
-  if (!textbookVersion) return { ready: false, reason: "当天课程没有标明教材版本。", questions: [] as Array<Record<string, unknown>> };
-  const provenance = await juniorVerifiedProvenance(skillIds, textbookVersion);
+  if (textbookVersion !== JUNIOR_TEXTBOOK_VERSION) {
+    return { ready: false, reason: `当天课程必须精确绑定“${JUNIOR_TEXTBOOK_VERSION}”。`, questions: [] as Array<Record<string, unknown>> };
+  }
+  const provenance = await juniorVerifiedProvenance(skillIds, JUNIOR_TEXTBOOK_VERSION);
   if (!provenance.ready) return { ready: false, reason: provenance.reason, questions: [] as Array<Record<string, unknown>> };
   const result = await supabase.from("chem_questions")
     .select("id,mother_id,skill_id,knowledge_id,same_type_key,source_item_key,parent_source_item_key,content_fingerprint,level,source_release_id,textbook_version,stem,options,correct_option,explanation,render_mode,image_url,asset_refs")
-    .eq("grade_band", "初三").eq("textbook_version", textbookVersion)
-    .in("knowledge_id", skillIds).eq("source_kind", "licensed_local")
+    .eq("grade_band", "初三").eq("textbook_version", JUNIOR_TEXTBOOK_VERSION)
+    .in("knowledge_id", skillIds).eq("source_kind", JUNIOR_SOURCE_KIND)
     .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true)
     .not("source_release_id", "is", null).order("id");
   if (result.error) throw result.error;
@@ -1231,15 +1534,16 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
 async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, unknown>) {
   if (String(profile.grade_band) !== "初三") return false;
   if ((profile.metadata as Record<string, unknown> | null)?.demo) return false;
-  const textbookVersion = String(profile.textbook_version || "").trim();
-  if (!textbookVersion || textbookVersion === "待确认") {
+  const profileTextbookVersion = String(profile.textbook_version || "").trim();
+  if (profileTextbookVersion !== JUNIOR_TEXTBOOK_VERSION) {
     await ensureJuniorTeacherAlert(
       studentId,
-      "初中教材版本待确认",
-      "学生档案尚未确认教材版本；系统没有猜测版本，也没有下发任何原题。请甘老师核对后再启用初中自适应学习。",
+      "初中教材版本未精确匹配",
+      `学生档案必须明确确认为“${JUNIOR_TEXTBOOK_VERSION}”；系统没有猜测版本，也没有下发任何原题。请甘老师核对后再启用初中自适应学习。`,
     );
     return false;
   }
+  const textbookVersion = JUNIOR_TEXTBOOK_VERSION;
   const [curriculumResult, sessionsResult] = await Promise.all([
     supabase.from("chem_junior_curriculum_days").select("*").eq("textbook_version", textbookVersion).eq("release_status", "ready").order("day_number"),
     supabase.from("chem_junior_daily_sessions").select("curriculum_day_id,status").eq("student_id", studentId),
@@ -1259,6 +1563,14 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
   const completed = new Set(sessions.filter((session) => session.status === "completed").map((session) => String(session.curriculum_day_id)));
   const next = curriculumRows.find((row) => !completed.has(String(row.id)));
   if (!next) return false;
+  if (!futurePreviewInstructionalTextIsSafe([next.title, next.knowledge_summaries])) {
+    await ensureJuniorTeacherAlert(
+      studentId,
+      "初中课程文案来源标签未清理",
+      `课程日“${String(next.id)}”的标题或知识摘要仍含来源标签、内部编号或本地定位信息；系统没有创建学生计划。`,
+    );
+    return false;
+  }
   const today = shanghaiDate();
   const [existingDay, existingCurriculum] = await Promise.all([
     supabase.from("chem_learning_plans").select("id")
@@ -1295,16 +1607,24 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   ]);
   if (planResult.error || profileResult.error) throw planResult.error || profileResult.error;
   const plan = planResult.data as Record<string, unknown> | null;
-  const textbookVersion = String(profileResult.data.textbook_version || "").trim();
+  const profileTextbookVersion = String(profileResult.data.textbook_version || "").trim();
   if (!plan || !isJuniorAdaptivePlan(plan) || String(profileResult.data.grade_band) !== "初三"
     || String(profileResult.data.record_status) !== "active"
-    || !textbookVersion || textbookVersion === "待确认") {
-    throw new RequestError(409, "这不是教材版本已经确认的初中自适应学习计划。");
+    || profileTextbookVersion !== JUNIOR_TEXTBOOK_VERSION) {
+    throw new RequestError(409, `这不是教材版本已经精确确认为“${JUNIOR_TEXTBOOK_VERSION}”的初中自适应学习计划。`);
   }
+  const textbookVersion = JUNIOR_TEXTBOOK_VERSION;
   if ((profileResult.data.metadata as Record<string, unknown> | null)?.demo) throw new RequestError(403, "演示账号不下发私有原题。");
   if (String(plan.plan_date || "") > shanghaiDate()) {
     throw new RequestError(409, "后续日期的初三自适应学习尚未开放，请在计划当天进入。");
   }
+  const studentPlan = juniorStudentPlanShape(
+    plan,
+    [],
+    undefined,
+    undefined,
+    { failClosedOnUnsafeCopy: true },
+  );
   const curriculumId = String(plan.junior_curriculum_day_id || "");
   if (!curriculumId) throw new RequestError(422, "该初中计划缺少课程日索引，已停止下发并通知甘老师。");
   const curriculumResult = await supabase.from("chem_junior_curriculum_days").select("*")
@@ -1312,6 +1632,9 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   if (curriculumResult.error) throw curriculumResult.error;
   const curriculum = curriculumResult.data as Record<string, unknown> | null;
   if (!curriculum) throw new RequestError(422, "当天课程尚未完成审核发布。");
+  if (!futurePreviewInstructionalTextIsSafe([curriculum.title, curriculum.knowledge_summaries])) {
+    throw new RequestError(422, "当天课程标题或知识摘要仍含来源标签、内部编号或本地定位信息，完成清理前不能正式开课。");
+  }
   const skillIds = Array.isArray(curriculum.knowledge_skill_ids) ? curriculum.knowledge_skill_ids.map(String) : [];
   if (skillIds.length !== 3 || new Set(skillIds).size !== 3) throw new RequestError(422, "当天课程没有配置三个互不重复的知识点。");
 
@@ -1372,10 +1695,14 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   }
   const cards = (cardsResult.data || []) as Array<Record<string, unknown>>;
   const missingCard = skillIds.some((skillId) => cards.filter((card) => String(card.skill_id) === skillId).length !== 1);
-  if (missingCard || !provenance.ready) {
+  const invalidStructuredCard = cards.some((card) =>
+    !validOptionalStructuredKnowledgeContent(card.structured_content));
+  if (missingCard || invalidStructuredCard || !provenance.ready) {
     const detail = missingCard
       ? "当天三个知识点没有各自且仅有一张审核通过的知识卡。"
-      : provenance.reason;
+      : invalidStructuredCard
+        ? "当天知识卡的结构化学习内容没有通过显示合同。"
+        : provenance.reason;
     if (session.status === "active") {
       await blockJuniorSession(
         String(session.id), studentId,
@@ -1395,7 +1722,15 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   });
   const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
   const orderedCards = [...cards].sort((a, b) => (cardOrder.get(String(a.skill_id)) ?? 99) - (cardOrder.get(String(b.skill_id)) ?? 99));
-  if (session.status === "completed") return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: sessionSummary(), currentQuestion: null, completed: true };
+  const studentCards = orderedCards.map(studentProvenanceFreeCardShape);
+  if (studentCards.some((card) => !studentInstructionalCardTextIsSafe(card))) {
+    const detail = "当天知识卡仍含来源标签、内部编号或本地定位信息。";
+    if (session.status === "active") {
+      await blockJuniorSession(String(session.id), studentId, "knowledge_contract_unavailable", detail, "初中知识卡来源标签未清理");
+    }
+    throw new RequestError(422, `${detail} 系统已停止返回内容并通知甘老师。`);
+  }
+  if (session.status === "completed") return { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: sessionSummary(), currentQuestion: null, completed: true };
   if (session.status !== "active") {
     const reason = String(session.blocked_reason_detail || "这一天的初中学习会话已被暂停。");
     throw new RequestError(422, `${reason} 请联系甘老师处理后再继续。`);
@@ -1439,7 +1774,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
       );
       throw new RequestError(409, "当前原题已更新，系统不会替换正在答的题；请联系甘老师处理。");
     }
-    return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: sessionSummary(), currentStepId: unanswered.id, currentQuestion: juniorQuestionShape(currentQuestion.data), completed: false };
+    return { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: sessionSummary(), currentStepId: unanswered.id, currentQuestion: juniorQuestionShape(currentQuestion.data), completed: false };
   }
 
   const allSessions = (allSessionsResult.data || []) as Array<Record<string, unknown>>;
@@ -1468,7 +1803,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   }
   const poolResult = await supabase.from("chem_questions").select("*")
     .eq("grade_band", "初三").eq("textbook_version", textbookVersion).in("knowledge_id", candidateKnowledgeIds)
-    .eq("source_kind", "licensed_local").eq("review_status", "approved").eq("scope_status", "IN")
+    .eq("source_kind", JUNIOR_SOURCE_KIND).eq("review_status", "approved").eq("scope_status", "IN")
     .eq("usable_for_review", true).not("source_release_id", "is", null).order("id");
   if (poolResult.error) throw poolResult.error;
   const poolRows = (poolResult.data || []) as Array<Record<string, unknown>>;
@@ -1502,7 +1837,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     if (steps.length >= 12 && recoveryReady && (hardCapReached || evidenceReady)) {
       const finalized = await supabase.rpc("chem_junior_finalize_session", { p_session_id: session.id, p_student_id: studentId });
       if (finalized.error) throw finalized.error;
-      return { deliveryMode: "junior_adaptive", plan: planShape(plan), cards: orderedCards.map(cardShape), session: { ...sessionSummary(), status: "completed" }, currentQuestion: null, completed: true };
+      return { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: { ...sessionSummary(), status: "completed" }, currentQuestion: null, completed: true };
     }
     await blockJuniorSession(
       String(session.id), studentId, "source_capacity_exhausted",
@@ -1551,13 +1886,118 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   });
   return {
     deliveryMode: "junior_adaptive",
-    plan: planShape(plan),
-    cards: orderedCards.map(cardShape),
+    plan: studentPlan,
+    cards: studentCards,
     session: sessionSummary(),
     currentStepId: issuedRow.step_id,
     currentQuestion: juniorQuestionShape(selected),
     completed: false,
   };
+}
+
+async function futurePlanPreviewPayload(studentId: string, planId: string): Promise<Record<string, unknown>> {
+  const [planResult, profileResult] = await Promise.all([
+    supabase.from("chem_learning_plans")
+      .select("id,student_id,plan_date,mode,title,skill_ids,target_concept_keys,knowledge_summaries,estimated_minutes,source,is_scheduled,question_count,round_limit,max_question_level,delivery_mode,junior_curriculum_day_id")
+      .eq("id", planId).eq("student_id", studentId).maybeSingle(),
+    supabase.from("chem_students_v2")
+      .select("grade_band,textbook_version,record_status,metadata")
+      .eq("id", studentId).single(),
+  ]);
+  if (planResult.error || profileResult.error) throw planResult.error || profileResult.error;
+  const plan = planResult.data as Record<string, unknown> | null;
+  const profile = profileResult.data as Record<string, unknown>;
+  if (!plan || String(profile.record_status) !== "active") {
+    throw new RequestError(404, "这项学习计划不存在或当前不可用。");
+  }
+  if ((profile.metadata as Record<string, unknown> | null)?.demo === true) {
+    throw new RequestError(403, "演示账号请使用演示练习，不读取真实学生的未来计划。");
+  }
+  const planDate = String(plan.plan_date || "");
+  if (!planDate || planDate <= shanghaiDate()) {
+    throw new RequestError(409, "这项计划已到正式学习日期，请从正式学习入口进入。");
+  }
+  const skillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map(String).filter(Boolean) : [];
+  if (!skillIds.length || new Set(skillIds).size !== skillIds.length) {
+    throw new RequestError(422, "这项计划的知识点配置不完整，暂时不能预习。");
+  }
+
+  if (String(profile.grade_band) === "初三") {
+    if (!isJuniorAdaptivePlan(plan)) {
+      throw new RequestError(409, "初三未来计划必须是已审核的科粤版自适应课程日；历史通用计划不提供预习。");
+    }
+    const textbookVersion = String(profile.textbook_version || "").trim();
+    const curriculumId = String(plan.junior_curriculum_day_id || "");
+    if (textbookVersion !== JUNIOR_TEXTBOOK_VERSION || !curriculumId) {
+      throw new RequestError(409, `初三预习需要先精确确认“${JUNIOR_TEXTBOOK_VERSION}”和课程日。`);
+    }
+    const curriculumResult = await supabase.from("chem_junior_curriculum_days")
+      .select("id,textbook_version,knowledge_skill_ids,release_status")
+      .eq("id", curriculumId).eq("textbook_version", JUNIOR_TEXTBOOK_VERSION).eq("release_status", "ready").maybeSingle();
+    if (curriculumResult.error) throw curriculumResult.error;
+    const curriculum = curriculumResult.data as Record<string, unknown> | null;
+    if (!curriculum || !juniorExactStringArray(curriculum.knowledge_skill_ids, skillIds)) {
+      throw new RequestError(422, "这项初三计划与已审核课程日不一致，暂时不能预习。");
+    }
+    const provenance = await juniorVerifiedProvenance(skillIds, JUNIOR_TEXTBOOK_VERSION);
+    if (!provenance.ready) {
+      throw new RequestError(422, `这项初三预习还没有完成唯一教材来源与当前正式发布绑定：${provenance.reason}`);
+    }
+  }
+
+  const cardsResult = await supabase.from("chem_knowledge_cards").select("*")
+    .in("skill_id", skillIds).eq("review_status", "approved");
+  if (cardsResult.error) throw cardsResult.error;
+  const cards = (cardsResult.data || []) as Array<Record<string, unknown>>;
+  if (skillIds.some((skillId) => cards.filter((card) => String(card.skill_id) === skillId).length !== 1)) {
+    throw new RequestError(422, "这一天还没有为每个知识点准备唯一的审核知识卡，暂时不能预习。");
+  }
+  if (cards.some((card) => !validOptionalStructuredKnowledgeContent(card.structured_content))) {
+    throw new RequestError(422, "这一天的结构化知识卡没有通过显示合同，暂时不能预习。");
+  }
+  const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
+  const orderedCards = [...cards]
+    .sort((a, b) => (cardOrder.get(String(a.skill_id)) ?? 999) - (cardOrder.get(String(b.skill_id)) ?? 999));
+  const shapedCards = orderedCards.map(studentProvenanceFreeCardShape);
+  const shapedPlan = juniorStudentPlanShape(
+    plan,
+    [],
+    undefined,
+    undefined,
+    { failClosedOnUnsafeCopy: true },
+  );
+  if (shapedCards.some((card) => !studentInstructionalCardTextIsSafe(card))) {
+    throw new RequestError(422, "这一天的知识卡仍含来源标签或本地定位信息，完成清理前不能预习。");
+  }
+  return {
+    previewMode: "future_knowledge_only",
+    plan: shapedPlan,
+    cards: shapedCards,
+    formalOpenDate: planDate,
+    recordsLearningEvidence: false,
+    includesQuestions: false,
+  };
+}
+
+function studentDashboardPlanShape(
+  row: Record<string, unknown>,
+  attemptRows: Array<Record<string, unknown>>,
+  juniorSession: Record<string, unknown> | undefined,
+  profile: ReviewProfileContext,
+) {
+  if (profile.gradeBand === "初三" || row.delivery_mode === "junior_adaptive") {
+    return juniorStudentPlanShape(row, attemptRows, juniorSession, profile);
+  }
+  const shaped = planShape(row, attemptRows, juniorSession, profile);
+  if (String(row.plan_date || "") <= shanghaiDate()) return shaped;
+  const withoutSource = Object.fromEntries(Object.entries(shaped).filter(([key]) => key !== "source"));
+  if (futurePreviewInstructionalTextIsSafe([withoutSource.title, withoutSource.knowledgeSummaries])) {
+    return withoutSource;
+  }
+  // Keep the date/identity needed to open the dedicated preview route, but do
+  // not echo unclean future copy on the dashboard before that route validates
+  // the curriculum, release, rights and complete card payload.
+  return { ...withoutSource, title: "未来学习计划（内容清理中）", knowledgeSummaries: [] };
 }
 
 async function studentDashboard(studentId: string) {
@@ -1628,7 +2068,12 @@ async function studentDashboard(studentId: string) {
       ...profileShape(profileResult.data),
       availableDemoGrades: isDemo ? ["高一", "高二", "高三"] : undefined,
     },
-    plans: plans.map((plan) => planShape(plan, attemptResult.data || [], juniorSessionByPlanId.get(String(plan.id)), reviewProfile)),
+    plans: plans.map((plan) => studentDashboardPlanShape(
+      plan,
+      attemptResult.data || [],
+      juniorSessionByPlanId.get(String(plan.id)),
+      reviewProfile,
+    )),
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
     todayQuestionCount: todayPlan ? planQuestionCount(todayPlan) : 5,
@@ -1768,10 +2213,17 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       ? { ...options, allowCompletedPreview: true, includeAnswerLocks: false }
       : { ...options, allowCompletedPreview: false, includeAnswerLocks: true }
     : options;
+  const realStudentOpen = options.studentOpen === true && !demoProfile;
   if (options.studentOpen && !demoProfile && options.previewRound !== undefined) {
     throw new RequestError(403, "真实学习记录不能指定练习轮次。");
   }
   const reviewProfile = { gradeBand: String(gradeResult.data.grade_band), isDemo: demoProfile };
+  if (realStudentOpen && reviewProfile.gradeBand === "初三") {
+    throw new RequestError(409, "初三正式学习只能通过专用自适应会话进入；通用题组入口不会下发初三题目。");
+  }
+  if (realStudentOpen && String(plan.plan_date || "") > shanghaiDate()) {
+    throw new RequestError(409, "未来计划只能进入只读知识预习；正式题组会在安排日期开启。");
+  }
   const skillIds: string[] = Array.isArray(plan.skill_ids)
     ? (plan.skill_ids as unknown[]).map((skillId) => String(skillId)).filter(Boolean)
     : [];
@@ -1892,9 +2344,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     }
     for (const card of cardRows) {
       const structured = card.structured_content;
-      const hasStructured = structured && typeof structured === "object" && !Array.isArray(structured)
-        && Object.keys(structured as Record<string, unknown>).length > 0;
-      if (hasStructured && !validStructuredKnowledgeContent(structured)) {
+      if (!validOptionalStructuredKnowledgeContent(structured)) {
         throw new RequestError(422, `“${String(card.title || "当天知识卡")}”的展开内容结构不完整，已停止下发并通知甘老师。`);
       }
     }
@@ -2372,7 +2822,7 @@ Deno.serve(async (req: Request) => {
                   planId,
                   demoTarget
                     ? { allowCompletedPreview: true, previewRound }
-                    : { includeAnswerLocks: true },
+                    : { studentOpen: true, includeAnswerLocks: true },
                 );
                 isExpectedCurrentQuestion = expectedPayload.plan.mode === "REVIEW"
                   && Number(expectedPayload.attemptSequence) === Number(attemptSequence)
@@ -2453,7 +2903,7 @@ Deno.serve(async (req: Request) => {
         planId,
         readOnlyPreview
           ? { allowCompletedPreview: true, previewRound }
-          : { includeAnswerLocks: true },
+          : { studentOpen: true, includeAnswerLocks: true },
       );
        if (payload.plan.mode !== "REVIEW") return reply(req, { error: "该反馈接口只用于高中原题复习。" }, 409);
       const issuedQuestion = (payload.questions as Array<Record<string, unknown>>)
@@ -2540,6 +2990,12 @@ Deno.serve(async (req: Request) => {
       return reply(req, { payload: await juniorSessionPayload(identity.studentId, planId) });
     }
 
+    if (body.action === "future_plan_preview" && identity.role === "student" && identity.studentId) {
+      const planId = String(body.data?.planId || "");
+      if (!validUuid(planId)) return reply(req, { error: "预习计划信息无效。" }, 400);
+      return reply(req, { preview: await futurePlanPreviewPayload(identity.studentId, planId) });
+    }
+
     if (body.action === "junior_submit_step" && identity.role === "student" && identity.studentId) {
       const planId = String(body.data?.planId || "");
       const stepId = String(body.data?.stepId || "");
@@ -2560,9 +3016,19 @@ Deno.serve(async (req: Request) => {
         return reply(req, { error: "原题内容已更新，请重新打开当天学习。" }, 409);
       }
       const sessionPayload = issued.session as Record<string, unknown>;
+      const currentStepResult = await supabase.from("chem_junior_session_steps")
+        .select("question_id,skill_id,knowledge_id,session_id")
+        .eq("id", stepId).eq("session_id", String(sessionPayload.id)).maybeSingle();
+      if (currentStepResult.error) throw currentStepResult.error;
+      if (!currentStepResult.data
+        || String(currentStepResult.data.skill_id || "") !== String(currentQuestion.skillId || "")
+        || String(currentStepResult.data.knowledge_id || "") !== String(currentQuestion.skillId || "")) {
+        return reply(req, { error: "当前答题步骤已变化，请重新打开当天学习。" }, 409);
+      }
       const questionResult = await supabase.from("chem_questions")
         .select("*")
-        .eq("id", String(currentQuestion.id)).eq("grade_band", "初三").eq("source_kind", "licensed_local")
+        .eq("id", String(currentStepResult.data.question_id)).eq("grade_band", "初三")
+        .eq("textbook_version", JUNIOR_TEXTBOOK_VERSION).eq("source_kind", JUNIOR_SOURCE_KIND)
         .eq("skill_id", String(currentQuestion.skillId)).eq("knowledge_id", String(currentQuestion.skillId))
         .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true)
         .eq("render_mode", "native").maybeSingle();
@@ -2583,7 +3049,7 @@ Deno.serve(async (req: Request) => {
       if (!lock) throw new RequestError(500, "首次答案未能安全锁定，请稍后重试。");
       const nextPayload = await juniorSessionPayload(identity.studentId, planId);
       return reply(req, {
-        feedback: questionFeedbackShape(questionResult.data, Number(lock.selected_option), {
+        feedback: juniorQuestionFeedbackShape(questionResult.data, stepId, Number(lock.selected_option), {
           uncertain: lock.uncertain === true, durationSec: Number(lock.duration_sec) || 0,
         }),
         payload: nextPayload,
@@ -2724,6 +3190,9 @@ Deno.serve(async (req: Request) => {
       if ((targetProfile.data.metadata as Record<string, unknown> | null)?.demo) {
         return reply(req, { dashboard: await studentDashboard(targetId), achievements: [], simulated: true });
       }
+      if (String(targetProfile.data.grade_band) === "初三") {
+        return reply(req, { error: "初三正式作答只能通过专用自适应会话提交；通用提交入口已关闭。" }, 409);
+      }
 
       const { data: plan, error: planError } = await supabase
         .from("chem_learning_plans")
@@ -2735,6 +3204,9 @@ Deno.serve(async (req: Request) => {
       if (!plan) return reply(req, { error: "无权提交该学习记录。" }, 403);
       if (plan.delivery_mode === "junior_adaptive") {
         return reply(req, { error: "初三自适应答案只能通过专用学习会话提交；通用提交入口已关闭。" }, 409);
+      }
+      if (String(plan.plan_date || "") > shanghaiDate()) {
+        return reply(req, { error: "未来计划只能进入只读知识预习；正式题组会在安排日期开启。" }, 409);
       }
 
       const submittedAnswers = attempt.answers as Array<Record<string, unknown>>;
@@ -2937,7 +3409,7 @@ Deno.serve(async (req: Request) => {
         // Rebuild the exact adaptive set for the current round from the
         // server-owned plan, skill state and answer history, then compare it
         // as an unordered set with what the student actually received.
-        const expectedPayload = await startPlanPayload(targetId, String(plan.id));
+        const expectedPayload = await startPlanPayload(targetId, String(plan.id), { studentOpen: true, includeAnswerLocks: true });
         const expectedQuestionIds = (expectedPayload.questions as Array<{ id: unknown }>).map((question) => String(question.id));
         const expectedQuestionIdSet = new Set(expectedQuestionIds);
         if (
