@@ -147,7 +147,10 @@ describe('StudentApp plan opening resilience', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('opens a real student future plan as a separate knowledge-only preview', async () => {
+  it.each([
+    { label: 'real student', isDemo: false },
+    { label: 'demo student', isDemo: true },
+  ])('opens a $label future plan as a separate knowledge-only preview', async ({ isDemo }) => {
     const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
     const futurePlan = { ...plan, id: 'plan-future', date: tomorrow }
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -167,7 +170,7 @@ describe('StudentApp plan opening resilience', () => {
     vi.stubGlobal('fetch', fetchMock)
     const futureDashboard: StudentDashboardData = {
       ...dashboard,
-      profile: { ...dashboard.profile, isDemo: false },
+      profile: { ...dashboard.profile, isDemo },
       plans: [futurePlan],
     }
     render(<StudentApp session={session} initialDashboard={futureDashboard} onDashboard={vi.fn()} />)

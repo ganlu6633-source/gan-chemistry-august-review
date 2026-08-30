@@ -300,6 +300,10 @@ type SourceAdaptiveHistory = Record<string, unknown> & {
   question_snapshot?: unknown;
 };
 
+type SourceAdaptiveHistoryRow = SourceAdaptiveHistory & {
+  history_order?: number | null;
+};
+
 function latestConceptsAtMaximumDifficulty(
   latestAnswers: SourceAdaptiveHistory[],
   questionPool: SourceAdaptiveQuestion[],
@@ -1149,7 +1153,7 @@ function juniorStudentVisibleSourceTextIsSafe(values: unknown[]) {
   // library. A source label must never leak through either the question or
   // the feedback explanation/scaffold. Generic exam labels add no learning
   // value here, so ambiguous wording is rejected rather than guessed safe.
-  return !/(?:(?:【|\[)[^】\]]{0,60}(?:20\d{2}|中考|期中|期末|模拟|真题|质检|检测|省|市|县|学校|中学))|(?:来源|出处|选自|题源)\s*[:：]?[^\n]{0,80}|(?:20\d{2}\s*年)?[^\n]{0,30}(?:中考(?:真题)?|期中(?:考试)?|期末(?:考试)?|模拟(?:题|考试)?|真题|质检(?:题)?|检测题)|SRC-[0-9A-F]{8,}|[A-Z]:[\\/])/u.test(text);
+  return !/(?:(?:【|\[)[^】\]]{0,60}(?:20\d{2}|中考|期中|期末|模拟|真题|质检|检测|省|市|县|学校|中学)|(?:来源|出处|选自|题源)\s*[:：]?[^\n]{0,80}|(?:20\d{2}\s*年)?[^\n]{0,30}(?:中考(?:真题)?|期中(?:考试)?|期末(?:考试)?|模拟(?:题|考试)?|真题|质检(?:题)?|检测题)|SRC-[0-9A-F]{8,}|[A-Z]:[\\/])/u.test(text);
 }
 
 const FUTURE_PREVIEW_PROVENANCE_LABEL_PATTERN = /(?:(?:数据|图片|材料|试题)?来源|出处|题源)\s*[:：][^\n]{0,120}|选自\s*[:：]?[^\n]{1,120}|SRC-[0-9A-F]{8,}|[A-Z]:[\\/]|(?:https?|file):\/\/|\\\\|\/(?:Users|home)\/|\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu;
@@ -1910,9 +1914,6 @@ async function futurePlanPreviewPayload(studentId: string, planId: string): Prom
   if (!plan || String(profile.record_status) !== "active") {
     throw new RequestError(404, "这项学习计划不存在或当前不可用。");
   }
-  if ((profile.metadata as Record<string, unknown> | null)?.demo === true) {
-    throw new RequestError(403, "演示账号请使用演示练习，不读取真实学生的未来计划。");
-  }
   const planDate = String(plan.plan_date || "");
   if (!planDate || planDate <= shanghaiDate()) {
     throw new RequestError(409, "这项计划已到正式学习日期，请从正式学习入口进入。");
@@ -2376,11 +2377,12 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     ? await supabase.from("chem_attempt_answers").select("attempt_id,question_id,mother_id,skill_id,concept_key,correct,uncertain,question_snapshot").in("attempt_id", selectionAttemptIds).in("skill_id", skillIds)
     : { data: [], error: null };
   if (history.error) throw history.error;
+  const historyData = (history.data || []) as SourceAdaptiveHistoryRow[];
   // Current snapshots already carry level, concept and stable source identity.
   // Read the question table only for legacy rows that are actually missing
   // one of those fields; otherwise this was an unnecessary extra request on
   // every plan open.
-  const historyQuestionIdsNeedingMetadata = [...new Set((history.data || []).flatMap((answer) => {
+  const historyQuestionIdsNeedingMetadata = [...new Set(historyData.flatMap((answer) => {
     const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
     const hasIdentity = Boolean(snapshot?.sourceItemKey || snapshot?.contentFingerprint);
     const hasLevel = Number(snapshot?.level || 0) > 0;
@@ -2396,13 +2398,13 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   );
   const sequenceByAttemptId = new Map<string, number>();
   if (plan.mode === "REVIEW") {
-    for (const answer of (history.data || [])) {
+    for (const answer of historyData) {
       sequenceByAttemptId.set(String(answer.attempt_id), Number(answer.history_order));
     }
   } else {
     attempts.forEach((attempt, index) => sequenceByAttemptId.set(String(attempt.id), index));
   }
-  const historyRows: SourceAdaptiveHistory[] = (history.data || []).map((answer) => {
+  const historyRows: SourceAdaptiveHistory[] = historyData.map((answer) => {
     const snapshot = validQuestionSnapshot(answer.question_snapshot) ? answer.question_snapshot : null;
     const currentIdentity = historicalIdentityByQuestionId.get(String(answer.question_id));
     return {

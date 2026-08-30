@@ -145,7 +145,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
   const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
-  const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today && !previewMode && !dashboard.profile.isDemo)
+  const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today && !previewMode)
 
   const ensurePlanRequest = useCallback((plan: LearningPlanDay, previewRound?: number) => {
     const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
@@ -212,7 +212,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   async function openPlan(plan: LearningPlanDay, previewRound?: number): Promise<boolean> {
     if (busy) return false
-    if (plan.date > today && !previewMode && !dashboard.profile.isDemo) {
+    if (plan.date > today && !previewMode) {
       setBusy(true)
       setError('')
       try {

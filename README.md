@@ -24,13 +24,19 @@ pnpm dev
 ## 质量检查
 
 ```bash
+pnpm validate:content
+pnpm validate:edge
 pnpm lint
 pnpm test
 pnpm test:e2e
 pnpm build
 ```
 
+`pnpm validate:edge` 会同时构建两个 Edge Function 入口，并用固定版本 Deno 对入口和本地依赖做完整静态检查；前端 `tsc` 只覆盖 `src`，不能替代这一步。
+
 `pnpm publish:static` 会先生产构建，再把经过构建的静态文件复制到仓库根目录，供当前 GitHub Pages 的 main/root 发布方式使用。源码入口保存在 `app.html`；根目录 `index.html` 是自动生成的生产文件。
+
+GitHub Pages 只发布静态文件，不会自动执行 Supabase migrations 或部署 Edge Functions；数据库和函数必须分别部署，并在目标环境完成预检、登录和业务烟测。
 
 ## 数据与隐私
 

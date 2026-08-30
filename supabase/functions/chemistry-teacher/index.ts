@@ -45,6 +45,13 @@ function hasRequiredReviewSourceAssets(value: unknown) {
 function recordValue(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
+type DatabaseRow = Record<string, unknown>;
+type ReviewConceptCatalogEntry = {
+  gradeBand: string;
+  skillId: string;
+  title: string;
+  sequenceNo: number;
+};
 type BoundedJsonResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; status: 400 | 413; error: string };
@@ -234,9 +241,10 @@ async function dashboard() {
   for (const result of [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks, conceptCatalog, personalizationJobs, capacityShortages]) if (result.error) throw result.error;
   const activeVerifiedSourceReleases = await admin.rpc("chem_active_verified_source_releases");
   if (activeVerifiedSourceReleases.error) throw activeVerifiedSourceReleases.error;
+  const activeVerifiedSourceReleaseRows = (activeVerifiedSourceReleases.data || []) as DatabaseRow[];
   const activeReleaseByGrade = new Map<string, string>();
   for (const gradeBand of ["高一", "高二", "高三"]) {
-    const matching = (activeVerifiedSourceReleases.data || []).filter((row) =>
+    const matching = activeVerifiedSourceReleaseRows.filter((row) =>
       String(row.grade_band) === gradeBand && validUuid(String(row.source_release_id || ""))
     );
     if (matching.length !== 1) {
@@ -275,7 +283,7 @@ async function dashboard() {
     return "未来计划的无重复原题容量或映射尚未通过核验";
   };
   const planningAlerts = [
-    ...(personalizationJobs.data || []).flatMap((job) => {
+    ...((personalizationJobs.data || []) as DatabaseRow[]).flatMap((job) => {
       if (job.status !== "pending" && job.status !== "blocked") return [];
       return [{
         id: `personalization:${String(job.completed_plan_id)}`,
@@ -288,7 +296,7 @@ async function dashboard() {
         createdAt: String(job.updated_at),
       }];
     }),
-    ...(capacityShortages.data || []).map((shortage) => {
+    ...((capacityShortages.data || []) as DatabaseRow[]).map((shortage) => {
       const detail = shortage.detail && typeof shortage.detail === "object"
         ? shortage.detail as Record<string, unknown>
         : {};
@@ -313,14 +321,18 @@ async function dashboard() {
     activeFormalHighSchoolIds.has(String(student.id))
       ? [[String(student.id), String(student.grade_band)] as const]
       : []));
-  const catalogByConcept = new Map((conceptCatalog.data || []).map((row) => [String(row.concept_key), {
-    gradeBand: String(row.grade_band),
-    skillId: String(row.skill_id),
-    title: String(row.concept_title),
-    sequenceNo: Number(row.sequence_no),
-  }]));
+  const conceptCatalogRows = (conceptCatalog.data || []) as DatabaseRow[];
+  const catalogByConcept = new Map<string, ReviewConceptCatalogEntry>(conceptCatalogRows.map((row) => [
+    String(row.concept_key),
+    {
+      gradeBand: String(row.grade_band),
+      skillId: String(row.skill_id),
+      title: String(row.concept_title),
+      sequenceNo: Number(row.sequence_no),
+    },
+  ]));
   const catalogCountBySkill = new Map<string, number>();
-  for (const row of conceptCatalog.data || []) {
+  for (const row of conceptCatalogRows) {
     const skillId = String(row.skill_id);
     catalogCountBySkill.set(skillId, (catalogCountBySkill.get(skillId) || 0) + 1);
   }
@@ -333,7 +345,7 @@ async function dashboard() {
       const raw = student.metadata?.confirmedLearnedSkillIds;
       allowedSkillsByStudent.set(studentId, new Set(Array.isArray(raw) ? raw.map(String).filter(Boolean) : []));
     } else {
-      allowedSkillsByStudent.set(studentId, new Set((conceptCatalog.data || [])
+      allowedSkillsByStudent.set(studentId, new Set(conceptCatalogRows
         .filter((row) => String(row.grade_band) === gradeBand)
         .map((row) => String(row.skill_id))));
     }
@@ -374,7 +386,7 @@ async function dashboard() {
     ? await admin.rpc("chem_review_active_source_usage_counts", { p_student_ids: [...activeFormalHighSchoolIds] })
     : { data: [], error: null };
   if (sourceUsage.error) throw sourceUsage.error;
-  const usedCountByStudentConcept = new Map((sourceUsage.data || []).map((row) => [
+  const usedCountByStudentConcept = new Map<string, number>(((sourceUsage.data || []) as DatabaseRow[]).map((row) => [
     `${String(row.student_id)}:${String(row.concept_key)}`,
     Number(row.used_count) || 0,
   ]));
