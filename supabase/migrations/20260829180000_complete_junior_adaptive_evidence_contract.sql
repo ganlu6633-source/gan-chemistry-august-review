@@ -1946,7 +1946,7 @@ begin
     and provenance.textbook_version = v_textbook_version
     and provenance.knowledge_id = any(v_knowledge_ids)
     and provenance.verification_status = 'verified'
-  on conflict (textbook_version, knowledge_id) do update set
+  on conflict on constraint chem_junior_knowledge_provenance_pkey do update set
     source_release_id = excluded.source_release_id,
     source_id = excluded.source_id,
     source_locator = excluded.source_locator,

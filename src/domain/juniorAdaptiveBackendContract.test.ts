@@ -625,7 +625,7 @@ describe('2026-08-29 junior evidence backend contract', () => {
     expect(activate).toContain("old_release.status = 'active'")
     expect(activate).toContain("status = 'retired'")
     expect(activate).toContain('insert into app_private.chem_junior_knowledge_provenance')
-    expect(activate).toContain('on conflict (textbook_version, knowledge_id) do update')
+    expect(activate).toContain('on conflict on constraint chem_junior_knowledge_provenance_pkey do update')
     expect(activate).toContain('question.source_release_id is distinct from p_release_id')
     expect(activate).toContain('app.chem_release_activation')
     expect(activate).toMatch(/chem_junior_daily_sessions[\s\S]*?status\s*=\s*'active'[\s\S]*?for\s+update[\s\S]*?chem_question_source_releases[\s\S]*?status\s*=\s*'active'[\s\S]*?for\s+update/i)
