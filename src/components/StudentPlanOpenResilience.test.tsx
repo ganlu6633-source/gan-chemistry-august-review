@@ -230,12 +230,12 @@ describe('StudentApp plan opening resilience', () => {
     renderStudent()
 
     fireEvent.click(screen.getByRole('button', { name: /开始第一轮/ }))
-    expect(screen.getByText('第1步/3 · 正在连接复习服务')).toBeInTheDocument()
+    expect(screen.getByText('正在读取所选题组')).toBeInTheDocument()
     expect(screen.getByText('请求已经发出，请稍候。')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
-    expect(screen.getByText('第3步/3 · 正在安全装入所选题组')).toBeInTheDocument()
+    expect(screen.getByText('正在读取所选题组')).toBeInTheDocument()
     expect(screen.getByText('已等待 6 秒，请不要重复点击。')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 

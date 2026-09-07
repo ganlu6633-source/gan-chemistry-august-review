@@ -1,18 +1,18 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { GuardianDashboardData, SessionIdentity, StudentDashboardData } from './domain/types'
 import { AppShell } from './components/AppShell'
 import { AccessGate } from './components/AccessGate'
-import { StudentApp } from './components/StudentApp'
-import { GuardianApp } from './components/GuardianApp'
-import { TeacherGate } from './components/TeacherApp'
+const StudentApp = lazy(() => import('./components/StudentApp').then((module) => ({ default: module.StudentApp })))
+const GuardianApp = lazy(() => import('./components/GuardianApp').then((module) => ({ default: module.GuardianApp })))
+const TeacherGate = lazy(() => import('./components/TeacherApp').then((module) => ({ default: module.TeacherGate })))
 import { loadGuardianDashboard, loadStudentDashboard, teacherApi } from './lib/api'
 import { clearAccessSession, readAccessSession, writeAccessSession } from './lib/session'
 
 type Dashboard = StudentDashboardData | GuardianDashboardData
 
 export default function App() {
-  return <Routes><Route path="/" element={<AccessExperience />} /><Route path="/teacher" element={<TeacherExperience />} /><Route path="/teacher/preview/:studentId" element={<TeacherStudentPreview />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes>
+  return <Suspense fallback={<div className="center-loading" role="status">正在打开学习页面…</div>}><Routes><Route path="/" element={<AccessExperience />} /><Route path="/teacher" element={<TeacherExperience />} /><Route path="/teacher/preview/:studentId" element={<TeacherStudentPreview />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></Suspense>
 }
 
 function TeacherExperience() {
@@ -64,7 +64,7 @@ function AccessExperience() {
     let active = true
     let refreshing = false
     const refreshGuardian = async () => {
-      if (refreshing) return
+      if (refreshing || document.visibilityState === 'hidden') return
       refreshing = true
       try {
         const result = await loadGuardianDashboard(session)

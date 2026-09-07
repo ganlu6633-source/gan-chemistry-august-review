@@ -5,9 +5,10 @@ const teacherSource = readFileSync('supabase/functions/chemistry-teacher/index.t
 const teacherAppSource = readFileSync('src/components/TeacherApp.tsx', 'utf8')
 
 describe('teacher source-pool readiness contract', () => {
-  it('covers the funded window through September 29 without drifting later', () => {
-    expect(teacherSource).toContain('readinessEndDate: date < "2026-09-29" ? "2026-09-29" : dateKey(0)')
-    expect(teacherSource).toContain('截至9月29日的计划会用到')
+  it('uses the configured review period and scheduled plans', () => {
+    expect(teacherSource).toContain('dayRange.readinessEndDate = reviewProgram.endDate')
+    expect(teacherSource).toContain('.gte("plan_date", readinessStartDate)')
+    expect(teacherSource).toContain('.eq("is_scheduled", true)')
     expect(teacherSource).not.toContain('未来14天计划会用到')
   })
 

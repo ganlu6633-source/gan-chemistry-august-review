@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, Eye, Film, GraduationCap, KeyRound, LayoutDashboard, LogIn, MessageSquareText, MonitorPlay, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
@@ -19,6 +19,7 @@ export function TeacherGate({ onPreviewStudent }: { onPreviewStudent?: (studentI
 
 function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId: string) => void }) {
   const [view, setView] = useState<TeacherView>('overview')
+  const refreshing = useRef(false)
   const [previewStudentId, setPreviewStudentId] = useState('')
   const [dashboard, setDashboard] = useState<TeacherDashboardData | null>(null)
   const [error, setError] = useState('')
@@ -26,13 +27,15 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
   const [dismissedPoolBlockerKey, setDismissedPoolBlockerKey] = useState('')
 
   const refresh = useCallback(async (silent = false) => {
+    if (refreshing.current || (silent && document.visibilityState === 'hidden')) return
+    refreshing.current = true
     if (!silent) setLoading(true)
     setError('')
-    try { const result = await loadTeacherDashboard(); setDashboard(result.dashboard) } catch (reason) { setError(reason instanceof Error ? reason.message : '教师数据读取失败。') } finally { if (!silent) setLoading(false) }
+    try { const result = await loadTeacherDashboard(); setDashboard(result.dashboard) } catch (reason) { setError(reason instanceof Error ? reason.message : '教师数据读取失败。') } finally { refreshing.current = false; if (!silent) setLoading(false) }
   }, [])
   useEffect(() => {
     void refresh()
-    const silentRefresh = () => { void refresh(true) }
+    const silentRefresh = () => { if (view === 'overview') void refresh(true) }
     const onVisibility = () => { if (document.visibilityState === 'visible') silentRefresh() }
     const timer = window.setInterval(silentRefresh, 10000)
     window.addEventListener('focus', silentRefresh)
@@ -42,7 +45,7 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
       window.removeEventListener('focus', silentRefresh)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [refresh])
+  }, [refresh, view])
 
   const poolBlockers = dashboard?.sourcePoolWarnings || []
   const planningAlerts = dashboard?.planningAlerts || []
@@ -73,13 +76,13 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
     {view === 'plans' && <PlanEditor dashboard={dashboard} />}
     {view === 'questions' && <QuestionAudit dashboard={dashboard} />}
     {view === 'settings' && <AccessSettings dashboard={dashboard} />}
-  </>}</main>{(poolBlockers.length > 0 || planningAlerts.length > 0) && dismissedPoolBlockerKey !== poolBlockerKey && <div className="source-pool-modal-backdrop"><section className="source-pool-modal" role="dialog" aria-modal="true" aria-labelledby="source-pool-modal-title"><AlertCircle /><div><span className="eyebrow">复习计划需要甘老师审核</span><h2 id="source-pool-modal-title">截至9月29日的排程有待处理项</h2><p>未通过来源、难度、知识点、已学范围和显示审核的题不会拿来凑数；生成失败时保留原计划，不让学生收到半成品。</p>{planningAlerts.length > 0 && <ReviewPlanningAlerts alerts={planningAlerts} />}<SourcePoolWarnings warnings={poolBlockers} compact /></div><button className="secondary-button" onClick={() => setDismissedPoolBlockerKey(poolBlockerKey)}>我知道了</button></section></div>}</div>
+  </>}</main>{(poolBlockers.length > 0 || planningAlerts.length > 0) && dismissedPoolBlockerKey !== poolBlockerKey && <div className="source-pool-modal-backdrop"><section className="source-pool-modal" role="dialog" aria-modal="true" aria-labelledby="source-pool-modal-title"><AlertCircle /><div><span className="eyebrow">复习计划需要甘老师审核</span><h2 id="source-pool-modal-title">本期排程有待处理项</h2><p>未通过来源、难度、知识点、已学范围和显示审核的题不会拿来凑数；生成失败时保留原计划，不让学生收到半成品。</p>{planningAlerts.length > 0 && <ReviewPlanningAlerts alerts={planningAlerts} />}<SourcePoolWarnings warnings={poolBlockers} compact /></div><div className="access-reset-actions"><button className="primary-button" onClick={() => { setDismissedPoolBlockerKey(poolBlockerKey); setView('questions') }}>查看题库与缺题情况</button><button className="secondary-button" onClick={() => { setDismissedPoolBlockerKey(poolBlockerKey); setView('students') }}>核对学生计划</button><button className="text-button" onClick={() => setDismissedPoolBlockerKey(poolBlockerKey)}>稍后处理</button></div></section></div>}</div>
 }
 
 function TeacherOverview({ dashboard, onRefresh }: { dashboard: TeacherDashboardData; onRefresh: () => void }) {
-  return <><div className="teacher-page-head"><div><span className="eyebrow">小测完成后自动更新（约10秒）</span><h1>今天最值得看的事</h1></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={17} />刷新证据</button></div>
-    <div className="teacher-metrics"><article><Users /><b>{dashboard.students.length}</b><span>统一学生档案</span></article><article><CheckCircle2 /><b>{dashboard.dailySummary.classQuizCount}</b><span>即时小测轮次</span></article><article><RefreshCw /><b>{dashboard.dailySummary.reviewCount}</b><span>长期复习完成</span></article><article><AlertCircle /><b>{dashboard.dailySummary.interventionCount}</b><span>建议教师介入</span></article></div>
-    {(dashboard.sourcePoolWarnings || []).length > 0 && <section className="teacher-panel source-pool-panel"><div className="panel-head"><h2>截至9月29日的原题容量</h2><span>按细知识点逐项核算，不拿题目总数凑数</span></div><SourcePoolWarnings warnings={dashboard.sourcePoolWarnings || []} /></section>}
+  return <><div className="teacher-page-head"><div><span className="eyebrow">小测完成后自动更新（约10秒）</span><h1>今天最值得看的事</h1>{dashboard.dailySummary.generatedAt && <p className="teacher-refresh-note">更新于 {new Date(dashboard.dailySummary.generatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</p>}</div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={17} />刷新证据</button></div>
+    {dashboard.reviewProgram && <section className="program-notice"><b>本期：{dashboard.reviewProgram.startDate} 至 {dashboard.reviewProgram.endDate}（北京时间）</b><p>{dashboard.students.filter((student) => student.reviewParticipating).length} 名参与 · {dashboard.students.filter((student) => student.reviewParticipating && student.planDays >= 7).length} 名已排满 7 天。其他学生档案保留，可在学生档案中查看。</p></section>}<div className="teacher-metrics"><article><Users /><b>{dashboard.reviewProgram ? dashboard.students.filter((student) => student.reviewParticipating).length : dashboard.students.length}</b><span>本期学生档案</span></article><article><CheckCircle2 /><b>{dashboard.dailySummary.classQuizCount}</b><span>即时小测轮次</span></article><article><RefreshCw /><b>{dashboard.dailySummary.reviewCount}</b><span>长期复习完成</span></article><article><AlertCircle /><b>{dashboard.dailySummary.interventionCount}</b><span>建议教师介入</span></article></div>
+    {(dashboard.sourcePoolWarnings || []).length > 0 && <section className="teacher-panel source-pool-panel"><div className="panel-head"><h2>本期原题容量</h2><span>按细知识点逐项核算，不拿题目总数凑数</span></div><SourcePoolWarnings warnings={dashboard.sourcePoolWarnings || []} /></section>}
     {(dashboard.planningAlerts || []).length > 0 && <section className="teacher-panel source-pool-panel"><div className="panel-head"><h2>个性化计划待处理</h2><span>失败时保留原计划，并限次自动重试</span></div><ReviewPlanningAlerts alerts={dashboard.planningAlerts || []} /></section>}
     <section className="teacher-panel"><div className="panel-head"><h2>今日即时小测</h2><span>{dashboard.dailySummary.quizCompletedStudentCount}/{dashboard.dailySummary.quizRosterCount} 名学生已完成 · 共 {dashboard.dailySummary.classQuizCount} 轮</span></div><div className="audit-list">{dashboard.recentQuizSessions.map((session) => <article key={session.id}><div><b>{session.studentName} · 第{session.round}轮</b><p><ChemText>{session.trainingTheme}</ChemText> · {new Date(session.completedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })}{session.wrongTags.length ? <> · 需巩固：<ChemText>{session.wrongTags.join('、')}</ChemText></> : ' · 本轮无错题'}{session.slowTags.length ? <> · 偏慢：<ChemText>{session.slowTags.join('、')}</ChemText></> : ''}</p></div><div className="quiz-session-score"><b>{session.correctCount}/{session.totalCount}</b><span>{formatDuration(session.totalSec)}</span></div></article>)}{!dashboard.recentQuizSessions.length && <div className="empty-state"><RefreshCw /><p>今天还没有学生完成即时小测。</p></div>}</div></section>
     <section className="teacher-panel"><div className="panel-head"><h2>优先提醒</h2><span>只显示3—5件最值得看的事</span></div><div className="alert-list">{dashboard.alerts.slice(0,5).map((alert) => { const student = dashboard.students.find((item) => item.id === alert.studentId); return <article key={alert.id} className={alert.severity}><AlertCircle /><div><b>{student?.displayName ?? '学生'} · <ChemText>{alert.title}</ChemText></b><p><ChemText>{alert.reason}</ChemText></p></div></article> })}{!dashboard.alerts.length && <div className="empty-state"><CheckCircle2 /><p>当前没有需要立即处理的提醒。</p></div>}</div></section>
@@ -138,11 +141,12 @@ const teacherGradeOrder: StudentDirectoryGrade[] = ['全部', '高一', '高二'
 export function StudentTable({ dashboard, onPreview }: { dashboard: TeacherDashboardData; onPreview: (studentId: string) => void }) {
   const [grade, setGrade] = useState<StudentDirectoryGrade>('全部')
   const grades = teacherGradeOrder.filter((item) => item === '全部' || dashboard.students.some((student) => student.gradeBand === item))
-  const students = useMemo(() => dashboard.students.filter((student) => grade === '全部' || student.gradeBand === grade), [dashboard.students, grade])
+  const [onlyParticipating, setOnlyParticipating] = useState(Boolean(dashboard.reviewProgram))
+  const students = useMemo(() => dashboard.students.filter((student) => (grade === '全部' || student.gradeBand === grade) && (!onlyParticipating || student.reviewParticipating)), [dashboard.students, grade, onlyParticipating])
 
   return <>
     <div className="teacher-page-head"><div><span className="eyebrow">按年级查看完整档案与家庭联系信息</span><h1>学生与家长档案</h1></div><span className="directory-total">共 {dashboard.students.length} 名学生</span></div>
-    <div className="grade-filter" role="group" aria-label="按年级筛选学生">
+    {dashboard.reviewProgram && <label className="program-notice"><input type="checkbox" checked={onlyParticipating} onChange={(event) => setOnlyParticipating(event.target.checked)} /> 只看本期参与学生（取消勾选可查看保留档案）</label>}<div className="grade-filter" role="group" aria-label="按年级筛选学生">
       {grades.map((item) => {
         const count = item === '全部' ? dashboard.students.length : dashboard.students.filter((student) => student.gradeBand === item).length
         return <button key={item} className={grade === item ? 'active' : ''} aria-pressed={grade === item} onClick={() => setGrade(item)}>{item}<span>{count}</span></button>
@@ -151,7 +155,7 @@ export function StudentTable({ dashboard, onPreview }: { dashboard: TeacherDashb
     <div className="data-table student-directory"><div className="data-row head"><span>学生</span><span>年级</span><span>复习计划</span><span>家长信息</span><span>学习档案</span><span>操作</span></div>{students.map((student) => <div className="data-row" key={student.id}>
       <span><b>{student.displayName}</b><small>档案号 {student.id.slice(0, 8)}</small></span>
       <span><b className="grade-badge">{student.gradeBand}</b></span>
-      <span className={student.planDays >= 28 ? 'status active' : 'status pending'}>{student.planDays}天</span>
+      <span className={student.planDays >= (dashboard.reviewProgram ? 7 : 28) ? 'status active' : 'status pending'}>{student.reviewParticipating === false ? '本期暂停' : `${student.planDays}天`}</span>
       <span className="guardian-cell">{student.guardianNames.length ? <><small>已登记 {student.guardianNames.length} 位</small><b>{student.guardianNames.join('、')}</b></> : <em className="pending-name">待登记家长姓名</em>}</span>
       <span>{student.needsInitialDiagnostic ? '需要初始诊断' : '已有学习证据'}</span>
       <span><button className="table-action" onClick={() => onPreview(student.id)} aria-label={`模拟查看${student.displayName}的学生端`}><Eye size={16} />模拟查看</button></span>
@@ -385,19 +389,19 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
 }
 
 function AccessSettings({ dashboard }: { dashboard: TeacherDashboardData }) {
-  const [generated, setGenerated] = useState<{ studentCode: string; guardianCode: string } | null>(null)
+  const [generated, setGenerated] = useState<{ code: string; role: 'student' | 'guardian' } | null>(null)
   const [studentId, setStudentId] = useState(dashboard.students[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  async function generate() {
+  async function generate(role: 'student' | 'guardian') {
     if (!studentId || busy) return
     setBusy(true); setError(''); setGenerated(null)
     try {
-      const result = await teacherApi<{ studentCode: string; guardianCode: string }>('reset_access_codes', { studentId })
+      const result = await teacherApi<{ code: string; role: 'student' | 'guardian' }>('reset_access_code', { studentId, role })
       setGenerated(result)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '访问码没有重置成功，请稍后重试。')
     } finally { setBusy(false) }
   }
-  return <><div className="teacher-page-head"><div><span className="eyebrow">学生码与家长码完全分开</span><h1>权限与访问码</h1></div></div><section className="teacher-panel"><label>学生<select value={studentId} disabled={busy} onChange={(event) => { setStudentId(event.target.value); setGenerated(null); setError('') }}>{dashboard.students.map((student) => <option value={student.id} key={student.id}>{student.displayName}</option>)}</select></label><div className="security-rules"><p><KeyRound />重置时生成8位初始码；学生登录后可自行改成6—12位数字。</p><p><Shield />重置后旧码立即失效；明文只在本次页面显示一次。</p></div>{error && <div className="inline-alert" role="alert">{error}</div>}<button className="primary-button" disabled={busy || !studentId} onClick={() => void generate()}>{busy ? '正在重置，请勿重复点击…' : '生成或重置两种访问码'}</button>{generated && <div className="one-time-secret"><b>请立即安全交给对应用户，关闭后无法再次查看</b><div><span>学生码</span><code>{generated.studentCode}</code></div><div><span>家长码</span><code>{generated.guardianCode}</code></div></div>}</section></>
+  return <><div className="teacher-page-head"><div><span className="eyebrow">学生码与家长码完全分开</span><h1>权限与访问码</h1></div></div><section className="teacher-panel"><label>学生<select value={studentId} disabled={busy} onChange={(event) => { setStudentId(event.target.value); setGenerated(null); setError('') }}>{dashboard.students.map((student) => <option value={student.id} key={student.id}>{student.displayName}</option>)}</select></label><div className="security-rules"><p><KeyRound />重置时生成8位初始码；学生登录后可自行改成6—12位数字。</p><p><Shield />仅所选身份的旧码立即失效，另一方不受影响；新码只在本次显示。</p></div>{error && <div className="inline-alert" role="alert">{error}</div>}<div className="access-reset-actions"><button className="primary-button" disabled={busy || !studentId} onClick={() => void generate('student')}>{busy ? '正在处理…' : '重置所选学生的学生码'}</button><button className="secondary-button" disabled={busy || !studentId} onClick={() => void generate('guardian')}>重置所选学生的家长码</button></div>{generated && <div className="one-time-secret"><b>请立即安全交给对应用户，关闭后无法再次查看</b><div><span>{generated.role === 'student' ? '学生码' : '家长码'}</span><code>{generated.code}</code></div></div>}</section></>
 }

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
 import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
+import { selectFocusPlan } from '../domain/focusPlan'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
@@ -60,17 +61,9 @@ function planRequestKey(plan: LearningPlanDay, identityKey: string, previewRound
 }
 
 function planOpenProgress(elapsedSeconds: number) {
-  if (elapsedSeconds < 2) return {
-    title: '第1步/3 · 正在连接复习服务',
-    detail: '先确认你的身份和这一天的学习计划，通常需要3—7秒。',
-  }
-  if (elapsedSeconds < 5) return {
-    title: '第2步/3 · 正在核对知识卡与所选日期原题',
-    detail: '系统正在等题库返回完整的知识卡和题目清单。',
-  }
   return {
-    title: '第3步/3 · 正在安全装入所选题组',
-    detail: '当前网络较慢；进入题目后，原题图片会逐张加载。',
+    title: '正在读取所选题组',
+    detail: elapsedSeconds < 5 ? '正在等待复习服务返回知识卡和题目。' : '服务仍未返回完整题组，请稍候；超时后可以重试。',
   }
 }
 
@@ -142,7 +135,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const planRequestDisposeTimer = useRef<number | null>(null)
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  const todayPlan = dashboard.plans.find((plan) => plan.date === today) ?? dashboard.plans.find((plan) => plan.date >= today) ?? dashboard.plans[0]
+  const todayPlan = selectFocusPlan(dashboard.plans, today)
   const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
   const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today && !previewMode)
@@ -342,13 +335,13 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {error && <div className="inline-alert" role="alert">{error}</div>}
         {view === 'today' && <>
           <section className="welcome-banner">
-            <div><span className="eyebrow">今天也只走一小步</span><h1>{dashboard.profile.displayName}，今天先把最值得的几件事稳住。</h1><p>{dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了今天的原题。'}</p></div>
-            <div className="daily-orb"><b>{dashboard.todayQuestionCount || todayPlan?.questionCount || 5}</b><span>{todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : isSingleDailyReviewPlan(todayPlan) ? '今日原题' : '每轮题目'}</span></div>
+            <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlan?.isComplete ? '今天已完成' : todayPlan ? '今天也只走一小步' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一次学习已经安排好了。' : todayPlan?.isComplete ? '今天的学习已完成。' : todayPlan ? '今天先把最值得的几件事稳住。' : '今天暂未安排正式任务。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将于北京时间 ${todayPlan?.date} 00:00 开启，现在可先看知识卡。` : todayPlan?.isComplete ? '可以查看今日成果和历史学习记录。' : !todayPlan ? '已有学习记录保留在“我的战绩”中，请留意甘老师的后续安排。' : dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了今天的原题。'}</p></div>
+            <div className="daily-orb"><b>{todayPlan?.questionCount ?? 0}</b><span>{!todayPlan ? '今日未安排' : todayPlanIsFuturePreview ? '下次题目' : todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : isSingleDailyReviewPlan(todayPlan) ? '今日原题' : '每轮题目'}</span></div>
           </section>
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>每一天都可以打开完整学习链路</h2><p>演示题组只读取已审核、当前范围内、可用于复习的真实原题；作答只在当前页面模拟，不写入任何正式学生记录。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{planRhythmLabel(todayPlan)}</span></div>{previewMode && todayPlan.deliveryMode === 'junior_adaptive' && <div className="inline-alert" role="status">{JUNIOR_TEACHER_PREVIEW_MESSAGE}</div>}</div>
+            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlanIsFuturePreview ? `安排日期 ${todayPlan.date} · ${todayPlan.questionCount} 道起` : planRhythmLabel(todayPlan)}</span></div>{previewMode && todayPlan.deliveryMode === 'junior_adaptive' && <div className="inline-alert" role="status">{JUNIOR_TEACHER_PREVIEW_MESSAGE}</div>}</div>
             <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : previewMode && todayPlan.deliveryMode === 'junior_adaptive' ? '查看只读说明' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}

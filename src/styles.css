@@ -217,3 +217,13 @@
 .future-preview-boundary{display:flex;align-items:flex-start;gap:8px;margin:18px 0 0;padding:12px 14px;border-radius:12px;background:#fff7df;color:#745a21;font-size:12px;line-height:1.65}
 .future-preview-boundary svg{flex:0 0 auto;margin-top:2px}
 @media(max-width:700px){.future-preview-banner{grid-template-columns:1fr;padding:17px}.future-preview-banner>svg{width:38px;height:38px}.future-plan-preview .stage-actions{flex-direction:column-reverse}}
+
+/* Login keeps the daily action within reach on small screens. */
+.login-layout{grid-template-areas:"intro login" "proof login";row-gap:28px}
+.hero-copy{grid-area:intro;align-self:end}.hero-proof{grid-area:proof;align-self:start;margin-top:0}.login-card{grid-area:login}
+.secret-input-wrap{position:relative}.login-card .secret-input-wrap input{padding-right:64px}.secret-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);min-width:48px;min-height:44px;border:0;border-radius:8px;background:transparent;color:#176e78;font-weight:700}
+.login-card .login-help{font-size:12px;line-height:1.6;margin:12px 0;color:#526d7b}
+.guardian-next-action{background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;margin-top:14px}.guardian-next-action h2{font-size:18px}.guardian-metrics small{font-size:11px;color:var(--muted)}
+.teacher-refresh-note{font-size:12px;color:var(--muted)}.access-reset-actions{display:flex;gap:12px;flex-wrap:wrap}.program-notice{padding:16px;border:1px solid var(--line);border-radius:14px;margin-bottom:16px;background:#edf8f5}
+@media(max-width:980px){.login-layout{grid-template-areas:"intro" "login" "proof";padding:12px 0;gap:18px}.hero-copy{align-self:auto}.hero-proof{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.login-layout{gap:16px;padding-top:0}.hero-copy .eyebrow,.hero-copy>p{display:none}.hero-copy h1{font-size:clamp(24px,7vw,32px);line-height:1.3;margin:8px 0}.login-card{padding:20px}.login-icon{display:none}.login-card h2{font-size:25px;margin:0 0 8px}.login-card>p{font-size:14px;margin:8px 0 14px}.hero-proof{gap:6px}.hero-proof>div{padding:12px 6px}.hero-proof b{font-size:13px}.hero-proof span{font-size:11px}.guardian-columns{margin-top:16px}}

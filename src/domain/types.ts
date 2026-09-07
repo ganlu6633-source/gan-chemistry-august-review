@@ -583,7 +583,8 @@ export interface GuardianDashboardData {
 }
 
 export interface TeacherDashboardData {
-  students: Array<Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'status' | 'needsInitialDiagnostic'> & { guardianNames: string[]; curriculumCohort: string | null; planDays: number }>
+  reviewProgram?: { startDate: string; endDate: string } | null
+  students: Array<Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'status' | 'needsInitialDiagnostic'> & { guardianNames: string[]; curriculumCohort: string | null; planDays: number; reviewParticipating?: boolean }>
   alerts: Array<{ id: string; studentId: string; severity: 'info' | 'attention' | 'urgent'; title: string; reason: string }>
   dailySummary: { generatedAt: string | null; classQuizCount: number; quizCompletedStudentCount: number; quizRosterCount: number; reviewCount: number; interventionCount: number }
   recentQuizSessions: Array<{

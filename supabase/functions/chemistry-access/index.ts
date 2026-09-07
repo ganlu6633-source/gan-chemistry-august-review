@@ -1,3 +1,4 @@
+import { readReviewProgram, programContainsDate, programPlanVisible } from "./review-program.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { selectAdaptiveQuestions } from "./adaptive.ts";
@@ -1536,6 +1537,7 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
 }
 
 async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, unknown>) {
+  if (!programContainsDate(readReviewProgram(profile.metadata), shanghaiDate())) return false;
   if (String(profile.grade_band) !== "初三") return false;
   if ((profile.metadata as Record<string, unknown> | null)?.demo) return false;
   const profileTextbookVersion = String(profile.textbook_version || "").trim();
@@ -2042,6 +2044,8 @@ async function studentDashboard(studentId: string) {
     plans = (refreshedPlans.data || []) as Array<Record<string, unknown>>;
     juniorSessionByPlanId = new Map((juniorSessions.data || []).map((session) => [String(session.plan_day_id), session as Record<string, unknown>]));
   }
+  const program = readReviewProgram(profileResult.data.metadata);
+  plans = plans.filter((plan) => programPlanVisible(program, plan));
   const skillResult = await supabase.from("chem_skills")
     .select("id,title,module_id,grade_band,max_level,exam_importance,exam_depth,prerequisites,level_criteria")
     .eq("active", true)
@@ -2067,6 +2071,7 @@ async function studentDashboard(studentId: string) {
   return {
     profile: {
       ...profileShape(profileResult.data),
+      reviewProgram: program,
       availableDemoGrades: isDemo ? ["高一", "高二", "高三"] : undefined,
     },
     plans: plans.map((plan) => studentDashboardPlanShape(
@@ -2077,14 +2082,23 @@ async function studentDashboard(studentId: string) {
     )),
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
-    todayQuestionCount: todayPlan ? planQuestionCount(todayPlan) : 5,
+    todayQuestionCount: todayPlan ? planQuestionCount(todayPlan) : 0,
     achievements,
     videoRecommendations,
   };
 }
 
 async function guardianDashboard(studentId: string) {
+  const programProfile = await supabase.from("chem_students_v2").select("metadata").eq("id", studentId).single();
+  if (programProfile.error) throw programProfile.error;
+  const program = readReviewProgram(programProfile.data.metadata);
   const week = shanghaiWeekRange();
+  if (program && program.startDate <= program.endDate) {
+    week.startDate = program.startDate;
+    week.startIso = new Date(`${program.startDate}T00:00:00+08:00`).toISOString();
+    week.endIso = new Date(new Date(`${program.endDate}T00:00:00+08:00`).getTime() + 86400000).toISOString();
+    week.endDate = shanghaiDate(new Date(week.endIso));
+  }
   const linkResult = await supabase.from("chem_quiz_student_links").select("quiz_student_id").eq("chem_student_id", studentId).maybeSingle();
   if (linkResult.error) throw linkResult.error;
   const quizResult = linkResult.data?.quiz_student_id
@@ -2099,7 +2113,7 @@ async function guardianDashboard(studentId: string) {
   if (quizResult.error) throw quizResult.error;
   const [profileResult, plansResult, attemptsResult, signalsResult, observationsResult, learningRecord, videoRecommendations] = await Promise.all([
     supabase.from("chem_students_v2").select("display_name,grade_band").eq("id", studentId).single(),
-    supabase.from("chem_learning_plans").select("id").eq("student_id", studentId).gte("plan_date", week.startDate).lt("plan_date", week.endDate),
+    supabase.from("chem_learning_plans").select("id,mode,plan_date,is_scheduled").eq("student_id", studentId).gte("plan_date", week.startDate).lt("plan_date", week.endDate),
     supabase.from("chem_learning_attempts").select("id,plan_day_id,completed_at,mode,first_score").eq("student_id", studentId).gte("completed_at", week.startIso).lt("completed_at", week.endIso).order("completed_at", { ascending: false }),
     supabase.from("chem_behavior_signals").select("*").eq("student_id", studentId).eq("active", true),
     supabase.from("chem_teacher_observations").select("id,course_date,taught_content,guardian_message,created_at").eq("student_id", studentId).order("course_date", { ascending: false }).limit(10),
@@ -2111,7 +2125,7 @@ async function guardianDashboard(studentId: string) {
   const attempts = attemptsResult.data || [];
   const observations = observationsResult.data || [];
   const quizSessions = quizResult.data || [];
-  const currentWeekPlanIds = new Set((plansResult.data || []).map((plan) => String(plan.id)));
+  const currentWeekPlanIds = new Set((plansResult.data || []).filter((plan) => programPlanVisible(program, plan)).map((plan) => String(plan.id)));
   const completedCurrentWeekPlanIds = new Set(
     attempts.map((attempt) => String(attempt.plan_day_id)).filter((planId) => currentWeekPlanIds.has(planId)),
   );
@@ -2644,6 +2658,26 @@ Deno.serve(async (req: Request) => {
 
     const identity = await authenticate(req);
     if (!identity) return reply(req, { error: "登录已失效，请重新输入访问码。" }, 401);
+
+    // Enforce the selected program for every formal write/open route, even
+    // when an old tab still holds a plan id. Historical record reads remain available.
+    const programActions = new Set(["start_plan", "future_plan_preview", "junior_open_session", "junior_submit_step", "question_feedback", "submit_attempt"]);
+    if (identity.role === "student" && identity.studentId && programActions.has(body.action)) {
+      const profile = await supabase.from("chem_students_v2").select("metadata").eq("id", identity.studentId).single();
+      if (profile.error) throw profile.error;
+      const program = readReviewProgram(profile.data.metadata);
+      if (program) {
+        const planId = String(body.data?.planId || body.data?.planDayId || "");
+        const selectedPlan = await supabase.from("chem_learning_plans").select("mode,plan_date,is_scheduled").eq("id", planId).eq("student_id", identity.studentId).maybeSingle();
+        if (selectedPlan.error) throw selectedPlan.error;
+        if (!selectedPlan.data || !programPlanVisible(program, selectedPlan.data)) {
+          return reply(req, { error: "这项复习不在本期安排中，历史学习记录仍可查看。" }, 409);
+        }
+        if (selectedPlan.data.mode === "REVIEW" && body.action !== "future_plan_preview" && !programContainsDate(program, shanghaiDate())) {
+          return reply(req, { error: `本期正式学习时间为北京时间 ${program.startDate} 00:00 至 ${program.endDate} 24:00。` }, 409);
+        }
+      }
+    }
 
     if (body.action === "question_asset") {
       const questionId = String(body.data?.questionId || "");

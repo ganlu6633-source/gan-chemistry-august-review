@@ -1,3 +1,4 @@
+import { readReviewProgram } from "./review-program.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
@@ -201,9 +202,7 @@ function shanghaiDayRange() {
   }).format(new Date(start.getTime() + offsetDays * 86400000));
   return {
     date,
-    // The funded calendar ends on 2026-09-29; the audited window shrinks as
-    // dates pass instead of drifting beyond the capacity-funded horizon.
-    readinessEndDate: date < "2026-09-29" ? "2026-09-29" : dateKey(0),
+    readinessEndDate: dateKey(6),
     start: start.toISOString(),
     end: new Date(start.getTime() + 86400000).toISOString(),
   };
@@ -211,6 +210,11 @@ function shanghaiDayRange() {
 
 async function dashboard() {
   const dayRange = shanghaiDayRange();
+  const programs = await admin.from("chem_students_v2").select("metadata").not("metadata->reviewProgram", "is", null);
+  if (programs.error) throw programs.error;
+  const reviewProgram = (programs.data || []).map((row) => readReviewProgram(row.metadata)).find((value) => value?.participating) || null;
+  const readinessStartDate = reviewProgram ? (dayRange.date > reviewProgram.startDate ? dayRange.date : reviewProgram.startDate) : dayRange.date;
+  if (reviewProgram) dayRange.readinessEndDate = reviewProgram.endDate;
   // Reconcile the narrow finalize→enqueue gap first. Safe compensation is
   // rate-limited inside the retry RPC; persistent capacity/scope failures stay
   // visible below instead of being retried every ten seconds.
@@ -225,11 +229,12 @@ async function dashboard() {
     admin.from("chem_course_nodes").select("id", { count: "exact", head: true }).eq("teacher_approved", false),
     admin.from("chem_questions").select("id", { count: "exact", head: true }).in("review_status", ["draft", "needs_review"]),
     admin.rpc("chem_list_guardian_contacts"),
-    admin.from("chem_learning_plans").select("student_id").eq("mode", "REVIEW").gte("plan_date", "2026-08-17"),
+    admin.from("chem_learning_plans").select("student_id").eq("mode", "REVIEW").eq("is_scheduled", true).gte("plan_date", reviewProgram?.startDate || dayRange.date).lte("plan_date", reviewProgram?.endDate || dayRange.readinessEndDate),
     admin.from("chem_learning_plans")
       .select("id,student_id,plan_date,skill_ids,target_concept_keys,knowledge_summaries,question_count,round_limit")
       .eq("mode", "REVIEW")
-      .gte("plan_date", dayRange.date)
+      .eq("is_scheduled", true)
+      .gte("plan_date", readinessStartDate)
       .lte("plan_date", dayRange.readinessEndDate),
     admin.from("students").select("id,display_name").eq("active", true).order("display_name"),
     admin.from("chem_quiz_student_links").select("quiz_student_id,chem_student_id"),
@@ -282,9 +287,12 @@ async function dashboard() {
     if (reasonCode.includes("scope")) return "计划知识点超出该学生已确认的学习范围";
     return "未来计划的无重复原题容量或映射尚未通过核验";
   };
+  const participatingIds = new Set((students.data || []).filter((student) => readReviewProgram(student.metadata)?.participating ?? !reviewProgram).map((student) => String(student.id)));
+  const inCurrentProgram = (studentId: unknown, date: unknown) => !reviewProgram || (participatingIds.has(String(studentId)) && (!date || (String(date) >= reviewProgram.startDate && String(date) <= reviewProgram.endDate)));
   const planningAlerts = [
     ...((personalizationJobs.data || []) as DatabaseRow[]).flatMap((job) => {
       if (job.status !== "pending" && job.status !== "blocked") return [];
+      if (!inCurrentProgram(job.student_id, job.next_plan_date)) return [];
       return [{
         id: `personalization:${String(job.completed_plan_id)}`,
         kind: "personalization",
@@ -296,7 +304,7 @@ async function dashboard() {
         createdAt: String(job.updated_at),
       }];
     }),
-    ...((capacityShortages.data || []) as DatabaseRow[]).map((shortage) => {
+    ...((capacityShortages.data || []) as DatabaseRow[]).filter((shortage) => inCurrentProgram(shortage.student_id, shortage.anchor_date)).map((shortage) => {
       const detail = shortage.detail && typeof shortage.detail === "object"
         ? shortage.detail as Record<string, unknown>
         : {};
@@ -315,6 +323,7 @@ async function dashboard() {
     student.record_status === "active"
       && ["高一", "高二", "高三"].includes(String(student.grade_band))
       && student.metadata?.demo !== true
+      && (readReviewProgram(student.metadata)?.participating ?? !reviewProgram)
       ? [String(student.id)]
       : []));
   const formalGradeByStudent = new Map((students.data || []).flatMap((student) =>
@@ -549,13 +558,13 @@ async function dashboard() {
       ...shared,
       id: `${gradeBand}:${skillId}:blocking`,
       severity: "blocking",
-      message: `截至9月29日的计划会用到“${skillTitle}”。其中${stat.invalidDailyPackageCount}个计划未满足“每天一个题组、1—8道、知识点与题目一一对应”；已排知识点每次至少需要${requiredForDailyPackage}道未做过的原题。未补足前系统必须停止下发。`,
+      message: `本期已排计划会用到“${skillTitle}”。其中${stat.invalidDailyPackageCount}个计划未满足“每天一个题组、1—8道、知识点与题目一一对应”；已排知识点每次至少需要${requiredForDailyPackage}道未做过的原题。未补足前系统必须停止下发。`,
     });
     if (lacksCrossDateCapacity) warnings.push({
       ...shared,
       id: `${gradeBand}:${skillId}:capacity`,
       severity: "capacity",
-      message: `截至9月29日，同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；已做原题也计入占用。按跨日完全不重复口径，缺口细知识点最多需${requiredForCrossDateNoRepeat}道原题（已有学生最多用过${maximumPreviouslyUsedPerConcept}道）。下面逐项列出实际缺口。`,
+      message: `本期内，同一学生最多安排“${skillTitle}”${maxVisitsPerStudent}天；已做原题也计入占用。按跨日完全不重复口径，缺口细知识点最多需${requiredForCrossDateNoRepeat}道原题（已有学生最多用过${maximumPreviouslyUsedPerConcept}道）。下面逐项列出实际缺口。`,
     });
     if (lacksDifficultyProgression) warnings.push({
       ...shared,
@@ -571,7 +580,11 @@ async function dashboard() {
       : rank(a.severity) - rank(b.severity);
   });
   planningAlerts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const liveReview = await admin.from("chem_learning_attempts").select("student_id,plan_day_id").eq("mode", "REVIEW").gte("completed_at", dayRange.start).lt("completed_at", dayRange.end);
+  if (liveReview.error) throw liveReview.error;
+  const liveReviewCount = new Set((liveReview.data || []).filter((attempt) => participatingIds.has(String(attempt.student_id))).map((attempt) => String(attempt.plan_day_id))).size;
   return {
+    reviewProgram,
     students: (students.data || []).map((s) => ({
       id: s.id,
       displayName: s.display_name,
@@ -581,6 +594,7 @@ async function dashboard() {
       guardianNames: s.metadata?.demo ? [] : guardianNames.get(s.id) || [],
       curriculumCohort: s.metadata?.curriculumCohort || null,
       planDays: planDays.get(s.id) || 0,
+      reviewParticipating: readReviewProgram(s.metadata)?.participating ?? !reviewProgram,
     })),
     alerts: (alerts.data || []).map((a) => ({ id: a.id, studentId: a.student_id, severity: a.severity, title: a.title, reason: a.reason })),
     dailySummary: {
@@ -588,7 +602,7 @@ async function dashboard() {
       classQuizCount: liveQuizRows.length,
       quizCompletedStudentCount,
       quizRosterCount: activeQuizIds.length,
-      reviewCount: report.data?.review_count || 0,
+      reviewCount: liveReviewCount,
       interventionCount: report.data?.intervention_count || 0,
       pendingVideoCount,
       publishedVideoCount: videoRecommendations.filter((item) => item.status === "published").length,
@@ -733,6 +747,18 @@ Deno.serve(async (req: Request) => {
       }).select().single();
       if (error) throw error;
       return reply(req, { observation: { id: data.id, studentId: data.student_id, courseDate: data.course_date, taughtContent: data.taught_content, observedEvidence: data.observed_evidence, internalNote: data.internal_note, studentMessage: data.student_message, guardianMessage: data.guardian_message, visibility: data.visibility } });
+    }
+    if (action === "reset_access_code") {
+      const studentId = String(bodyData.studentId || "");
+      const role = String(bodyData.role || "");
+      if (!["student", "guardian"].includes(role)) return reply(req, { error: "请选择学生码或家长码。" }, 400);
+      const { data: student, error } = await admin.from("chem_students_v2").select("id").eq("id", studentId).maybeSingle();
+      if (error) throw error;
+      if (!student) return reply(req, { error: "学生不存在。" }, 404);
+      const newCode = code();
+      const rotated = await admin.rpc("chem_rotate_access_code", { p_student_id: studentId, p_role: role, p_code: newCode });
+      if (rotated.error) throw rotated.error;
+      return reply(req, { code: newCode, role });
     }
     if (action === "reset_access_codes") {
       const studentId = String(bodyData.studentId || "");
