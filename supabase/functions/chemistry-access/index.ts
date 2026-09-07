@@ -1,4 +1,4 @@
-import { readReviewProgram, programContainsDate, programPlanVisible } from "./review-program.ts";
+import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit } from "./review-program.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { selectAdaptiveQuestions } from "./adaptive.ts";
@@ -1555,7 +1555,8 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
     supabase.from("chem_junior_daily_sessions").select("curriculum_day_id,status").eq("student_id", studentId),
   ]);
   if (curriculumResult.error || sessionsResult.error) throw curriculumResult.error || sessionsResult.error;
-  const curriculumRows = (curriculumResult.data || []) as Array<Record<string, unknown>>;
+  const curriculumRows = ((curriculumResult.data || []) as Array<Record<string, unknown>>)
+    .filter((row) => programAllowsJuniorUnit(profile.metadata, row.unit_id));
   if (!curriculumRows.length) {
     await ensureJuniorTeacherAlert(
       studentId,
@@ -1638,6 +1639,9 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   if (curriculumResult.error) throw curriculumResult.error;
   const curriculum = curriculumResult.data as Record<string, unknown> | null;
   if (!curriculum) throw new RequestError(422, "当天课程尚未完成审核发布。");
+  if (!programAllowsJuniorUnit(profileResult.data.metadata, curriculum.unit_id)) {
+    throw new RequestError(409, "这节课不在老师确认的本期单元范围内。");
+  }
   if (!futurePreviewInstructionalTextIsSafe([curriculum.title, curriculum.knowledge_summaries])) {
     throw new RequestError(422, "当天课程标题或知识摘要仍含来源标签、内部编号或本地定位信息，完成清理前不能正式开课。");
   }
@@ -1935,12 +1939,15 @@ async function futurePlanPreviewPayload(studentId: string, planId: string): Prom
       throw new RequestError(409, `初三预习需要先精确确认“${JUNIOR_TEXTBOOK_VERSION}”和课程日。`);
     }
     const curriculumResult = await supabase.from("chem_junior_curriculum_days")
-      .select("id,textbook_version,knowledge_skill_ids,release_status")
+      .select("id,unit_id,textbook_version,knowledge_skill_ids,release_status")
       .eq("id", curriculumId).eq("textbook_version", JUNIOR_TEXTBOOK_VERSION).eq("release_status", "ready").maybeSingle();
     if (curriculumResult.error) throw curriculumResult.error;
     const curriculum = curriculumResult.data as Record<string, unknown> | null;
     if (!curriculum || !juniorExactStringArray(curriculum.knowledge_skill_ids, skillIds)) {
       throw new RequestError(422, "这项初三计划与已审核课程日不一致，暂时不能预习。");
+    }
+    if (!programAllowsJuniorUnit(profile.metadata, curriculum.unit_id)) {
+      throw new RequestError(409, "这节课不在老师确认的本期单元范围内。");
     }
     const provenance = await juniorVerifiedProvenance(skillIds, JUNIOR_TEXTBOOK_VERSION);
     if (!provenance.ready) {
@@ -2668,10 +2675,18 @@ Deno.serve(async (req: Request) => {
       const program = readReviewProgram(profile.data.metadata);
       if (program) {
         const planId = String(body.data?.planId || body.data?.planDayId || "");
-        const selectedPlan = await supabase.from("chem_learning_plans").select("mode,plan_date,is_scheduled").eq("id", planId).eq("student_id", identity.studentId).maybeSingle();
+        const selectedPlan = await supabase.from("chem_learning_plans").select("mode,plan_date,is_scheduled,junior_curriculum_day_id").eq("id", planId).eq("student_id", identity.studentId).maybeSingle();
         if (selectedPlan.error) throw selectedPlan.error;
         if (!selectedPlan.data || !programPlanVisible(program, selectedPlan.data)) {
           return reply(req, { error: "这项复习不在本期安排中，历史学习记录仍可查看。" }, 409);
+        }
+        if (selectedPlan.data.mode === "REVIEW" && selectedPlan.data.junior_curriculum_day_id) {
+          const curriculum = await supabase.from("chem_junior_curriculum_days").select("unit_id")
+            .eq("id", selectedPlan.data.junior_curriculum_day_id).maybeSingle();
+          if (curriculum.error) throw curriculum.error;
+          if (!curriculum.data || !programAllowsJuniorUnit(profile.data.metadata, curriculum.data.unit_id)) {
+            return reply(req, { error: "这节课不在老师确认的本期单元范围内。" }, 409);
+          }
         }
         if (selectedPlan.data.mode === "REVIEW" && body.action !== "future_plan_preview" && !programContainsDate(program, shanghaiDate())) {
           return reply(req, { error: `本期正式学习时间为北京时间 ${program.startDate} 00:00 至 ${program.endDate} 24:00。` }, 409);

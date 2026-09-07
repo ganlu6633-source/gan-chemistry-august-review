@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readReviewProgram, programContainsDate, programPlanVisible } from '../../supabase/functions/chemistry-access/review-program'
+import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit } from '../../supabase/functions/chemistry-access/review-program'
 
 const program = readReviewProgram({ reviewProgram: { startDate: '2026-09-12', endDate: '2026-09-18', participating: true } })
 describe('bounded review program', () => {
@@ -19,5 +19,17 @@ describe('bounded review program', () => {
   })
   it('fails closed on malformed configuration', () => {
     expect(programContainsDate(readReviewProgram({ reviewProgram: {} }), '2026-09-12')).toBe(false)
+  })
+  it('keeps junior learners inside the teacher-confirmed unit', () => {
+    const metadata = { reviewProgram: { juniorUnitIds: ['J-KY-9UP-U01'] } }
+    expect(programAllowsJuniorUnit(metadata, 'J-KY-9UP-U01')).toBe(true)
+    expect(programAllowsJuniorUnit(metadata, 'J-KY-9UP-U02')).toBe(false)
+    expect(programAllowsJuniorUnit(metadata, undefined)).toBe(false)
+    expect(programAllowsJuniorUnit({}, 'J-KY-9UP-U02')).toBe(true)
+  })
+  it('does not widen scope when the unit configuration is invalid', () => {
+    for (const juniorUnitIds of [[], null, 'J-KY-9UP-U01', ['J-KY-9UP-U01', 2]]) {
+      expect(programAllowsJuniorUnit({ reviewProgram: { juniorUnitIds } }, 'J-KY-9UP-U01')).toBe(false)
+    }
   })
 })

@@ -19,3 +19,12 @@ export function programPlanVisible(program: ReviewProgram | null, plan: Record<s
   if (!program || plan.mode !== "REVIEW") return true;
   return plan.is_scheduled === true && programContainsDate(program, String(plan.plan_date || ""));
 }
+
+export function programAllowsJuniorUnit(metadata: unknown, unitId: unknown) {
+  const program = (metadata as Record<string, unknown> | null)?.reviewProgram as Record<string, unknown> | undefined;
+  if (!program || !("juniorUnitIds" in program)) return true;
+  const units = program.juniorUnitIds;
+  return Array.isArray(units) && units.length > 0
+    && units.every((unit) => typeof unit === "string" && unit.trim().length > 0)
+    && typeof unitId === "string" && units.includes(unitId);
+}
