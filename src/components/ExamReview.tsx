@@ -90,11 +90,11 @@ function RecallCard({ unit, recall, draft, onDraft, evidence, readOnly, saving, 
       </details> : <p className="exam-unlock-note">先保存一次自己的思路，再展开参考解析。</p>}
       <div className="exam-evidence">
         <h3>同类题证据</h3>
-        <p>完全同型 {strongCount} 道 · 部分匹配 {partialCount} 道</p>
-        {strongCount === 0 && <p className="exam-review-note">目前没有完全同型题。原卷书写需教师核验；部分匹配题只练其中的知识点。</p>}
+        <p>同类型 {strongCount} 道 · 部分匹配 {partialCount} 道</p>
+        {strongCount === 0 && <p className="exam-review-note">目前没有同类型题。原卷书写需教师核验；部分匹配题只练其中的知识点。</p>}
         <p><b>{evidence.verified ? '同类题已复核' : '同类题证据待积累'}</b> · {evidence.questionCount} 道不同题答对且确定 · {evidence.dateCount} 个北京时间日期</p>
-        <small>{evidence.verified ? '这是正式同型题的作答证据，仍不代表原卷书写或主观题已经掌握。' : evidence.recentSetback ? '近期出现过答错或不确定，需在其后用不同题、不同日期重新确认。' : '需要至少 2 道不同的完全同型题，在不同北京时间日期答对且确定，并且之后没有答错或不确定。'}</small>
-        {unit.bankMatches.length > 0 && <details className="exam-match-details"><summary>查看训练对应关系</summary><ul>{unit.bankMatches.map((match, index) => <li key={`${match.questionId}:${index}`}><b>{match.strength === 'same_type' ? '完全同型' : '部分匹配'}：</b><ChemText>{match.reason}</ChemText></li>)}</ul></details>}
+        <small>{evidence.verified ? '这是正式同类型题的作答证据，仍不代表原卷书写或主观题已经掌握。' : evidence.recentSetback ? '近期出现过答错或不确定，需在其后用不同题、不同日期重新确认。' : '需要至少 2 道不同的同类型题，在不同北京时间日期答对且确定，并且之后没有答错或不确定。'}</small>
+        {unit.bankMatches.length > 0 && <details className="exam-match-details"><summary>查看训练对应关系</summary><ul>{unit.bankMatches.map((match, index) => <li key={`${match.questionId}:${index}`}><b>{match.strength === 'same_type' ? '同类型' : '部分匹配'}：</b><ChemText>{match.reason}</ChemText></li>)}</ul></details>}
         {unit.practiceTargets.length > 0 && <><h3>接下来重点练</h3><TextList items={unit.practiceTargets} /></>}
       </div>
     </div>
@@ -197,12 +197,12 @@ export function ExamReview({ session, studentId, previewMode = false, onExit }: 
       <p className="exam-multiline"><ChemText>{payload.material.overview}</ChemText></p>
       <div className="exam-progress" aria-label="复盘进度">
         <div><b>{checkedCount}/{units.length}</b><span>已自检</span></div>
-        <div><b>{evidenceCount}/{units.length}</b><span>同类题证据已复核</span></div>
+        <div><b>{evidenceCount}项</b><span>同类题证据已复核</span></div>
         <div><b>{units.filter((unit) => unit.status === 'needs_review').length}</b><span>待教师核验</span></div>
       </div>
       {payload.material.dailyOutline.length > 0 && <details className="exam-week-outline"><summary>查看本周复盘与正式训练安排</summary><p>按日回看下面的原卷题号；同类题请进入首页当天正式题组。自检和正式作答分别记录。</p><ol>{payload.material.dailyOutline.map((day) => <li key={day.date}><time dateTime={day.date}>{day.date.slice(5)}</time><div><b><ChemText>{day.title}</ChemText></b><span>原卷第 {day.questionNos.join('、')} 题 · {day.unitIds.length} 个复盘项</span></div></li>)}</ol></details>}
       <div className="exam-source-controls"><b>带批注原卷，仅用于复盘</b><p>页上手写内容是批注，不是标准答案；以核验后的解析为准。点击需要的页再加载。</p><div>{Array.from({ length: payload.material.pageCount }, (_, index) => index + 1).map((page) => <button type="button" className="secondary-button compact" key={page} aria-pressed={selectedPage === page} onClick={() => setSelectedPage(page)}>第 {page} 页</button>)}</div></div>
-      {selectedPage !== null && <div className="exam-page-panel" ref={pagePanel} tabIndex={-1} aria-label={`带批注原卷第 ${selectedPage} 页`}><div className="exam-page-head"><b>原卷第 {selectedPage} 页 · 带批注</b><button type="button" className="text-button" onClick={() => setSelectedPage(null)}>收起原卷</button></div>{pageLoading && <p role="status">正在加载这一页…</p>}{pageError && <div role="alert"><p>{pageError}</p><button type="button" className="secondary-button compact" onClick={() => setPageRetry((value) => value + 1)}>重试原卷图片</button></div>}{pageImage && <div className="exam-page-scroll"><img src={`data:${pageImage.mimeType};base64,${pageImage.payloadBase64}`} width={pageImage.width} height={pageImage.height} alt={`福州化学试卷第 ${selectedPage} 页，含手写批注，仅用于复盘`} /></div>}</div>}
+      {selectedPage !== null && <div className="exam-page-panel" ref={pagePanel} tabIndex={-1} aria-label={`带批注原卷第 ${selectedPage} 页`}><div className="exam-page-head"><b>原卷第 {selectedPage} 页 · 带批注</b><button type="button" className="text-button" onClick={() => setSelectedPage(null)}>收起原卷</button></div>{pageLoading && <p role="status">正在加载这一页…</p>}{pageError && <div role="alert"><p>{pageError}</p><button type="button" className="secondary-button compact" onClick={() => setPageRetry((value) => value + 1)}>重试原卷图片</button></div>}{pageImage && <><p>可在图片区域左右、上下滑动查看全页。</p><div className="exam-page-scroll"><img src={`data:${pageImage.mimeType};base64,${pageImage.payloadBase64}`} width={pageImage.width} height={pageImage.height} alt={`福州化学试卷第 ${selectedPage} 页，含手写批注，仅用于复盘`} /></div></>}</div>}
       <div className="exam-filters"><label>选择题号<select value={question} onChange={(event) => setQuestion(event.target.value)}><option value="all">全部题号</option>{Array.from({ length: 14 }, (_, index) => index + 1).map((number) => <option key={number} value={number}>第 {number} 题</option>)}</select></label><label>筛选复盘状态<select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">全部状态</option><option value="pending">待自检</option><option value="help">需帮助</option><option value="review">待核验</option></select></label><span aria-live="polite">显示 {visible.length} 个复盘项</span></div>
       <div className="exam-unit-list">{visible.map((unit) => <RecallCard key={unit.id} unit={unit} recall={recallMap.get(unit.id)} draft={drafts[unit.id]} onDraft={(id, value) => setDrafts((current) => ({ ...current, [id]: value }))} evidence={evidenceMap.get(unit.id)!} readOnly={readOnly} saving={savingUnits.has(unit.id)} onSave={saveRecall} onOpenPage={setSelectedPage} />)}</div>
       {visible.length === 0 && <p className="exam-empty" role="status">当前筛选没有复盘项，可切换题号或状态查看。</p>}

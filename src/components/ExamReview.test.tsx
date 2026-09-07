@@ -53,7 +53,8 @@ describe('private exam review evidence and writing boundaries', () => {
     expect(screen.queryByText('同类题已复核', { exact: true })).not.toBeInTheDocument()
     const progress = screen.getByLabelText('复盘进度')
     expect(within(progress).getByText('1/1')).toBeInTheDocument()
-    expect(within(progress).getByText('0/1')).toBeInTheDocument()
+    expect(within(progress).getByText('0项')).toBeInTheDocument()
+    expect(within(progress).queryByText('0/1')).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('bank-private')
   })
 
@@ -82,7 +83,7 @@ describe('private exam review evidence and writing boundaries', () => {
     fireEvent.change(screen.getByLabelText('筛选复盘状态'), { target: { value: 'review' } })
     openUnit()
     expect(screen.getByText('原卷图示需要确认。')).toBeInTheDocument()
-    expect(screen.getByText(/目前没有完全同型题。原卷书写需教师核验/)).toBeInTheDocument()
+    expect(screen.getByText(/目前没有同类型题。原卷书写需教师核验/)).toBeInTheDocument()
     expect(screen.queryByText('同类题已复核', { exact: true })).not.toBeInTheDocument()
     expect(screen.getByText('待核验参考：请以甘老师复核后的说明为准。')).toBeInTheDocument()
   })
