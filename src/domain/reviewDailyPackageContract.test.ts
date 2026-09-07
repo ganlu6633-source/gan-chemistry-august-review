@@ -67,7 +67,8 @@ describe('formal REVIEW daily-package contract', () => {
     expect(accessSource).toContain('{ ...options, allowCompletedPreview: false, includeAnswerLocks: true }')
     expect(accessSource).toContain('{ studentOpen: true, previewRound }')
     expect(accessSource).toContain('&& effectiveOptions.includeAnswerLocks')
-    expect(accessSource).toContain('if (effectiveOptions.includeAnswerLocks && plan.mode === "REVIEW")')
+    expect(accessSource).toContain('effectiveOptions.includeAnswerLocks && plan.mode === "REVIEW"')
+    expect(accessSource).toContain('await answerLocks(studentId, String(plan.id), selectionSequence)')
     expect(accessSource).toContain('never touches independent quizzes')
   })
 

@@ -31,7 +31,7 @@ describe('high-school source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('body.action === "question_feedback"')
     expect(accessFunction).toContain('chem_lock_question_answer')
     expect(accessFunction).toContain('这道题已经按第一次提交的选项锁定')
-    expect(accessFunction).toContain('chem_get_question_answer_locks')
+    expect(accessFunction).toContain('chem_current_plan_answer_locks')
     expect(accessFunction).toContain('本轮答案必须与服务器锁定的第一次选择一致')
     expect(accessFunction).toContain('lockedFeedback')
     expect(accessFunction).toContain('analysisAssetRefs: []')

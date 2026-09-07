@@ -1,4 +1,4 @@
-import type { CreateVideoRecommendationInput, FuturePlanPreviewPayload, GuardianDashboardData, JuniorAdaptivePayload, JuniorQuestionFeedback, LearningAttempt, LearningRecordData, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
+import type { CreateVideoRecommendationInput, FuturePlanPreviewPayload, GuardianDashboardData, JuniorAdaptivePayload, JuniorStepSubmissionResult, LearningAttempt, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
 import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
@@ -90,11 +90,20 @@ export interface QuestionFeedbackInput {
   durationSec: number
   revisionToken?: string | null
   previewRound?: number
+  previewAnswers?: Array<{ questionId: string; selectedOption: number; revisionToken?: string | null }>
 }
 
-/** Lock a real student's first High-3 source answer before revealing feedback. */
+export interface QuestionFeedbackResponse {
+  feedback: QuestionFeedback
+  simulated: boolean
+  /** Complete ordered group, including follow-up questions selected by the server. */
+  questions?: Question[]
+  optionPractice?: OptionPracticeProgress[]
+}
+
+/** Lock a real student's first high-school source answer before revealing feedback. */
 export async function loadQuestionFeedback(session: SessionIdentity, input: QuestionFeedbackInput) {
-  return accessApi<{ feedback: QuestionFeedback; simulated: boolean }>(session, 'question_feedback', input)
+  return accessApi<QuestionFeedbackResponse>(session, 'question_feedback', input)
 }
 
 /** Open or resume a textbook-confirmed junior daily session. The server issues one reviewed original at a time. */
@@ -121,12 +130,12 @@ export interface JuniorStepAnswerInput {
 
 /** Persist one immutable first answer and receive the server-selected next original. */
 export async function submitJuniorAdaptiveStep(session: SessionIdentity, input: JuniorStepAnswerInput) {
-  return accessApi<{ feedback: JuniorQuestionFeedback; payload: JuniorAdaptivePayload; dashboard?: StudentDashboardData }>(session, 'junior_submit_step', input)
+  return accessApi<JuniorStepSubmissionResult>(session, 'junior_submit_step', input)
 }
 
 /** Read-only teacher simulation; no real attempt or answer lock is written. */
 export async function previewQuestionFeedback(input: QuestionFeedbackInput) {
-  return teacherApi<{ feedback: QuestionFeedback; simulated: true }>('question_feedback', input)
+  return teacherApi<QuestionFeedbackResponse & { simulated: true }>('question_feedback', input)
 }
 
 export async function teacherApi<T>(action: string, data?: unknown, options?: ApiRequestOptions): Promise<T> {

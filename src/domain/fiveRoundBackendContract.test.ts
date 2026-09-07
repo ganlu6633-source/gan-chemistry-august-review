@@ -3,7 +3,8 @@ import accessFunction from '../../supabase/functions/chemistry-access/index.ts?r
 
 describe('five-round review backend contract', () => {
   it('returns the plan and payload limits needed by every client', () => {
-    expect(accessFunction).toContain('questionCount, roundLimit, maxQuestionLevel: maximumLevel')
+    expect(accessFunction).toContain('questionCount: latestAnswers.length > questionCount ? latestAnswers.length : questionCount')
+    expect(accessFunction).toContain('roundLimit, maxQuestionLevel: maximumLevel')
     expect(accessFunction).toContain('roundNumber,')
     expect(accessFunction).toContain('attemptSequence: selectionSequence')
     expect(accessFunction).toContain('roundsRemaining: isComplete ? 0')
@@ -18,7 +19,8 @@ describe('five-round review backend contract', () => {
 
   it('requires a complete round and refuses writes after the configured limit', () => {
     expect(accessFunction).toContain('adaptiveQuestions.length !== questionCount')
-    expect(accessFunction).toContain('submittedAnswers.length !== questionCount')
+    expect(accessFunction).toContain('submittedAnswers.length !== expandedQuestionCount')
+    expect(accessFunction).toContain('const expandedQuestionCount = expectedIds?.length ?? questionCount')
     expect(accessFunction).toContain('attemptSequence >= roundLimit')
     expect(accessFunction).toContain('Number(attempt.sequence) !== attemptSequence')
     expect(accessFunction).toContain('sequence: attemptSequence')
@@ -47,7 +49,9 @@ describe('five-round review backend contract', () => {
 
   it('rebuilds and verifies the exact adaptive five-question set on submit', () => {
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.order("id")')
-    expect(accessFunction).toContain('const expectedPayload = await startPlanPayload(targetId, String(plan.id), { studentOpen: true, includeAnswerLocks: true })')
+    expect(accessFunction).toContain('await startPlanPayload(targetId, String(plan.id), { studentOpen: true, includeAnswerLocks: true })')
+    expect(accessFunction).toContain('const expectedPayload = expectedSubmission ?? await startPlanPayload')
+    expect(accessFunction).toContain('questionIds.some((id, index) => expectedIds[index] !== id)')
     expect(accessFunction).toContain('expectedQuestionIdSet.has(questionId)')
     expect(accessFunction).toContain('不属于系统刚刚生成的自适应题组')
   })

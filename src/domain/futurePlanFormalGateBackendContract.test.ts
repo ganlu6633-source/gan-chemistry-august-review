@@ -33,8 +33,9 @@ describe('future formal-plan and junior legacy fail-closed gates', () => {
 
   it('marks every real-student generic read surface as a student open', () => {
     expect(accessSource).toMatch(/body\.action === "start_plan"[\s\S]{0,900}studentOpen: true/)
-    expect(accessSource).toMatch(/expectedPayload = await startPlanPayload\([\s\S]{0,260}studentOpen: true, includeAnswerLocks: true/)
-    expect(accessSource).toMatch(/body\.action === "question_feedback"[\s\S]{0,1900}studentOpen: true, includeAnswerLocks: true/)
+    expect(accessSource).toMatch(/const expectedSubmission = formalHighSchoolReview\s*\? await startPlanPayload\([^;]+studentOpen: true, includeAnswerLocks: true/)
+    const feedbackHandler = accessSource.slice(accessSource.indexOf('if (body.action === "question_feedback"'), accessSource.indexOf('if (body.action === "junior_open_session"'))
+    expect(feedbackHandler).toContain(': { studentOpen: true, includeAnswerLocks: true }')
     expect(submitAttemptHandler).toContain('startPlanPayload(targetId, String(plan.id), { studentOpen: true, includeAnswerLocks: true })')
   })
 

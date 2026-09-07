@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Image as ImageIcon, RefreshCw, X, ZoomIn } from 'lucide-react'
 import type { QuestionAssetRef, QuestionSourceInfo, SessionIdentity } from '../domain/types'
-import { compactImageWhitespace } from '../domain/compactImageWhitespace'
 import { stripLeadingQuestionSource } from '../domain/questionPresentation'
 import { loadQuestionAsset, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { readAccessSession } from '../lib/session'
@@ -45,17 +44,10 @@ type AssetLoadState = {
   message?: string
 }
 
-function CompactQuestionImage({ dataUrl, alt, width, height }: { dataUrl: string; alt: string; width?: number; height?: number }) {
-  const [displayUrl, setDisplayUrl] = useState(dataUrl)
-  useEffect(() => {
-    let active = true
-    setDisplayUrl(dataUrl)
-    void compactImageWhitespace(dataUrl).then((result) => {
-      if (active) setDisplayUrl(result)
-    })
-    return () => { active = false }
-  }, [dataUrl])
-  return <img src={displayUrl} alt={alt} width={width || undefined} height={displayUrl === dataUrl ? height || undefined : undefined} />
+function ReviewedQuestionImage({ dataUrl, alt, width, height }: { dataUrl: string; alt: string; width?: number; height?: number }) {
+  // These pixels are part of the reviewed source. Client-side whitespace or
+  // header heuristics can remove conditions and superscripts from a real exam.
+  return <img src={dataUrl} alt={alt} width={width || undefined} height={height || undefined} />
 }
 
 const emptyState = (): AssetLoadState => ({ status: 'idle' })
@@ -177,7 +169,7 @@ function QuestionSourceMediaComponent({ question, enabled, session, nativeConten
       const visibleAlt = showSource ? ref.alt : analysis ? '教师审核用原题解析图' : '本题原题题面图'
       if (state.status === 'ready' && state.asset) return <figure className="source-question-image" key={ref.assetId}>
         <button type="button" className="source-image-zoom" data-question-media-control onClick={(event) => { zoomTriggerRef.current = event.currentTarget; setZoomedAssetId(ref.assetId) }} aria-label={`放大查看${visibleAlt}`}>
-          <CompactQuestionImage dataUrl={state.asset.dataUrl} alt={visibleAlt} width={ref.width} height={ref.height} />
+          <ReviewedQuestionImage dataUrl={state.asset.dataUrl} alt={visibleAlt} width={ref.width} height={ref.height} />
           <span><ZoomIn />点击放大</span>
         </button>
         {galleryRefs.length > 1 && <figcaption>{analysis ? '原题解析图' : '原题图'} {index + 1}/{galleryRefs.length}</figcaption>}
@@ -211,7 +203,7 @@ function QuestionSourceMediaComponent({ question, enabled, session, nativeConten
     <dialog ref={dialogRef} className="source-image-dialog" data-question-media-dialog aria-label="放大查看原题图" onCancel={(event) => { event.preventDefault(); closeZoom() }} onClick={(event) => { if (event.target === event.currentTarget) closeZoom() }}>
       <div role="document">
         <header><b>原题大图</b><button type="button" data-question-media-control onClick={closeZoom} aria-label="关闭原题大图"><X /></button></header>
-        {zoomedAsset && zoomedRef && <CompactQuestionImage dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${showSource ? zoomedRef.alt : zoomedRef.kind === 'analysis_image' ? '教师审核用原题解析图' : '本题原题题面图'}`} width={zoomedRef.width} height={zoomedRef.height} />}
+        {zoomedAsset && zoomedRef && <ReviewedQuestionImage dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${showSource ? zoomedRef.alt : zoomedRef.kind === 'analysis_image' ? '教师审核用原题解析图' : '本题原题题面图'}`} width={zoomedRef.width} height={zoomedRef.height} />}
       </div>
     </dialog>
   </section>

@@ -56,6 +56,22 @@ describe('QuestionSourceMedia', () => {
     await waitFor(() => expect(ready).toHaveBeenLastCalledWith(true))
   })
 
+  it('preserves the reviewed image bytes in questions, explanations, and both zoom views', async () => {
+    const view = render(<QuestionSourceMedia question={question} enabled session={session} />)
+    const original = await screen.findByAltText('2025年福建省质检第8题题面原图')
+    expect(original).toHaveAttribute('src', 'data:image/png;base64,problem-asset')
+    fireEvent.click(original.closest('button')!)
+    expect(await screen.findByAltText('放大查看：2025年福建省质检第8题题面原图')).toHaveAttribute('src', 'data:image/png;base64,problem-asset')
+    fireEvent.click(screen.getByRole('button', { name: '关闭原题大图' }))
+
+    view.rerender(<QuestionSourceMedia question={question} enabled session={session} feedback />)
+    const analysis = await screen.findByAltText('2025年福建省质检第8题原解析图')
+    expect(analysis).toHaveAttribute('src', 'data:image/png;base64,analysis-asset')
+    expect(original).toHaveAttribute('src', 'data:image/png;base64,problem-asset')
+    fireEvent.click(analysis.closest('button')!)
+    expect(await screen.findByAltText('放大查看：2025年福建省质检第8题原解析图')).toHaveAttribute('src', 'data:image/png;base64,analysis-asset')
+  })
+
   it('uses neutral learner-facing image labels when source display is disabled', async () => {
     render(<QuestionSourceMedia question={{ ...question, assetRefs: [asset('problem-asset', 'question_image', '2025年福建省质检第8题题面原图')] }} enabled session={session} showSource={false} />)
 

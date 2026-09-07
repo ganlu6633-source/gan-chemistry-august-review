@@ -89,7 +89,7 @@ describe('LearningRound licensed source question', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭原题大图' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '提交答案' })).toHaveFocus())
     fireEvent.keyDown(window, { key: 'Enter' })
-    expect(await screen.findByText(/判断正确/)).toBeInTheDocument()
+    expect(await screen.findByText('回答正确')).toBeInTheDocument()
     expect(loadQuestionFeedback).toHaveBeenCalledWith(session, expect.objectContaining({ planId: 'h3-plan', questionId: 'licensed-h3-q1', selectedOption: 0, revisionToken: 'sha256-question-revision' }))
     expect(screen.queryByRole('heading', { name: '原题解析图' })).not.toBeInTheDocument()
     expect(screen.queryByAltText('第8题原题解析')).not.toBeInTheDocument()
@@ -104,7 +104,7 @@ describe('LearningRound licensed source question', () => {
   it('restores a server-locked first answer after refresh without allowing a new choice', async () => {
     render(<LearningRound session={session} payload={{ ...payload, lockedFeedback: [answerFeedback] }} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
-    expect(await screen.findByText(/判断正确/)).toBeInTheDocument()
+    expect(await screen.findByText('回答正确')).toBeInTheDocument()
     const answerA = screen.getByRole('button', { name: 'A 选项，内容见原题图' })
     expect(answerA).toBeDisabled()
     expect(loadQuestionFeedback).not.toHaveBeenCalled()
@@ -128,16 +128,16 @@ describe('LearningRound licensed source question', () => {
     }
     render(<LearningRound session={session} payload={dailyPayload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /我理解了，开始练习/ }))
+    fireEvent.click(screen.getByRole('button', { name: '开始练习' }))
     expect(await screen.findByAltText('本题原题题面图')).toBeInTheDocument()
     expect(screen.getByLabelText('今日复习题组')).toBeInTheDocument()
     expect(screen.getByText(/今日题组 · 1\/1/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'A 选项，内容见原题图' }))
     fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
-    expect(await screen.findByText('判断正确，下次复习可提高难度')).toBeInTheDocument()
+    expect(await screen.findByText('回答正确')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '完成今日题组' }))
 
-    expect(await screen.findByRole('heading', { name: '今天全部答对；下次复习可以提高难度。' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '本组全部回答正确。' })).toBeInTheDocument()
     expect(screen.queryByText(/进入第 2 轮/)).not.toBeInTheDocument()
   })
 })

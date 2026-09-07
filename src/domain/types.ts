@@ -135,6 +135,26 @@ export interface Question {
   renderMode?: 'native' | 'image_assist' | 'image_primary'
   /** Server-owned crop-and-render revision token; submitted back to prevent mid-round mutation. */
   revisionToken?: string | null
+  /** Server-selected follow-up for one immutable wrong first choice. */
+  optionPractice?: QuestionOptionPractice
+}
+
+export interface QuestionOptionPractice {
+  anchorQuestionId: string
+  optionIndex: number
+  knowledgePoint: string
+  position: number
+  total: number
+}
+
+export interface OptionPracticeProgress {
+  anchorQuestionId: string
+  optionIndex: number
+  knowledgePoint: string
+  questionIds: string[]
+  answered: number
+  correct: number
+  status: 'practicing' | 'consolidated' | 'needs_practice' | 'reserve_gap'
 }
 
 /** Server-issued only after a high-school licensed question's first answer is locked. */
@@ -289,6 +309,7 @@ export interface IssuedJuniorQuestion {
   stem: string
   options: string[]
   revisionToken?: string | null
+  optionPractice?: { anchorStepId: string; optionIndex: number; knowledgePoint: string; position: number; total: number }
 }
 
 /** Feedback for one opaque junior session step; it never exposes a library question id. */
@@ -313,6 +334,19 @@ export interface JuniorAdaptivePayload {
   currentStepId?: string
   currentQuestion: IssuedJuniorQuestion | null
   completed: boolean
+  optionPractice?: Array<{ anchorStepId: string; optionIndex: number; knowledgePoint: string;
+    status: 'practicing' | 'pending' | 'consolidated' | 'needs_practice' | 'reserve_gap';
+    answered: number; correct: number; total: number; pendingReason: string }>
+  pendingMessage?: string
+}
+
+/** A committed answer is returned even when preparing the next question fails. */
+export interface JuniorStepSubmissionResult {
+  feedback: JuniorQuestionFeedback
+  payload: JuniorAdaptivePayload | null
+  dashboard?: StudentDashboardData
+  replayed?: boolean
+  continuation?: { status: 'ready' | 'unavailable'; message?: string }
 }
 
 /**
@@ -455,7 +489,6 @@ export interface VideoRecommendationFilter {
 }
 
 export interface StudentDashboardData {
-  examReview?: { id: string; title: string; unitCount: number }
   profile: Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'enrollmentStartDate' | 'needsInitialDiagnostic'> & {
     isDemo?: boolean
     availableDemoGrades?: GradeBand[]
@@ -466,50 +499,6 @@ export interface StudentDashboardData {
   todayQuestionCount: number
   achievements: Array<{ id: string; title: string; description: string; earnedAt: string }>
   videoRecommendations?: VideoRecommendation[]
-}
-
-export interface ExamReviewUnit {
-  id: string
-  label: string
-  questionNo: number
-  page: number
-  prompt: string
-  knowledgePoints: string[]
-  answer: string
-  explanation: string
-  commonMistakes: string[]
-  practiceTargets: string[]
-  status: 'ready' | 'needs_review'
-  reviewNote?: string
-  bankMatches: Array<{ questionId: string; strength: 'same_type' | 'partial'; reason: string }>
-}
-
-export interface ExamRecall {
-  unitId: string
-  response: string
-  selfRating: 'understood' | 'needs_help'
-  responseCount: number
-  updatedAt: string
-}
-
-export interface ExamReviewPayload {
-  material: {
-    id: string
-    title: string
-    pageCount: number
-    overview: string
-    units: ExamReviewUnit[]
-    dailyOutline: Array<{ date: string; title: string; questionNos: number[]; unitIds: string[] }>
-  }
-  recalls: ExamRecall[]
-  evidence: Array<{ questionId: string; correct: boolean; uncertain: boolean; completedAt: string }>
-}
-
-export interface ExamMaterialPage {
-  mimeType: string
-  payloadBase64: string
-  width: number
-  height: number
 }
 
 export type LearningRecordEvidenceStatus = 'full' | 'partial' | 'unlit'

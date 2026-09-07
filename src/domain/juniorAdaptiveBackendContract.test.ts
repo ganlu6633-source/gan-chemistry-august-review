@@ -69,11 +69,11 @@ describe('2026-08-29 junior evidence backend contract', () => {
     const juniorSession = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
     expect(juniorSession).toContain('const studentCards = orderedCards.map(studentProvenanceFreeCardShape)')
     expect(juniorSession).toContain('studentCards.some((card) => !studentInstructionalCardTextIsSafe(card))')
-    expect((juniorSession.match(/cards:\s*studentCards/g) || [])).toHaveLength(4)
+    expect((juniorSession.match(/cards:\s*studentCards/g) || [])).toHaveLength(5)
     expect(juniorSession).toContain('const studentPlan = juniorStudentPlanShape(')
     expect(juniorSession).toContain('{ failClosedOnUnsafeCopy: true }')
     expect(juniorSession).toContain('futurePreviewInstructionalTextIsSafe([curriculum.title, curriculum.knowledge_summaries])')
-    expect((juniorSession.match(/plan:\s*studentPlan/g) || [])).toHaveLength(4)
+    expect((juniorSession.match(/plan:\s*studentPlan/g) || [])).toHaveLength(5)
     expect(juniorSession).not.toContain('plan: planShape(plan)')
     expect(juniorSession).not.toContain('orderedCards.map(cardShape)')
     expect(accessFunction).toContain('asset: undefined')
@@ -211,13 +211,13 @@ describe('2026-08-29 junior evidence backend contract', () => {
     expect(juniorEvidenceMigration).toMatch(/revoke\s+all\s+on\s+function\s+public\.chem_junior_validate_issued_step[\s\S]*?from\s+public\s*,\s*anon\s*,\s*authenticated\s*,\s*service_role[\s\S]*?grant\s+execute[\s\S]*?to\s+service_role/i)
 
     expect(juniorAccess).not.toMatch(/from\(["']chem_junior_session_steps["']\)\.insert\(/i)
-    expect(juniorAccess).toContain('supabase.rpc("chem_junior_issue_step"')
+    expect(juniorAccess).toContain('supabase.rpc("chem_junior_issue_option_step"')
     expect(juniorAccess).toContain('supabase.rpc("chem_junior_validate_issued_step"')
-    expect(juniorAccess.indexOf('supabase.rpc("chem_junior_issue_step"')).toBeLessThan(
-      juniorAccess.indexOf('currentQuestion: juniorQuestionShape(selected)'),
+    expect(juniorAccess.indexOf('supabase.rpc("chem_junior_issue_option_step"')).toBeLessThan(
+      juniorAccess.indexOf('currentQuestion: { ...juniorQuestionShape(selected)'),
     )
     expect(juniorAccess.indexOf('supabase.rpc("chem_junior_validate_issued_step"')).toBeLessThan(
-      juniorAccess.indexOf('currentQuestion: juniorQuestionShape(currentQuestion.data)'),
+      juniorAccess.indexOf('currentQuestion: { ...juniorQuestionShape(currentQuestion.data)'),
     )
   })
 
@@ -322,10 +322,13 @@ describe('2026-08-29 junior evidence backend contract', () => {
     )
   })
 
-  it('treats uncertain prior answers as recoveries and requires at least two recovery originals', () => {
-    expect(juniorAccess).toMatch(/step\.correct\s*!==\s*true\s*\|\|\s*step\.uncertain\s*===\s*true/i)
-    expect(juniorAccess).toMatch(/route_kind\s*===\s*["']prior_error_recovery["'][\s\S]{0,100}length\s*>=\s*2/i)
-    expect(juniorAccess).toContain('juniorInitialPathHasCapacity')
+  it('uses the durable exact-option queue instead of broad prior-error or uncertainty repair', () => {
+    const session = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
+    expect(session).toContain('supabase.rpc("chem_junior_option_state"')
+    expect(session).toContain('nextJuniorOptionBranch(optionState, steps.length)')
+    expect(session).toContain('selectJuniorScheduledQuestion')
+    expect(session).not.toContain('selectJuniorNextQuestion')
+    expect(session).not.toContain('const priorErrors')
   })
 
   it('loads the versioned junior evidence migration without coupling to its timestamp suffix', () => {
