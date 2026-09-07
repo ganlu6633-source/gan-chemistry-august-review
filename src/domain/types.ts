@@ -455,6 +455,7 @@ export interface VideoRecommendationFilter {
 }
 
 export interface StudentDashboardData {
+  examReview?: { id: string; title: string; unitCount: number }
   profile: Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'enrollmentStartDate' | 'needsInitialDiagnostic'> & {
     isDemo?: boolean
     availableDemoGrades?: GradeBand[]
@@ -465,6 +466,50 @@ export interface StudentDashboardData {
   todayQuestionCount: number
   achievements: Array<{ id: string; title: string; description: string; earnedAt: string }>
   videoRecommendations?: VideoRecommendation[]
+}
+
+export interface ExamReviewUnit {
+  id: string
+  label: string
+  questionNo: number
+  page: number
+  prompt: string
+  knowledgePoints: string[]
+  answer: string
+  explanation: string
+  commonMistakes: string[]
+  practiceTargets: string[]
+  status: 'ready' | 'needs_review'
+  reviewNote?: string
+  bankMatches: Array<{ questionId: string; strength: 'same_type' | 'partial'; reason: string }>
+}
+
+export interface ExamRecall {
+  unitId: string
+  response: string
+  selfRating: 'understood' | 'needs_help'
+  responseCount: number
+  updatedAt: string
+}
+
+export interface ExamReviewPayload {
+  material: {
+    id: string
+    title: string
+    pageCount: number
+    overview: string
+    units: ExamReviewUnit[]
+    dailyOutline: Array<{ date: string; title: string; questionNos: number[]; unitIds: string[] }>
+  }
+  recalls: ExamRecall[]
+  evidence: Array<{ questionId: string; correct: boolean; uncertain: boolean; completedAt: string }>
+}
+
+export interface ExamMaterialPage {
+  mimeType: string
+  payloadBase64: string
+  width: number
+  height: number
 }
 
 export type LearningRecordEvidenceStatus = 'full' | 'partial' | 'unlit'

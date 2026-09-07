@@ -2092,6 +2092,12 @@ async function studentDashboard(studentId: string) {
     todayQuestionCount: todayPlan ? planQuestionCount(todayPlan) : 0,
     achievements,
     videoRecommendations,
+    examReview: (() => {
+      const config = profileResult.data.metadata?.reviewProgram;
+      return typeof config?.examMaterialId === "string" && config?.participating === true
+        ? { id: config.examMaterialId, title: String(config.examMaterialTitle || "试卷逐项复盘"), unitCount: Number(config.examMaterialUnitCount || 0) }
+        : undefined;
+    })(),
   };
 }
 
@@ -2685,6 +2691,42 @@ Deno.serve(async (req: Request) => {
 
     const identity = await authenticate(req);
     if (!identity) return reply(req, { error: "登录已失效，请重新输入访问码。" }, 401);
+
+    if (["exam_material", "exam_material_page", "exam_recall"].includes(body.action)) {
+      const isTeacherRead = identity.role === "teacher" && body.action !== "exam_recall";
+      const targetId = isTeacherRead ? String(body.data?.studentId || "") : identity.studentId;
+      if ((!isTeacherRead && identity.role !== "student") || !targetId || !validUuid(targetId)
+        || (!isTeacherRead && body.data?.studentId && body.data.studentId !== identity.studentId)) {
+        return reply(req, { error: "无权读取或记录这份试卷复盘。" }, 403);
+      }
+      if (body.action === "exam_recall") {
+        if (await isDemoStudent(targetId)) return reply(req, { error: "演示账号不能保存正式复盘记录。" }, 403);
+        const unitId = String(body.data?.unitId || "");
+        const response = String(body.data?.response || "").trim();
+        const responseLength = [...response].length;
+        const selfRating = String(body.data?.selfRating || "");
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(unitId) || responseLength < 8 || responseLength > 3000
+          || !["understood", "needs_help"].includes(selfRating)) {
+          return reply(req, { error: "请写出8—3000个字的判断依据或解题过程，再选择自检状态。" }, 400);
+        }
+        const result = await supabase.rpc("chem_record_exam_recall", { p_student_id: targetId, p_unit_id: unitId, p_response: response, p_self_rating: selfRating });
+        if (result.error?.code === "P0001") return reply(req, { error: "该复盘单元不在当前安排中，或提交内容无效。请刷新后重试。" }, 400);
+        if (result.error) throw result.error;
+        return reply(req, result.data);
+      }
+      if (body.action === "exam_material_page") {
+        const page = Number(body.data?.page);
+        if (!Number.isInteger(page) || page < 1 || page > 100) return reply(req, { error: "原卷页码无效。" }, 400);
+        const result = await supabase.rpc("chem_get_exam_material_page", { p_student_id: targetId, p_page: page });
+        if (result.error) throw result.error;
+        if (!result.data) return reply(req, { error: "这页材料不在当前复盘安排中。" }, 404);
+        return reply(req, { page: result.data });
+      }
+      const result = await supabase.rpc("chem_get_exam_material", { p_student_id: targetId });
+      if (result.error) throw result.error;
+      if (!result.data) return reply(req, { error: "当前尚未安排试卷逐项复盘。" }, 404);
+      return reply(req, result.data);
+    }
 
     // Enforce the selected program for every formal write/open route, even
     // when an old tab still holds a plan id. Historical record reads remain available.

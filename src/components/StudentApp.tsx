@@ -15,6 +15,7 @@ import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
+import { ExamReview } from './ExamReview'
 
 type StudentView = 'today' | 'map' | 'growth' | 'settings'
 type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
@@ -126,6 +127,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
   const [activeJuniorPlan, setActiveJuniorPlan] = useState<JuniorAdaptivePayload | null>(null)
   const [activeFuturePreview, setActiveFuturePreview] = useState<FuturePlanPreviewPayload | null>(null)
+  const [examReviewOpen, setExamReviewOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
@@ -309,6 +311,10 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     void openPlan(planOpenState.request.plan, planOpenState.request.previewRound)
   }
 
+  if (examReviewOpen && dashboard.examReview) {
+    return <ExamReview key={`${dashboard.profile.id}:${dashboard.examReview.id}`} session={session} studentId={dashboard.profile.id} previewMode={previewMode || Boolean(dashboard.profile.isDemo)} onExit={() => setExamReviewOpen(false)} />
+  }
+
   if (activeJuniorPlan) {
     return <JuniorAdaptiveSession session={session} initialPayload={activeJuniorPlan} onExit={() => setActiveJuniorPlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActiveJuniorPlan(null); setView('growth') }} />
   }
@@ -346,6 +352,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
+          {dashboard.examReview && <section className="exam-review-entry" aria-labelledby="exam-review-entry-title"><div><span className="eyebrow">原卷回看 · 逐项自检</span><h2 id="exam-review-entry-title">福州试卷逐项复盘</h2><p><ChemText>{dashboard.examReview.title}</ChemText></p><small>{dashboard.examReview.unitCount} 个复盘项 · 先写思路，再对照解析；自检不计为正式作答。</small></div><button type="button" className="primary-button compact" onClick={() => setExamReviewOpen(true)}>进入逐项复盘<ChevronRight size={18} /></button></section>}
           <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={(plan) => plan.isComplete && !previewMode && !dashboard.profile.isDemo ? setView('growth') : openPlan(plan)} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>

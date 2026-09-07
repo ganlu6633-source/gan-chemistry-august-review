@@ -174,7 +174,7 @@ async function teacher(req: Request) {
 
 async function readOnlyStudentPreview(
   req: Request,
-  action: "student_preview_dashboard" | "preview_start_plan" | "student_learning_record" | "question_asset" | "question_feedback",
+  action: "student_preview_dashboard" | "preview_start_plan" | "student_learning_record" | "question_asset" | "question_feedback" | "exam_material" | "exam_material_page",
   data: unknown,
 ) {
   const response = await fetch(`${url}/functions/v1/chemistry-access`, {
@@ -646,6 +646,8 @@ Deno.serve(async (req: Request) => {
       || action === "student_learning_record"
       || action === "question_asset"
       || action === "question_feedback"
+      || action === "exam_material"
+      || action === "exam_material_page"
     ) {
       const preview = await readOnlyStudentPreview(req, action, bodyData);
       return reply(req, preview.payload, preview.status);
