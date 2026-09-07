@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit } from '../../supabase/functions/chemistry-access/review-program'
+import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit, programQuestionIds, programReviewSkillIds } from '../../supabase/functions/chemistry-access/review-program'
 
 const program = readReviewProgram({ reviewProgram: { startDate: '2026-09-12', endDate: '2026-09-18', participating: true } })
 describe('bounded review program', () => {
@@ -31,5 +31,25 @@ describe('bounded review program', () => {
     for (const juniorUnitIds of [[], null, 'J-KY-9UP-U01', ['J-KY-9UP-U01', 2]]) {
       expect(programAllowsJuniorUnit({ reviewProgram: { juniorUnitIds } }, 'J-KY-9UP-U01')).toBe(false)
     }
+  })
+  it('uses only the teacher assignment for the selected date', () => {
+    const metadata = { reviewProgram: { ...program, questionAssignments: { '2026-09-12': ['Q1', 'Q2'] } } }
+    expect(programQuestionIds(metadata, '2026-09-12')).toEqual(['Q1', 'Q2'])
+    expect(programQuestionIds(metadata, '2026-09-13')).toEqual([])
+    expect(programQuestionIds(metadata, '2026-09-19')).toEqual([])
+    expect(programQuestionIds({}, '2026-09-12')).toBeNull()
+    expect(programQuestionIds({ reviewProgram: { ...metadata.reviewProgram, participating: false } }, '2026-09-12')).toEqual([])
+  })
+  it('rejects malformed, duplicate and oversized assignments', () => {
+    for (const ids of [null, 'Q1', [], ['Q1', 'Q1'], ['Q1', 7], ['bad id'], Array.from({ length: 9 }, (_, n) => `Q${n}`)]) {
+      expect(programQuestionIds({ reviewProgram: { ...program, questionAssignments: { '2026-09-12': ids } } }, '2026-09-12')).toEqual([])
+    }
+  })
+  it('keeps practice scope separate from recorded learned skills', () => {
+    const metadata = { confirmedLearnedSkillIds: ['H1_MOLE_INTRO'], reviewProgram: { allowedSkillIds: ['H1_CLASSIFY'] } }
+    expect(programReviewSkillIds(metadata)).toEqual(['H1_CLASSIFY'])
+    expect(metadata.confirmedLearnedSkillIds).toEqual(['H1_MOLE_INTRO'])
+    expect(programReviewSkillIds({})).toBeNull()
+    expect(programReviewSkillIds({ reviewProgram: { allowedSkillIds: ['H1_CLASSIFY', 'H1_CLASSIFY'] } })).toEqual([])
   })
 })

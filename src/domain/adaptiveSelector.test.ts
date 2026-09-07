@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectAdaptiveQuestions } from '../../supabase/functions/chemistry-access/adaptive'
+import { selectAdaptiveQuestions, selectAssignedQuestions } from '../../supabase/functions/chemistry-access/adaptive'
 
 const fiveConceptPool = Array.from({ length: 5 }, (_, conceptIndex) =>
   [1, 1, 2, 3, 3].map((level, variantIndex) => ({
@@ -9,6 +9,26 @@ const fiveConceptPool = Array.from({ length: 5 }, (_, conceptIndex) =>
     concept_key: `A__C0${conceptIndex + 1}`,
     level,
   }))).flat()
+
+describe('teacher material selector', () => {
+  it('serves the assigned consolidation question even after a harder correct answer', () => {
+    const history = [{ question_id: 'q-0-3', mother_id: 'm-0-3', concept_key: 'A__C01', question_level: 3, correct: true }]
+    expect(selectAssignedQuestions(fiveConceptPool, history, ['q-0-0', 'q-1-0']).map((q) => q.id)).toEqual(['q-0-0', 'q-1-0'])
+    expect(history[0].question_level).toBe(3)
+  })
+  it('rejects used question or mother identities instead of returning a partial assignment', () => {
+    for (const history of [
+      [{ question_id: 'q-0-0', mother_id: 'legacy', correct: true }],
+      [{ question_id: 'legacy', mother_id: 'm-0-0', correct: false }],
+    ]) expect(selectAssignedQuestions(fiveConceptPool, history, ['q-0-0', 'q-1-0'])).toEqual([])
+  })
+  it('rejects missing questions, duplicate ids and duplicate mothers', () => {
+    expect(selectAssignedQuestions(fiveConceptPool, [], ['missing'])).toEqual([])
+    expect(selectAssignedQuestions(fiveConceptPool, [], ['q-0-0', 'q-0-0'])).toEqual([])
+    const pool = [{ ...fiveConceptPool[0] }, { ...fiveConceptPool[0], id: 'duplicate-mother' }]
+    expect(selectAssignedQuestions(pool, [], ['q-0-0', 'duplicate-mother'])).toEqual([])
+  })
+})
 
 describe('adaptive original-question selector', () => {
   it('covers all five fine-grained concepts once in round one', () => {

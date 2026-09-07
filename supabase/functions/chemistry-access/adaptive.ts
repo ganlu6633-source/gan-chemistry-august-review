@@ -11,6 +11,25 @@ export type AdaptiveAnswer = {
   uncertain?: boolean | null
 }
 
+/** An explicit teacher assignment chooses difficulty; historical identities still never repeat. */
+export function selectAssignedQuestions<T extends AdaptiveQuestion>(
+  questions: T[], history: AdaptiveAnswer[], assignedIds: string[],
+): T[] {
+  if (!assignedIds.length || new Set(assignedIds).size !== assignedIds.length) return []
+  const byId = new Map(questions.map((question) => [question.id, question]))
+  const usedQuestions = new Set(history.map((answer) => answer.question_id))
+  const usedMothers = new Set(history.flatMap((answer) => answer.mother_id ? [answer.mother_id] : []))
+  const selected: T[] = []
+  for (const id of assignedIds) {
+    const question = byId.get(id)
+    if (!question?.mother_id || usedQuestions.has(id) || usedMothers.has(question.mother_id)) return []
+    selected.push(question)
+    usedQuestions.add(id)
+    usedMothers.add(question.mother_id)
+  }
+  return selected
+}
+
 /**
  * Selects one unseen original question for every fine-grained concept.
  *

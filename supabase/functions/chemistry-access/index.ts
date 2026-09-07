@@ -1,7 +1,7 @@
-import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit } from "./review-program.ts";
+import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit, programQuestionIds, programReviewSkillIds } from "./review-program.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
-import { selectAdaptiveQuestions } from "./adaptive.ts";
+import { selectAdaptiveQuestions, selectAssignedQuestions } from "./adaptive.ts";
 import { effectiveReviewRoundLimit, FORMAL_REVIEW_DAILY_QUESTION_CAP, isFormalHighSchoolReview, validFormalReviewQuestionCount, validFormalReviewRoundLimit } from "./review-daily-policy.ts";
 import { selectJuniorNextQuestion, type JuniorAdaptiveCandidate, type JuniorAdaptiveHistory, type JuniorRouteKind } from "./junior-adaptive.ts";
 import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
@@ -2267,7 +2267,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     throw new RequestError(409, "后续日期的正式复习尚未开放，请在计划当天进入。先完成今天的题组后，系统会据此调整下一步。");
   }
   if (formalHighSchoolReview && reviewProfile.gradeBand === "高一") {
-    const confirmedSkills = confirmedHighOneSkillIds(gradeResult.data.metadata);
+    const confirmedSkills = programReviewSkillIds(gradeResult.data.metadata) ?? confirmedHighOneSkillIds(gradeResult.data.metadata);
     if (!confirmedSkills.length || skillIds.some((skillId) => !confirmedSkills.includes(skillId))) {
       throw new RequestError(422, "当天计划包含尚未确认学过的高一知识模块，已停止下发并通知甘老师。");
     }
@@ -2277,6 +2277,11 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   }
   const maxQuestionLevel = planMaxQuestionLevel(plan);
   const targetConceptKeys = planTargetConceptKeys(plan);
+  const assignedQuestionIds = formalHighSchoolReview
+    ? programQuestionIds(gradeResult.data.metadata, String(plan.plan_date)) : null;
+  if (assignedQuestionIds && assignedQuestionIds.length !== questionCount) {
+    throw new RequestError(422, "当天材料题组配置不完整，请联系甘老师核对。");
+  }
   if (formalHighSchoolReview && roundLimit === 1 && targetConceptKeys.length !== questionCount) {
     throw new RequestError(422, `正式复习当天必须明确配置 ${questionCount} 个细知识点，已停止下发并通知甘老师。`);
   }
@@ -2312,6 +2317,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     eligibleQuestions = eligibleQuestions.in("concept_key", targetConceptKeys);
   }
   eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true);
+  if (assignedQuestionIds) eligibleQuestions = eligibleQuestions.in("id", assignedQuestionIds);
   if (highSchoolReview) {
     // Every high-school REVIEW surface, including the read-only demo, uses the
     // same verified source-only release. Demo answers remain simulated and are
@@ -2443,6 +2449,9 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const questionPool = (highSchoolReview
     ? (questions.data || []).filter((question) => hasRequiredReviewSourceAssets(question.asset_refs))
     : (questions.data || [])) as SourceAdaptiveQuestion[];
+  if (assignedQuestionIds && questionPool.length !== assignedQuestionIds.length) {
+    throw new RequestError(422, "当天材料题组有题目尚未就绪，已停止下发，请联系甘老师。");
+  }
   if (plan.mode === "REVIEW" && !demoProfile && ["高一", "高二", "高三"].includes(String(gradeResult.data.grade_band))) {
     const conceptCounts = new Map<string, number>();
     const conceptOwnerSkills = new Map<string, Set<string>>();
@@ -2501,7 +2510,18 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const roundNumber = selectionSequence + 1;
   let selectionHistory: SourceAdaptiveHistory[] = historyRows;
   let adaptiveQuestions: SourceAdaptiveQuestion[] = [];
-  if (effectiveOptions.previewRound !== undefined) {
+  if (assignedQuestionIds) {
+    // A teacher's fixed material set controls difficulty. Preserve the complete
+    // source-identity history; only a read-only replay may exclude this plan's
+    // own completed attempt so the teacher can inspect the original assignment.
+    const currentAttemptIds = new Set(attempts.map((attempt) => String(attempt.id)));
+    const assignmentHistory = completedPreview || effectiveOptions.previewRound !== undefined
+      ? historyRows.filter((answer) => !currentAttemptIds.has(String(answer.attempt_id)))
+      : historyRows;
+    adaptiveQuestions = selectAssignedQuestions(
+      sourceDistinctQuestionPool(questionPool, assignmentHistory), assignmentHistory, assignedQuestionIds,
+    );
+  } else if (effectiveOptions.previewRound !== undefined) {
     // Preview/demo answers are intentionally not stored. Reconstruct every
     // preceding preview round as virtual unresolved evidence so rounds 2-5
     // still contain completely different questions and mother questions.
@@ -3285,13 +3305,18 @@ Deno.serve(async (req: Request) => {
       if (questionIds.some((id) => !id) || new Set(questionIds).size !== questionIds.length) {
         return reply(req, { error: "题目记录无效，请重新打开本轮练习。" }, 400);
       }
+      const assignedIds = formalHighSchoolReview
+        ? programQuestionIds(targetProfile.data.metadata, String(plan.plan_date)) : null;
+      if (assignedIds && (assignedIds.length !== questionCount || questionIds.some((id) => !assignedIds.includes(id)))) {
+        return reply(req, { error: "提交的题目与老师安排的当天材料题组不一致。" }, 400);
+      }
       const planSkillIds = Array.isArray(plan.skill_ids) ? plan.skill_ids.map(String) : [];
       if (!planSkillIds.length) return reply(req, { error: "当前学习计划没有可提交的题目。" }, 400);
       if (
         isFormalHighSchoolReview(formalReviewContext(plan, reviewProfile))
         && reviewProfile.gradeBand === "高一"
       ) {
-        const confirmedSkills = confirmedHighOneSkillIds(targetProfile.data.metadata);
+        const confirmedSkills = programReviewSkillIds(targetProfile.data.metadata) ?? confirmedHighOneSkillIds(targetProfile.data.metadata);
         if (!confirmedSkills.length || planSkillIds.some((skillId) => !confirmedSkills.includes(skillId))) {
           return reply(req, { error: "当前计划包含尚未确认学过的高一知识模块，已停止提交并通知甘老师。" }, 422);
         }

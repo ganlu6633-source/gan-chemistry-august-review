@@ -1,4 +1,4 @@
-import { readReviewProgram } from "./review-program.ts";
+import { readReviewProgram, programReviewSkillIds } from "./review-program.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
@@ -351,7 +351,7 @@ async function dashboard() {
     if (!activeFormalHighSchoolIds.has(studentId)) continue;
     const gradeBand = String(student.grade_band);
     if (gradeBand === "高一") {
-      const raw = student.metadata?.confirmedLearnedSkillIds;
+      const raw = programReviewSkillIds(student.metadata) ?? student.metadata?.confirmedLearnedSkillIds;
       allowedSkillsByStudent.set(studentId, new Set(Array.isArray(raw) ? raw.map(String).filter(Boolean) : []));
     } else {
       allowedSkillsByStudent.set(studentId, new Set(conceptCatalogRows
