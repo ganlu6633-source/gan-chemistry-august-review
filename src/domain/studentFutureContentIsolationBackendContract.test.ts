@@ -33,7 +33,10 @@ describe('student future-content isolation', () => {
     expect(learningRecord).toContain('juniorIndividuallyVerifiedProvenanceIds(')
     expect(accessSource).toContain('for (const batch of juniorProvenanceBatches(skillIds))')
     expect(accessSource).toContain('for (const skillId of releaseByKnowledge.keys()) readyIds.add(skillId)')
-    expect(learningRecord).toContain('const contentReached = gradeBand === "初三" ? juniorContentReadyIds.has(skillId) : isLearned')
+    expect(learningRecord).toContain('const managedRecordSkills = new Set(plans.filter((plan) => plan.teaching_managed === true)')
+    expect(learningRecord).toContain('const contentReached = gradeBand === "初三" && !managedRecordSkills.has(skillId)')
+    expect(learningRecord).toContain('? juniorContentReadyIds.has(skillId) : isLearned')
+    expect(accessSource).toContain('if (String(plan.plan_date || "") > today) continue')
     expect(learningRecord).toContain('knowledgeSections: contentReached ? studentLearningRecordKnowledgeSections(cards) : []')
   })
 
@@ -44,7 +47,9 @@ describe('student future-content isolation', () => {
     expect(accessSource).toContain('studentInstructionalCardTextIsSafe(shaped) ? [shaped] : []')
     expect(learningRecord).toContain('futurePreviewInstructionalTextIsSafe([topic])')
     expect(learningRecord).toContain('futurePreviewInstructionalTextIsSafe([nextPlanRow.title])')
-    expect(learningRecord).toContain('gradeBand === "初三" && !juniorStudentVisibleSourceTextIsSafe')
+    expect(learningRecord).toContain('const juniorEvidence = gradeBand === "初三" && historical.sourceKind !== "licensed_local"')
+    expect(learningRecord).toContain('if (juniorEvidence && !juniorStudentVisibleSourceTextIsSafe')
+    expect(learningRecord).toContain('sourceInfo: juniorEvidence ? null : historical.sourceInfo')
   })
 
   it('removes source from every junior dashboard row and replaces unsafe copy before rendering', () => {

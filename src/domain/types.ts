@@ -121,10 +121,12 @@ export interface Question {
   gradeBand: GradeBand
   stem: string
   options: string[]
-  /** Omitted from issued licensed REVIEW questions until the first choice is locked. */
+  /** Omitted from protected questions until the first choice is locked. */
   correctOption?: number
-  /** Omitted from issued licensed REVIEW questions until the first choice is locked. */
+  /** Omitted from protected questions until the first choice is locked. */
   explanation?: string
+  /** Require server-locked feedback, including teacher-managed junior/cross-grade questions. */
+  secureFeedbackRequired?: boolean
   scaffold?: string
   reviewStatus: QuestionReviewStatus
   scopeStatus: 'IN' | 'CTX-IN' | 'POSTPONE' | 'OUT'
@@ -157,7 +159,7 @@ export interface OptionPracticeProgress {
   status: 'practicing' | 'consolidated' | 'needs_practice' | 'reserve_gap'
 }
 
-/** Server-issued only after a high-school licensed question's first answer is locked. */
+/** Server-issued only after a protected question's first answer is locked. */
 export interface QuestionFeedback {
   questionId: string
   selectedOption: number
@@ -282,6 +284,10 @@ export interface LearningPlanDay {
   maxQuestionLevel: number | null
   /** `junior_adaptive` is an independent, one-question-at-a-time delivery path. */
   deliveryMode?: 'legacy_round' | 'junior_adaptive'
+  /** Explicit course choices saved from teacher management. */
+  teachingManaged?: boolean
+  /** Grade of the assigned source content; it can differ from the student's grade. */
+  teachingSourceGrade?: GradeBand
   juniorSessionStatus?: 'not_started' | 'active' | 'completed' | 'blocked' | 'abandoned' | null
   hardQuestionCap?: number | null
   /** The latest complete round has no wrong or uncertain answer. */

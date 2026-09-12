@@ -8,6 +8,7 @@ import { clearAccessSession, readAccessSession } from '../lib/session'
 import { ChemText } from './ChemText'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { TeacherVideoManager } from './VideoLearning'
+import { TeacherManagement } from './TeacherManagement'
 
 type TeacherView = 'overview' | 'observation' | 'students' | 'preview' | 'videos' | 'plans' | 'questions' | 'settings'
 
@@ -60,20 +61,20 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
   return <div className="teacher-workspace"><aside className="teacher-sidebar"><div className="teacher-brand"><Shield /><div><b>甘老师工作台</b><span>证据驱动教学</span></div></div><nav>
     <button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}><LayoutDashboard />今日总览</button>
     <button className={view === 'observation' ? 'active' : ''} onClick={() => setView('observation')}><ClipboardPen />课堂记录</button>
-    <button className={view === 'students' ? 'active' : ''} onClick={() => setView('students')}><Users />学生档案</button>
+    <button className={view === 'students' ? 'active' : ''} onClick={() => setView('students')}><Users />学生管理</button>
     <button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')}><MonitorPlay />模拟学生端</button>
     <button className={view === 'videos' ? 'active' : ''} onClick={() => setView('videos')}><Film />视频讲解</button>
-    <button className={view === 'plans' ? 'active' : ''} onClick={() => setView('plans')}><BookOpen />课程节点审核</button>
+    <button className={view === 'plans' ? 'active' : ''} onClick={() => setView('plans')}><BookOpen />课程安排</button>
     <button className={view === 'questions' ? 'active' : ''} onClick={() => setView('questions')}><MessageSquareText />题库审核</button>
     <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings2 />权限与访问码</button>
   </nav><button className="logout-button" onClick={() => { clearAccessSession(); window.location.assign(`${window.location.origin}${import.meta.env.BASE_URL}`) }}><LogIn />退出登录</button></aside>
   <main className="teacher-main">{error && <div className="inline-alert">{error}</div>}{loading || !dashboard ? <div className="center-loading"><RefreshCw className="spin" />读取统一数据层…</div> : <>
     {view === 'overview' && <TeacherOverview dashboard={dashboard} onRefresh={() => { void refresh() }} />}
     {view === 'observation' && <ObservationForm dashboard={dashboard} />}
-    {view === 'students' && <StudentTable dashboard={dashboard} onPreview={(studentId) => { setPreviewStudentId(studentId); setView('preview') }} />}
+    {view === 'students' && <><TeacherManagement mode="students" onChanged={() => { void refresh(true) }} onPreview={(studentId) => { setPreviewStudentId(studentId); setView('preview') }} /><details className="tm-legacy-audit"><summary>查看家长信息与学习档案</summary><StudentTable dashboard={dashboard} onPreview={(studentId) => { setPreviewStudentId(studentId); setView('preview') }} /></details></>}
     {view === 'preview' && <StudentPreview dashboard={dashboard} initialStudentId={previewStudentId} onOpenFull={onPreviewStudent} />}
     {view === 'videos' && <TeacherVideoManager dashboard={dashboard} />}
-    {view === 'plans' && <PlanEditor dashboard={dashboard} />}
+    {view === 'plans' && <><TeacherManagement mode="courses" initialDate={dashboard.reviewProgram?.startDate} onChanged={() => { void refresh(true) }} /><details className="tm-legacy-audit"><summary>课程目录审核</summary><PlanEditor dashboard={dashboard} /></details></>}
     {view === 'questions' && <QuestionAudit dashboard={dashboard} />}
     {view === 'settings' && <AccessSettings dashboard={dashboard} />}
   </>}</main>{(poolBlockers.length > 0 || planningAlerts.length > 0) && dismissedPoolBlockerKey !== poolBlockerKey && <div className="source-pool-modal-backdrop"><section className="source-pool-modal" role="dialog" aria-modal="true" aria-labelledby="source-pool-modal-title"><AlertCircle /><div><span className="eyebrow">复习计划需要甘老师审核</span><h2 id="source-pool-modal-title">本期排程有待处理项</h2><p>未通过来源、难度、知识点、已学范围和显示审核的题不会拿来凑数；生成失败时保留原计划，不让学生收到半成品。</p>{planningAlerts.length > 0 && <ReviewPlanningAlerts alerts={planningAlerts} />}<SourcePoolWarnings warnings={poolBlockers} compact /></div><div className="access-reset-actions"><button className="primary-button" onClick={() => { setDismissedPoolBlockerKey(poolBlockerKey); setView('questions') }}>查看题库与缺题情况</button><button className="secondary-button" onClick={() => { setDismissedPoolBlockerKey(poolBlockerKey); setView('students') }}>核对学生计划</button><button className="text-button" onClick={() => setDismissedPoolBlockerKey(poolBlockerKey)}>稍后处理</button></div></section></div>}</div>

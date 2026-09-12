@@ -39,12 +39,14 @@ describe('high-school source-backed REVIEW backend contract', () => {
 
   it('opens every high-school demo day with the verified source release while keeping all demo answers read-only', () => {
     expect(accessFunction).toContain('const highSchoolReview = plan.mode === "REVIEW"')
-    expect(accessFunction).toContain('const activeSourceReleaseId = highSchoolReview')
-    expect(accessFunction).toContain('if (highSchoolReview)')
+    expect(accessFunction).toContain('let activeSourceReleaseId = highSchoolReview')
+    expect(accessFunction).toContain('const sourceControlledReview = highSchoolReview || delivery.managed')
+    expect(accessFunction).toContain('if (sourceControlledReview)')
     expect(accessFunction).not.toContain('eligibleQuestions = eligibleQuestions\n      .eq("source_kind", "teacher_original")\n      .eq("usable_for_demo", true)')
     expect(accessFunction).toContain('eligibleQuestions = eligibleQuestions.eq(questionUsageColumn, true)')
-    expect(accessFunction).toContain('.eq("source_kind", "licensed_local")')
-    expect(accessFunction).toContain('.eq("render_mode", "image_primary")')
+    expect(accessFunction).toContain('.eq("source_kind", delivery.sourceKind)')
+    expect(accessFunction).toContain('.eq("render_mode", delivery.renderMode)')
+    expect(accessFunction).toContain('teachingQuestionSourceMatches(question, delivery, activeSourceReleaseId!)')
     expect(accessFunction).toContain('.eq("source_release_id", activeSourceReleaseId!)')
     expect(accessFunction).toContain('demoProfile && historical.sourceKind === "licensed_local"')
     expect(accessFunction).not.toContain('公开演示不再下发无材料来源的模拟题')

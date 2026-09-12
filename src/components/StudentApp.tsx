@@ -569,7 +569,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
         const isLicensedReview = payload.plan.mode === 'REVIEW'
           && ['高一', '高二', '高三'].includes(issuedQuestion.gradeBand)
           && issuedQuestion.sourceKind === 'licensed_local'
-        if (!isLicensedReview) continue
+        if (!isLicensedReview && !issuedQuestion.secureFeedbackRequired) continue
         const context: QuestionAssetAccessContext = {
           ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
           planId: payload.plan.id,
@@ -623,13 +623,14 @@ export function LearningRound({ session, payload, practiceMode = false, practice
 
   if (phase === 'quiz' && question) {
     const isLicensedReview = payload.plan.mode === 'REVIEW' && ['高一', '高二', '高三'].includes(question.gradeBand) && question.sourceKind === 'licensed_local'
+    const requiresServerFeedback = question.secureFeedbackRequired === true || isLicensedReview
     const hasLocalFeedbackContract = Number.isInteger(question.correctOption) && typeof question.explanation === 'string'
     const currentServerFeedback = serverFeedback[question.id]
     const resolvedCorrectOption = currentServerFeedback?.correctOption ?? question.correctOption
     const resolvedExplanation = currentServerFeedback?.explanation ?? question.explanation ?? ''
     const resolvedScaffold = currentServerFeedback?.scaffold ?? question.scaffold
-    const isCorrect = isLicensedReview ? currentServerFeedback?.correct === true : selected === question.correctOption
-    const isImagePrimary = isLicensedReview && question.renderMode === 'image_primary'
+    const isCorrect = requiresServerFeedback ? currentServerFeedback?.correct === true : selected === question.correctOption
+    const isImagePrimary = requiresServerFeedback && question.renderMode === 'image_primary'
     const sourceMediaReady = !isImagePrimary || primaryMediaReady[question.id] === true
     const sourceAssetContext: QuestionAssetAccessContext = {
       ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
@@ -640,7 +641,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     async function submit() {
       if (selected === null || !sourceMediaReady || busy || feedback) return
       const durationSec = Math.max(1, Math.round((Date.now() - questionStartedAt) / 1000))
-      if (isLicensedReview) {
+      if (requiresServerFeedback) {
         setBusy(true)
         try {
           setError('')
@@ -712,7 +713,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           setPhase('result')
         } else {
           const result = await submitAttempt(session, attempt)
-          if (isLicensedReview) {
+          if (requiresServerFeedback) {
             const finalFeedback = result.feedback ?? []
             if (finalFeedback.length !== finalAnswers.length) throw new Error('本轮答案已保存，但反馈不完整，请返回学习档案查看。')
             const finalFeedbackByQuestionId = new Map(finalFeedback.map((item) => [item.questionId, item]))
@@ -734,7 +735,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     const questionSkillTitle = payload.cards.find((card) => card.skillId === question.skillId)?.title
       ?? SKILLS.find((skill) => skill.id === question.skillId)?.title ?? '针对性练习'
     const explanationParagraphs = splitAnswerExplanation(resolvedExplanation)
-    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮继续同一知识点</b><p>继续练习同一知识点，结合多道题的实际作答结果安排后续复习。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>{singleDailyReviewPackage ? '今日题组' : `第 ${roundNumber} 轮`} · {questionIndex + 1}/{questions.length}</span><span>{questionSkillTitle ? <ChemText>{questionSkillTitle}</ChemText> : question.skillId}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level} 练习</span>{question.optionPractice && <p className="option-practice-context"><ChemText>{question.optionPractice.knowledgePoint}</ChemText> · 该选项对应考点 · 第{question.optionPractice.position}/{question.optionPractice.total}题</p>}{isLicensedReview ? <QuestionSourceMedia question={question} enabled session={session} accessContext={sourceAssetContext} assetLoader={cachedQuestionAssetLoader} nativeContent={nativeStem} showSource={false} onZoomClose={() => primaryActionRef.current?.focus()} onPrimaryReadyChange={(ready) => setPrimaryMediaReady((current) => current[question.id] === ready ? current : { ...current, [question.id]: ready })} /> : nativeStem}<div className={`option-list ${isImagePrimary ? 'source-letter-options' : ''}`}>{question.options.map((option, index) => { const letter = String.fromCharCode(65 + index); const optionLabel = isImagePrimary ? `${letter} 选项，内容见原题图` : `${letter}. ${option}`; return <button aria-label={optionLabel} disabled={feedback || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === resolvedCorrectOption ? 'correct' : ''} ${feedback && selected === index && index !== resolvedCorrectOption ? 'wrong' : ''}`} key={`${index}-${option}`} onClick={() => setSelected(index)}><span>{letter}</span>{!isImagePrimary && <ChemText>{option}</ChemText>}</button> })}</div>{isImagePrimary && !sourceMediaReady && <p className="source-submit-blocked" role="status">原题主图加载完整后才能提交，避免因缺图误答。</p>}{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? '回答正确' : `回答错误，正确选项是 ${String.fromCharCode(65 + (resolvedCorrectOption ?? 0))}`}</b><div className="answer-explanation">{explanationParagraphs.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<span className="answer-explanation-text"><ChemText>{item.text}</ChemText></span></p>)}</div>{!isCorrect && resolvedScaffold && <p><CircleHelp size={16} />提示：<ChemText>{resolvedScaffold}</ChemText></p>}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null || !sourceMediaReady} onClick={() => void submit()}>{busy ? '正在提交答案…' : '提交答案'}</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questions.some((item) => !answers.some((answer) => answer.questionId === item.id)) ? '下一题' : singleDailyReviewPackage ? '完成今日题组' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
+    return <section className="learning-stage">{roundTrack}{roundNumber > 1 && <div className="round-guidance"><Sparkles /><div><b>第 {roundNumber} 轮继续同一知识点</b><p>继续练习同一知识点，结合多道题的实际作答结果安排后续复习。</p></div></div>}{error && <div className="inline-alert" role="alert">{error}</div>}<div className="quiz-head"><span>{singleDailyReviewPackage ? '今日题组' : `第 ${roundNumber} 轮`} · {questionIndex + 1}/{questions.length}</span><span>{questionSkillTitle ? <ChemText>{questionSkillTitle}</ChemText> : question.skillId}</span></div><div className="stage-progress"><i style={{ width: `${(questionIndex + 1) / questions.length * 100}%` }} /></div><article className="question-card"><span className="difficulty-pill">L{question.level} 练习</span>{question.optionPractice && <p className="option-practice-context"><ChemText>{question.optionPractice.knowledgePoint}</ChemText> · 该选项对应考点 · 第{question.optionPractice.position}/{question.optionPractice.total}题</p>}{requiresServerFeedback ? <QuestionSourceMedia question={question} enabled session={session} accessContext={sourceAssetContext} assetLoader={cachedQuestionAssetLoader} nativeContent={nativeStem} showSource={false} onZoomClose={() => primaryActionRef.current?.focus()} onPrimaryReadyChange={(ready) => setPrimaryMediaReady((current) => current[question.id] === ready ? current : { ...current, [question.id]: ready })} /> : nativeStem}<div className={`option-list ${isImagePrimary ? 'source-letter-options' : ''}`}>{question.options.map((option, index) => { const letter = String.fromCharCode(65 + index); const optionLabel = isImagePrimary ? `${letter} 选项，内容见原题图` : `${letter}. ${option}`; return <button aria-label={optionLabel} disabled={feedback || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === resolvedCorrectOption ? 'correct' : ''} ${feedback && selected === index && index !== resolvedCorrectOption ? 'wrong' : ''}`} key={`${index}-${option}`} onClick={() => setSelected(index)}><span>{letter}</span>{!isImagePrimary && <ChemText>{option}</ChemText>}</button> })}</div>{isImagePrimary && !sourceMediaReady && <p className="source-submit-blocked" role="status">原题主图加载完整后才能提交，避免因缺图误答。</p>}{feedback && <div className={`answer-feedback ${isCorrect ? 'good' : 'needs-work'}`}><b>{isCorrect ? '回答正确' : `回答错误，正确选项是 ${String.fromCharCode(65 + (resolvedCorrectOption ?? 0))}`}</b><div className="answer-explanation">{explanationParagraphs.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option && <b className="answer-option-label">{item.option}</b>}<span className="answer-explanation-text"><ChemText>{item.text}</ChemText></span></p>)}</div>{!isCorrect && resolvedScaffold && <p><CircleHelp size={16} />提示：<ChemText>{resolvedScaffold}</ChemText></p>}</div>}</article><div className="stage-actions">{!feedback ? <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null || !sourceMediaReady} onClick={() => void submit()}>{busy ? '正在提交答案…' : '提交答案'}</button> : <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={next}>{questions.some((item) => !answers.some((answer) => answer.questionId === item.id)) ? '下一题' : singleDailyReviewPackage ? '完成今日题组' : `完成第 ${roundNumber} 轮`}<ChevronRight size={18} /></button>}</div></section>
   }
 
   const correct = answers.filter((answer) => answer.correct).length

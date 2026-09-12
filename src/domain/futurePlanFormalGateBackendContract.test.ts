@@ -23,10 +23,12 @@ describe('future formal-plan and junior legacy fail-closed gates', () => {
     expect(startPlanFunction).toContain('未来计划只能进入只读知识预习')
   })
 
-  it('does not let a real junior student use a legacy-round generic pool', () => {
-    const juniorGate = startPlanFunction.indexOf('realStudentOpen && reviewProfile.gradeBand === "初三"')
+  it('allows junior generic choices only for an owned teacher-managed source plan', () => {
+    const context = startPlanFunction.indexOf('const delivery = ownedPlanDeliveryContext(plan, reviewProfile.gradeBand)')
+    const juniorGate = startPlanFunction.indexOf('realStudentOpen && reviewProfile.gradeBand === "初三" && !delivery.managed')
     const pool = startPlanFunction.indexOf('.from("chem_questions")')
     expect(juniorGate).toBeGreaterThan(-1)
+    expect(juniorGate).toBeGreaterThan(context)
     expect(pool).toBeGreaterThan(juniorGate)
     expect(startPlanFunction).toContain('初三正式学习只能通过专用自适应会话进入')
   })
@@ -40,13 +42,16 @@ describe('future formal-plan and junior legacy fail-closed gates', () => {
   })
 
   it('blocks junior legacy submissions and all future submissions before reading submitted questions', () => {
-    const juniorGate = submitAttemptHandler.indexOf('String(targetProfile.data.grade_band) === "初三"')
+    const juniorGate = submitAttemptHandler.indexOf('String(targetProfile.data.grade_band) === "初三" && !delivery.managed')
     const futureGate = submitAttemptHandler.indexOf('String(plan.plan_date || "") > shanghaiDate()')
     const questionQuery = submitAttemptHandler.indexOf('let questionQuery = supabase')
     expect(juniorGate).toBeGreaterThan(-1)
     expect(futureGate).toBeGreaterThan(juniorGate)
     expect(questionQuery).toBeGreaterThan(futureGate)
-    expect(submitAttemptHandler).toContain('初三正式作答只能通过专用自适应会话提交')
+    expect(submitAttemptHandler).toContain('const delivery = ownedPlanDeliveryContext(plan, String(targetProfile.data.grade_band))')
+    expect(submitAttemptHandler).toContain('初三原自适应课程请从专用会话提交')
+    expect(submitAttemptHandler).toContain('if (plan.delivery_mode === "junior_adaptive")')
+    expect(submitAttemptHandler).toContain('teachingAssignmentValid(delivery.managed, managedAssignedIds, questionCount)')
     expect(submitAttemptHandler).toContain('未来计划只能进入只读知识预习')
   })
 })

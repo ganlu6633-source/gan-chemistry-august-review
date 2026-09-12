@@ -45,6 +45,16 @@ describe('bounded review program', () => {
       expect(programQuestionIds({ reviewProgram: { ...program, questionAssignments: { '2026-09-12': ids } } }, '2026-09-12')).toEqual([])
     }
   })
+  it('preserves server-owned dynamic days alongside a newly assigned fixed material day', () => {
+    const metadata = { teacherSchedulingManaged: true, reviewProgram: { ...program, dynamicAssignmentDates: ['2026-09-12'], questionAssignments: { '2026-09-13': ['Q1', 'Q2'] } } }
+    expect(programQuestionIds(metadata, '2026-09-12')).toBeNull()
+    expect(programQuestionIds(metadata, '2026-09-13')).toEqual(['Q1', 'Q2'])
+    expect(programQuestionIds(metadata, '2026-09-14')).toEqual([])
+    expect(programQuestionIds({ ...metadata, teacherSchedulingManaged: false }, '2026-09-12')).toEqual([])
+    expect(programQuestionIds({ ...metadata, reviewProgram: { ...metadata.reviewProgram, participating: false } }, '2026-09-12')).toEqual([])
+    expect(programQuestionIds({ ...metadata, reviewProgram: { ...metadata.reviewProgram, dynamicAssignmentDates: ['2026-09-19'] } }, '2026-09-19')).toEqual([])
+    expect(programQuestionIds({ ...metadata, reviewProgram: { ...metadata.reviewProgram, dynamicAssignmentDates: '2026-09-12' } }, '2026-09-12')).toEqual([])
+  })
   it('keeps practice scope separate from recorded learned skills', () => {
     const metadata = { confirmedLearnedSkillIds: ['H1_MOLE_INTRO'], reviewProgram: { allowedSkillIds: ['H1_CLASSIFY'] } }
     expect(programReviewSkillIds(metadata)).toEqual(['H1_CLASSIFY'])

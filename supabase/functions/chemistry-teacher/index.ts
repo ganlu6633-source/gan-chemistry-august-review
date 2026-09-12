@@ -639,6 +639,26 @@ Deno.serve(async (req: Request) => {
     const action = typeof body.action === "string" ? body.action : "";
     const bodyData = recordValue(body.data);
 
+    if (["teaching_catalog", "manage_student", "manage_class", "preview_teaching_plan", "apply_teaching_plan", "list_teaching_materials"].includes(action)) {
+      const result = await admin.rpc("chem_teacher_management", {
+        p_action: action,
+        p_data: bodyData,
+        p_actor_hash: await sha256(req.headers.get("x-app-session") || ""),
+        p_actor_name: user.displayName,
+      });
+      if (result.error) {
+        // Only deliberate validation messages are suitable for teacher display.
+        const message = result.error.code === "P0001" ? result.error.message
+          : result.error.code === "23505" ? "已有相同名称的档案或班级，请检查后再保存。"
+          : result.error.code === "P0002" ? "该学生、参考档案或预览已不存在，请刷新后重试。"
+          : ["22P02", "22007", "22008"].includes(result.error.code) ? "姓名、日期或目标信息无效，请检查后重试。"
+          : "这次修改未保存，请刷新后重试。";
+        console.warn("teacher management rejected", action, result.error.code, result.error.message);
+        return reply(req, { error: message }, 409);
+      }
+      return reply(req, result.data);
+    }
+
     if (action === "teacher_dashboard") return reply(req, { dashboard: await dashboard() });
     if (
       action === "student_preview_dashboard"

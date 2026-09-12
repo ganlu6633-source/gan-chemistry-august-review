@@ -34,6 +34,11 @@ export function programQuestionIds(metadata: unknown, date: string): string[] | 
   const config = (metadata as Record<string, unknown> | null)?.reviewProgram as Record<string, unknown> | undefined;
   if (!config || !("questionAssignments" in config)) return null;
   if (!programContainsDate(readReviewProgram(metadata), date)) return [];
+  // A teacher may retain an existing adaptive day while adding fixed material
+  // on another date. This server-written list preserves that original mode.
+  const retainedDynamicDates = config.dynamicAssignmentDates;
+  if ((metadata as Record<string, unknown> | null)?.teacherSchedulingManaged === true
+    && Array.isArray(retainedDynamicDates) && retainedDynamicDates.includes(date)) return null;
   const assignments = config.questionAssignments;
   if (!assignments || typeof assignments !== "object" || Array.isArray(assignments)) return [];
   const ids = (assignments as Record<string, unknown>)[date];
