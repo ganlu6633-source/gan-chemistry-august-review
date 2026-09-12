@@ -5,6 +5,7 @@ import { stripLeadingQuestionSource } from '../domain/questionPresentation'
 import { loadQuestionAsset, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { readAccessSession } from '../lib/session'
 import { ChemText } from './ChemText'
+import { ZoomableQuestionImage } from './ZoomableQuestionImage'
 
 type RenderMode = 'native' | 'image_assist' | 'image_primary'
 type SourceAssetRef = QuestionAssetRef
@@ -203,7 +204,7 @@ function QuestionSourceMediaComponent({ question, enabled, session, nativeConten
     <dialog ref={dialogRef} className="source-image-dialog" data-question-media-dialog aria-label="放大查看原题图" onCancel={(event) => { event.preventDefault(); closeZoom() }} onClick={(event) => { if (event.target === event.currentTarget) closeZoom() }}>
       <div role="document">
         <header><b>原题大图</b><button type="button" data-question-media-control onClick={closeZoom} aria-label="关闭原题大图"><X /></button></header>
-        {zoomedAsset && zoomedRef && <ReviewedQuestionImage dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${showSource ? zoomedRef.alt : zoomedRef.kind === 'analysis_image' ? '教师审核用原题解析图' : '本题原题题面图'}`} width={zoomedRef.width} height={zoomedRef.height} />}
+        {zoomedAsset && zoomedRef && <ZoomableQuestionImage key={zoomedRef.assetId} dataUrl={zoomedAsset.dataUrl} alt={`放大查看：${showSource ? zoomedRef.alt : zoomedRef.kind === 'analysis_image' ? '教师审核用原题解析图' : '本题原题题面图'}`} width={zoomedRef.width} height={zoomedRef.height} />}
       </div>
     </dialog>
   </section>

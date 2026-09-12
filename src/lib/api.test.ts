@@ -1,8 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionIdentity } from '../domain/types'
-import { openJuniorAdaptiveSession } from './api'
+import { openJuniorAdaptiveSession, previewQuestionFeedback } from './api'
+import { clearAccessSession, writeAccessSession } from './session'
 
 const session: SessionIdentity = { role: 'student', token: 'student-session', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }
+
+describe('teacher feedback direct access', () => {
+  afterEach(() => { clearAccessSession(); vi.unstubAllGlobals() })
+  const input = { studentId: 'preview-student', planId: 'plan', questionId: 'question', selectedOption: 1, uncertain: false, durationSec: 5, previewAnswers: [] }
+  it('uses one authenticated access request and preserves the preview context', async () => {
+    writeAccessSession({ ...session, role: 'teacher', token: 'teacher-session' })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ simulated: true, feedback: {} }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await previewQuestionFeedback(input)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toContain('/chemistry-access')
+    expect(init.headers['x-app-session']).toBe('teacher-session')
+    expect(JSON.parse(init.body)).toEqual({ action: 'question_feedback', data: input })
+  })
+  it('does not send a teacher-preview request with a student session', async () => {
+    writeAccessSession(session)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(previewQuestionFeedback(input)).rejects.toThrow('教师登录已失效')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
 
 describe('openJuniorAdaptiveSession', () => {
   afterEach(() => {

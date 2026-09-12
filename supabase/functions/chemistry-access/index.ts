@@ -2160,7 +2160,14 @@ async function demoStudentForGrade(currentStudentId: string, gradeBand: string) 
   return target.data.id as string;
 }
 
+type PreparedFeedbackContinuation = (locks: Array<Record<string, unknown>>) => {
+  questions: Array<Record<string, unknown>>;
+  optionPractice: ReturnType<typeof expandOptionPractice>["progress"];
+};
+
 type StartPlanOptions = {
+  /** Request-local only: never serialize answer-bearing source rows or cache across requests. */
+  onFeedbackPrepared?: (continueWithLocks: PreparedFeedbackContinuation) => void;
   allowCompletedPreview?: boolean;
   previewRound?: number;
   includeAnswerLocks?: boolean;
@@ -2616,25 +2623,36 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     : effectiveOptions.includeAnswerLocks && plan.mode === "REVIEW"
     ? await answerLocks(studentId, String(plan.id), selectionSequence)
     : [];
-  const mappedLocks = rawLocks.map((lock) => ({ question_id: String(lock.question_id),
-    selected_option: Number(lock.selected_option), uncertain: lock.uncertain === true }));
   const excludedQuestions = historyRows.map((answer) => ({ id: String(answer.question_id),
     mother_id: answer.mother_id, source_item_key: answer.source_item_key, content_fingerprint: answer.content_fingerprint,
     parent_source_item_key: answer.parent_source_item_key }));
-  const expansion = expandOptionPractice({ baseQuestions, candidates: reserves, locks: mappedLocks, excludedQuestions });
-  adaptiveQuestions = expansion.questions;
-  let lockedFeedback: Array<Record<string, unknown>> = [];
-  const questionById = new Map(adaptiveQuestions.map((question) => [String(question.id), question]));
-  lockedFeedback = rawLocks.map((lock) => {
-    const question = questionById.get(String(lock.question_id));
-    if (!question) throw new RequestError(409, "已锁定的补练原题已变化，请联系甘老师核对，记录不会被覆盖。");
-    if ((lock.revision_token || null) !== (question.question_revision_token || null)) {
-      throw new RequestError(409, "原题在中断期间已经更新，请联系甘老师处理本轮记录。");
-    }
-    return questionFeedbackShape(question, Number(lock.selected_option), {
-      uncertain: lock.uncertain === true, durationSec: Number(lock.duration_sec) || 0,
+  // The prepared, eligible pool is valid for this one request. After the lock
+  // transaction, recompute only the deterministic branch using freshly read
+  // locks, rather than fetching the entire profile/history/source pool twice.
+  function continueWithLocks(locks: Array<Record<string, unknown>>) {
+    const mappedLocks = locks.map((lock) => ({ question_id: String(lock.question_id),
+      selected_option: Number(lock.selected_option), uncertain: lock.uncertain === true }));
+    const expansion = expandOptionPractice({ baseQuestions, candidates: reserves, locks: mappedLocks, excludedQuestions });
+    const questionById = new Map(expansion.questions.map((question) => [String(question.id), question]));
+    const lockedFeedback = locks.map((lock) => {
+      const question = questionById.get(String(lock.question_id));
+      if (!question) throw new RequestError(409, "已锁定的补练原题已变化，请联系甘老师核对，记录不会被覆盖。");
+      if ((lock.revision_token || null) !== (question.question_revision_token || null)) {
+        throw new RequestError(409, "原题在中断期间已经更新，请联系甘老师处理本轮记录。");
+      }
+      return questionFeedbackShape(question, Number(lock.selected_option), {
+        uncertain: lock.uncertain === true, durationSec: Number(lock.duration_sec) || 0,
+      });
     });
-  });
+    return {
+      questions: expansion.questions.map((question) => ({ ...questionShape(question, plan.mode === "REVIEW", delivery.managed),
+        ...(expansion.contexts[question.id] ? { optionPractice: expansion.contexts[question.id] } : {}) })),
+      optionPractice: expansion.progress,
+      lockedFeedback,
+    };
+  }
+  const prepared = continueWithLocks(rawLocks);
+  options.onFeedbackPrepared?.(continueWithLocks);
   const cardOrder = new Map(skillIds.map((skillId, index) => [skillId, index]));
   const orderedCards = [...(cards.data || [])].sort((a, b) => (cardOrder.get(a.skill_id) ?? 99) - (cardOrder.get(b.skill_id) ?? 99));
   const planAttemptRows = attempts.map((attempt) => ({
@@ -2647,11 +2665,10 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   return {
     plan: planShape(plan, planAttemptRows, undefined, reviewProfile),
     cards: orderedCards.map(cardShape),
-    questions: adaptiveQuestions.map((question) => ({ ...questionShape(question, plan.mode === "REVIEW", delivery.managed),
-      ...(expansion.contexts[question.id] ? { optionPractice: expansion.contexts[question.id] } : {}) })),
-    optionPractice: expansion.progress,
+    questions: prepared.questions,
+    optionPractice: prepared.optionPractice,
     baseQuestionCount: questionCount,
-    lockedFeedback,
+    lockedFeedback: prepared.lockedFeedback,
     attemptSequence: selectionSequence,
     roundNumber,
     roundLimit,
@@ -3034,12 +3051,14 @@ Deno.serve(async (req: Request) => {
         }
       }
       if (!targetId || !validUuid(targetId)) return reply(req, { error: "无权提交该题答案。" }, 403);
+      const prepared: { continueWithLocks?: PreparedFeedbackContinuation } = {};
+      const onFeedbackPrepared = (continuation: PreparedFeedbackContinuation) => { prepared.continueWithLocks = continuation; };
       const payload = await startPlanPayload(
         targetId,
         planId,
         readOnlyPreview
-          ? { allowCompletedPreview: true, previewRound, previewAnswers }
-          : { studentOpen: true, includeAnswerLocks: true },
+          ? { allowCompletedPreview: true, previewRound, previewAnswers, onFeedbackPrepared }
+          : { studentOpen: true, includeAnswerLocks: true, onFeedbackPrepared },
       );
       if (payload.plan.mode !== "REVIEW") return reply(req, { error: "该反馈接口只用于已安排的选择题练习。" }, 409);
       const managedFeedback = payload.plan.teachingManaged === true;
@@ -3125,10 +3144,16 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const continued = !readOnlyPreview
-        ? await startPlanPayload(targetId, planId, { studentOpen: true, includeAnswerLocks: true })
-        : identity.role === "teacher" ? await startPlanPayload(targetId, planId, { allowCompletedPreview: true, previewRound,
-          previewAnswers: [...(previewAnswers ?? []), { questionId, selectedOption: lockedOption, revisionToken: expectedRevisionToken }] }) : null;
+      if (!prepared.continueWithLocks) throw new RequestError(500, "本轮题组暂时无法继续，请重试。");
+      const continuedLocks = !readOnlyPreview
+        ? await answerLocks(targetId, planId, Number(payload.attemptSequence))
+        : [...(previewAnswers ?? []).filter((answer) => answer.questionId !== questionId).map((answer) => ({
+          question_id: answer.questionId, selected_option: answer.selectedOption,
+          revision_token: answer.revisionToken, uncertain: false, duration_sec: 0,
+        })), { question_id: questionId, selected_option: lockedOption, revision_token: expectedRevisionToken,
+          uncertain: lockedUncertain, duration_sec: lockedDurationSec }];
+      const continued = !readOnlyPreview || identity.role === "teacher"
+        ? prepared.continueWithLocks(continuedLocks) : null;
       return reply(req, {
         ...(continued ? { questions: continued.questions, optionPractice: continued.optionPractice } : {}),
         feedback: questionFeedbackShape(questionResult.data, lockedOption, {

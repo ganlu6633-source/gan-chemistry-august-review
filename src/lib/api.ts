@@ -135,7 +135,11 @@ export async function submitJuniorAdaptiveStep(session: SessionIdentity, input: 
 
 /** Read-only teacher simulation; no real attempt or answer lock is written. */
 export async function previewQuestionFeedback(input: QuestionFeedbackInput) {
-  return teacherApi<QuestionFeedbackResponse & { simulated: true }>('question_feedback', input)
+  const session = readAccessSession()
+  if (!session?.token || session.role !== 'teacher') throw new Error('教师登录已失效，请重新输入姓名和登录码。')
+  // Access already authenticates teacher sessions and enforces read-only preview.
+  // Avoid a second edge invocation/authentication just to forward this request.
+  return accessApi<QuestionFeedbackResponse & { simulated: true }>(session, 'question_feedback', input)
 }
 
 export async function teacherApi<T>(action: string, data?: unknown, options?: ApiRequestOptions): Promise<T> {
