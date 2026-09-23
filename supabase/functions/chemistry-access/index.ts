@@ -2766,9 +2766,11 @@ Deno.serve(async (req: Request) => {
             return reply(req, { error: "这节课不在老师确认的本期单元范围内。" }, 409);
           }
         }
-        if (selectedPlan.data.mode === "REVIEW" && body.action !== "future_plan_preview" && !programContainsDate(program, shanghaiDate())) {
-          return reply(req, { error: `本期正式学习时间为北京时间 ${program.startDate} 00:00 至 ${program.endDate} 24:00。` }, 409);
-        }
+        // A scheduled plan remains available for catch-up after its date. The
+        // old check compared today's date with the program window and blocked
+        // every historical plan once the week ended, even when it had never
+        // received an answer. Future plans remain blocked by start_plan and
+        // future_plan_preview rules below.
       }
     }
 

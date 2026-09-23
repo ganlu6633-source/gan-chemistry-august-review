@@ -23,6 +23,12 @@ describe('future formal-plan and junior legacy fail-closed gates', () => {
     expect(startPlanFunction).toContain('未来计划只能进入只读知识预习')
   })
 
+  it('does not apply the current-program-date gate to historical catch-up plans', () => {
+    expect(accessSource).not.toContain('body.action !== "future_plan_preview" && !programContainsDate(program, shanghaiDate())')
+    expect(accessSource).toContain('A scheduled plan remains available for catch-up after its date.')
+    expect(accessSource).toContain('Future plans remain blocked by start_plan and')
+  })
+
   it('allows junior generic choices only for an owned teacher-managed source plan', () => {
     const context = startPlanFunction.indexOf('const delivery = ownedPlanDeliveryContext(plan, reviewProfile.gradeBand)')
     const juniorGate = startPlanFunction.indexOf('realStudentOpen && reviewProfile.gradeBand === "初三" && !delivery.managed')

@@ -118,7 +118,10 @@ const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
     return `已完成 ${plan.attemptCount}/${plan.roundLimit} 轮`
   }
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  if (plan.date < today) return '可再次复习'
+  // A past plan is not evidence that the student has learned it. The plan
+  // itself may be waiting for its very first attempt, so make the catch-up
+  // action explicit. Only attemptCount tells us whether this is review.
+  if (plan.date < today) return plan.attemptCount > 0 ? '可再次复习' : '补学第一轮'
   if (plan.date > today) return '可提前预习'
   return '今天'
 }
