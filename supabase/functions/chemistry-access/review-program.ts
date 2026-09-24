@@ -16,6 +16,7 @@ export function programContainsDate(program: ReviewProgram | null, date: string)
 }
 
 export function programPlanVisible(program: ReviewProgram | null, plan: Record<string, unknown>) {
+  if (plan.delivery_mode === "self_study") return true;
   if (!program || plan.mode !== "REVIEW") return true;
   return plan.is_scheduled === true && programContainsDate(program, String(plan.plan_date || ""));
 }

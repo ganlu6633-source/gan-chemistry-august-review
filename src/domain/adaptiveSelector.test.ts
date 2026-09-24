@@ -31,6 +31,13 @@ describe('teacher material selector', () => {
 })
 
 describe('adaptive original-question selector', () => {
+  it('builds a three-question self-selected challenge from distinct originals of one concept', () => {
+    const oneConcept = fiveConceptPool.filter((item) => item.concept_key === 'A__C01')
+    const selected = selectAdaptiveQuestions(oneConcept, [], [], 0, 3, new Date(), false)
+    expect(selected).toHaveLength(3)
+    expect(new Set(selected.map((item) => item.mother_id)).size).toBe(3)
+    expect(selected.every((item) => item.concept_key === 'A__C01')).toBe(true)
+  })
   it('covers all five fine-grained concepts once in round one', () => {
     const selected = selectAdaptiveQuestions(fiveConceptPool, [], [], 0, 5)
     expect(selected).toHaveLength(5)

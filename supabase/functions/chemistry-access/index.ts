@@ -75,7 +75,7 @@ function effectivePlanRoundLimit(row: Record<string, unknown>, profile?: ReviewP
   const storedRoundLimit = planRoundLimit(row);
   if (!profile) return storedRoundLimit;
   return effectiveReviewRoundLimit({
-    mode: String(row.mode || ""),
+    mode: row.delivery_mode === "self_study" ? "SELF_STUDY" : String(row.mode || ""),
     gradeBand: profile.gradeBand,
     isDemo: profile.isDemo,
     questionCount: planQuestionCount(row),
@@ -85,7 +85,7 @@ function effectivePlanRoundLimit(row: Record<string, unknown>, profile?: ReviewP
 
 function formalReviewContext(row: Record<string, unknown>, profile: ReviewProfileContext) {
   return {
-    mode: String(row.mode || ""),
+    mode: row.delivery_mode === "self_study" ? "SELF_STUDY" : String(row.mode || ""),
     gradeBand: profile.gradeBand,
     isDemo: profile.isDemo,
   };
@@ -141,7 +141,7 @@ const planShape = (
   juniorSession?: Record<string, unknown>,
   profile?: ReviewProfileContext,
 ) => {
-  const deliveryMode = row.delivery_mode === "junior_adaptive" ? "junior_adaptive" : "legacy_round";
+  const deliveryMode = row.delivery_mode === "junior_adaptive" ? "junior_adaptive" : row.delivery_mode === "self_study" ? "self_study" : "legacy_round";
   const attempts = attemptRows
     .filter((attempt) => attempt.plan_day_id === row.id)
     .sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
@@ -2032,7 +2032,7 @@ async function studentDashboard(studentId: string) {
   }));
   const isDemo = Boolean((profileResult.data.metadata as Record<string, unknown> | null)?.demo);
   const reviewProfile = { gradeBand: String(profileResult.data.grade_band), isDemo };
-  const todayPlan = plans.find((plan) => String(plan.plan_date) === shanghaiDate());
+  const todayPlan = plans.find((plan) => plan.delivery_mode !== "self_study" && String(plan.plan_date) === shanghaiDate());
   return {
     profile: {
       ...profileShape(profileResult.data),
@@ -2051,6 +2051,74 @@ async function studentDashboard(studentId: string) {
     achievements,
     videoRecommendations,
   };
+}
+
+async function selfStudyCatalog(studentId: string) {
+  const profile = await supabase.from("chem_students_v2").select("grade_band,record_status,metadata").eq("id", studentId).single();
+  if (profile.error) throw profile.error;
+  const grade = String(profile.data.grade_band);
+  if (profile.data.record_status !== "active" || !["高一", "高二", "高三"].includes(grade)) {
+    throw new RequestError(403, "当前档案没有开放高中自主练习。");
+  }
+  const releaseId = await activeVerifiedSourceReleaseId(grade);
+  const [catalog, skills, questions] = await Promise.all([
+    supabase.rpc("chem_review_concept_catalog_rows"),
+    supabase.from("chem_skills").select("id,title").eq("grade_band", grade).eq("active", true),
+    supabase.from("chem_questions")
+      .select("id,mother_id,concept_key,asset_refs,stem,options,correct_option,explanation,source_item_key,content_fingerprint")
+      .eq("grade_band", grade).eq("source_release_id", releaseId)
+      .eq("source_kind", "licensed_local").eq("render_mode", "image_primary")
+      .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true),
+  ]);
+  if (catalog.error || skills.error || questions.error) throw catalog.error || skills.error || questions.error;
+  const titleBySkill = new Map((skills.data || []).map((skill) => [String(skill.id), String(skill.title)]));
+  const mothersByConcept = new Map<string, Set<string>>();
+  for (const row of questions.data || []) {
+    if (!row.mother_id || !hasRequiredReviewSourceAssets(row.asset_refs)
+      || !String(row.stem || "").trim() || !String(row.explanation || "").trim()
+      || !Array.isArray(row.options) || row.options.length !== 4
+      || row.options.some((option: unknown) => typeof option !== "string" || !option.trim())
+      || !Number.isInteger(row.correct_option) || row.correct_option < 0 || row.correct_option > 3) continue;
+    const key = String(row.concept_key || "");
+    const mothers = mothersByConcept.get(key) || new Set<string>();
+    mothers.add(String(row.mother_id));
+    mothersByConcept.set(key, mothers);
+  }
+  return {
+    grade,
+    topics: ((catalog.data || []) as Array<Record<string, unknown>>)
+      .filter((row) => String(row.grade_band) === grade && titleBySkill.has(String(row.skill_id)))
+      .map((row) => ({
+        skillId: String(row.skill_id), skillTitle: titleBySkill.get(String(row.skill_id))!,
+        conceptKey: String(row.concept_key), title: String(row.concept_title),
+        sequence: Number(row.sequence_no) || 0,
+        originalCount: mothersByConcept.get(String(row.concept_key))?.size || 0,
+      })),
+  };
+}
+
+async function openSelfStudy(studentId: string, skillId: string, conceptKey: string) {
+  const catalog = await selfStudyCatalog(studentId);
+  const topic = catalog.topics.find((item) => item.skillId === skillId && item.conceptKey === conceptKey);
+  if (!topic || topic.originalCount < 3) throw new RequestError(422, "这个知识点暂时没有足够的已核对原题，请选择其他知识点。");
+  const existing = await supabase.from("chem_learning_plans").select("id")
+    .eq("student_id", studentId).eq("delivery_mode", "self_study")
+    .contains("target_concept_keys", [conceptKey]).order("created_at", { ascending: false });
+  if (existing.error) throw existing.error;
+  if (existing.data?.length) {
+    const attempts = await supabase.from("chem_learning_attempts").select("id").eq("plan_day_id", existing.data[0].id).limit(1);
+    if (attempts.error) throw attempts.error;
+    if (!attempts.data?.length) return startPlanPayload(studentId, String(existing.data[0].id), { studentOpen: true, includeAnswerLocks: true });
+  }
+  const created = await supabase.from("chem_learning_plans").insert({
+    student_id: studentId, plan_date: shanghaiDate(), mode: "REVIEW",
+    title: `自主闯关 · ${topic.skillTitle} · ${topic.title} · 第 ${(existing.data || []).length + 1} 关`,
+    skill_ids: [skillId], target_concept_keys: [conceptKey],
+    knowledge_summaries: [topic.title], estimated_minutes: 12, source: "course",
+    is_scheduled: false, question_count: 3, round_limit: 1, delivery_mode: "self_study",
+  }).select("id").single();
+  if (created.error) throw created.error;
+  return startPlanPayload(studentId, String(created.data.id), { studentOpen: true, includeAnswerLocks: true });
 }
 
 async function guardianDashboard(studentId: string) {
@@ -2264,7 +2332,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     throw new RequestError(422, `正式复习当天必须明确配置 ${questionCount} 个细知识点，已停止下发并通知甘老师。`);
   }
   if (plan.mode === "REVIEW" && targetConceptKeys.length && !delivery.managed) {
-    if ((!assignedQuestionIds && targetConceptKeys.length !== questionCount) || targetConceptKeys.length > questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length) {
+    if ((plan.delivery_mode !== "self_study" && !assignedQuestionIds && targetConceptKeys.length !== questionCount) || targetConceptKeys.length > questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length) {
       throw new RequestError(422, `当天必须配置 ${questionCount} 个互不重复的细知识点，请联系甘老师。`);
     }
     if (targetConceptKeys.some((conceptKey) => !skillIds.some((skillId) => conceptKey.startsWith(`${skillId}__`)))) {
@@ -2435,9 +2503,13 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const latestAnswers = latestAttemptId
     ? historyRows.filter((answer) => String(answer.attempt_id) === latestAttemptId)
     : [];
+  const scheduledQuestionIds = plan.delivery_mode === "self_study"
+    ? new Set(Object.values((gradeResult.data.metadata?.reviewProgram?.questionAssignments ?? {}) as Record<string, unknown>)
+      .flatMap((ids) => Array.isArray(ids) ? ids.map(String) : []))
+    : new Set<string>();
   const questionPool = await excludeHeldQuestions((highSchoolReview
     ? (questions.data || []).filter((question) => hasRequiredReviewSourceAssets(question.asset_refs))
-    : (questions.data || [])).filter((question) => (!sourceControlledReview
+    : (questions.data || [])).filter((question) => !scheduledQuestionIds.has(String(question.id)) && (!sourceControlledReview
       || teachingQuestionSourceMatches(question, delivery, activeSourceReleaseId!))
       && Array.isArray(question.options) && question.options.length === 4
       && Number.isInteger(question.correct_option) && question.correct_option >= 0 && question.correct_option < 4
@@ -2469,15 +2541,15 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     if (
       (!targetConceptKeys.length && skillIds.length !== 1)
       || (targetConceptKeys.length > 0 && skillIds.length > questionCount)
-      || conceptCounts.size !== (assignedQuestionIds ? targetConceptKeys.length : questionCount)
-      || expectedConceptKeys.length !== (assignedQuestionIds ? targetConceptKeys.length : questionCount)
+      || conceptCounts.size !== (plan.delivery_mode === "self_study" || assignedQuestionIds ? targetConceptKeys.length : questionCount)
+      || expectedConceptKeys.length !== (plan.delivery_mode === "self_study" || assignedQuestionIds ? targetConceptKeys.length : questionCount)
       || expectedConceptKeys.length === 0
       || expectedConceptKeys.some((conceptKey) => !conceptCounts.has(conceptKey))
       || expectedConceptKeys.some((conceptKey) => {
         const owners = conceptOwnerSkills.get(conceptKey);
         return !owners || owners.size !== 1 || !skillIds.includes([...owners][0]);
       })
-      || [...conceptCounts.values()].some((count) => count < roundLimit)
+      || [...conceptCounts.values()].some((count) => count < (plan.delivery_mode === "self_study" ? questionCount : roundLimit))
     ) {
       throw new RequestError(
         422,
@@ -2534,7 +2606,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
         previewIndex,
         questionCount,
         new Date(),
-        plan.mode === "REVIEW",
+        plan.mode === "REVIEW" && plan.delivery_mode !== "self_study",
       );
       if (adaptiveQuestions.length !== questionCount) break;
       if (previewIndex < selectionSequence) {
@@ -2564,7 +2636,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       selectionSequence,
       questionCount,
       new Date(),
-      plan.mode === "REVIEW",
+      plan.mode === "REVIEW" && plan.delivery_mode !== "self_study",
     );
   }
   if (adaptiveQuestions.length !== questionCount) {
@@ -2753,7 +2825,7 @@ Deno.serve(async (req: Request) => {
       const program = readReviewProgram(profile.data.metadata);
       if (program) {
         const planId = String(body.data?.planId || body.data?.planDayId || "");
-        const selectedPlan = await supabase.from("chem_learning_plans").select("mode,plan_date,is_scheduled,junior_curriculum_day_id").eq("id", planId).eq("student_id", identity.studentId).maybeSingle();
+        const selectedPlan = await supabase.from("chem_learning_plans").select("mode,plan_date,is_scheduled,junior_curriculum_day_id,delivery_mode").eq("id", planId).eq("student_id", identity.studentId).maybeSingle();
         if (selectedPlan.error) throw selectedPlan.error;
         if (!selectedPlan.data || !programPlanVisible(program, selectedPlan.data)) {
           return reply(req, { error: "这项复习不在本期安排中，历史学习记录仍可查看。" }, 409);
@@ -3373,6 +3445,22 @@ Deno.serve(async (req: Request) => {
       return reply(req, { record: await studentLearningRecord(targetId) });
     }
 
+    if (body.action === "self_study_catalog" && identity.role === "student" && identity.studentId) {
+      const targetId = await resolveDemoTarget(identity.studentId, body.data?.studentId ? String(body.data.studentId) : undefined);
+      if (!targetId) return reply(req, { error: "无权查看这个年级的题库。" }, 403);
+      return reply(req, { catalog: await selfStudyCatalog(targetId) });
+    }
+
+    if (body.action === "open_self_study" && identity.role === "student" && identity.studentId) {
+      if (await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号只能查看题库目录，不能创建正式学习记录。" }, 403);
+      const skillId = String(body.data?.skillId || "");
+      const conceptKey = String(body.data?.conceptKey || "");
+      if (!/^[A-Za-z0-9_]{1,80}$/.test(skillId) || !/^[A-Za-z0-9_]{1,100}$/.test(conceptKey)) {
+        return reply(req, { error: "请选择题库中的知识点。" }, 400);
+      }
+      return reply(req, { payload: await openSelfStudy(identity.studentId, skillId, conceptKey) });
+    }
+
     if (body.action === "preview_start_plan" && identity.role === "teacher") {
       const targetId = String(body.data?.studentId || "");
       const planId = String(body.data?.planId || "");
@@ -3465,7 +3553,7 @@ Deno.serve(async (req: Request) => {
       if (!teachingAssignmentValid(delivery.managed, managedAssignedIds, questionCount)) return reply(req, { error: "老师安排的固定题目不完整，请重新打开课程。" }, 422);
       const managedReady = delivery.managed ? await teachingReadyQuestions(delivery.sourceGrade, managedAssignedIds!) : null;
       if (managedReady && (managedReady.length !== managedAssignedIds!.length || new Set(managedReady.map((row) => row.source_release_id)).size !== 1)) return reply(req, { error: "老师安排的题目来源尚未就绪。" }, 422);
-      const activeSourceReleaseId = managedReady ? String(managedReady[0].source_release_id) : formalHighSchoolReview
+      const activeSourceReleaseId = managedReady ? String(managedReady[0].source_release_id) : (formalHighSchoolReview || plan.delivery_mode === "self_study")
         ? await activeVerifiedSourceReleaseId(delivery.sourceGrade) : null;
       if (formalHighSchoolReview && String(plan.plan_date || "") > shanghaiDate()) {
         return reply(req, { error: "后续日期的正式复习尚未开放，请在计划当天进入。" }, 409);
@@ -3475,7 +3563,7 @@ Deno.serve(async (req: Request) => {
         return reply(req, { error: `正式复习每天最多下发 ${FORMAL_REVIEW_DAILY_QUESTION_CAP} 道题；当前计划配置超限，已停止提交并通知甘老师。` }, 422);
       }
       const maxQuestionLevel = planMaxQuestionLevel(plan);
-      const expectedSubmission = formalHighSchoolReview
+      const expectedSubmission = formalHighSchoolReview || plan.delivery_mode === "self_study"
         ? await startPlanPayload(targetId, String(plan.id), { studentOpen: true, includeAnswerLocks: true }) : null;
       const expectedIds = expectedSubmission?.questions.map((question) => String(question.id)) ?? null;
       const expandedQuestionCount = expectedIds?.length ?? questionCount;
@@ -3515,7 +3603,7 @@ Deno.serve(async (req: Request) => {
         return reply(req, { error: `正式复习当天必须明确配置 ${questionCount} 个细知识点，已停止提交并通知甘老师。` }, 422);
       }
       if (plan.mode === "REVIEW" && targetConceptKeys.length && !delivery.managed
-        && ((!assignedIds && targetConceptKeys.length !== questionCount) || targetConceptKeys.length > questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length)) {
+        && ((plan.delivery_mode !== "self_study" && !assignedIds && targetConceptKeys.length !== questionCount) || targetConceptKeys.length > questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length)) {
         return reply(req, { error: "当前学习计划的细知识点配置不完整，请重新打开或联系甘老师。" }, 400);
       }
       const questionUsageColumn = plan.mode === "CLASS_QUIZ"
@@ -3557,7 +3645,7 @@ Deno.serve(async (req: Request) => {
       if ((questionResult.data || []).length !== questionIds.length) {
         return reply(req, { error: "本轮包含未审核、超出范围或高于当前难度上限的题目，请重新打开练习。" }, 400);
       }
-      if (formalHighSchoolReview && delivery.requiresImages && (questionResult.data || []).some((question) =>
+      if ((formalHighSchoolReview || plan.delivery_mode === "self_study") && delivery.requiresImages && (questionResult.data || []).some((question) =>
         !hasRequiredReviewSourceAssets(question.asset_refs)
       )) {
         return reply(req, { error: "本轮原题缺少经过核验的题面图或解析图，已停止提交并通知甘老师。" }, 422);

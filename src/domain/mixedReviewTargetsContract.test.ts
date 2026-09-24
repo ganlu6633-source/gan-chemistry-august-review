@@ -24,7 +24,7 @@ describe('mixed REVIEW fine-concept targets', () => {
     expect(accessSource).toContain('new Set(targetConceptKeys).size !== targetConceptKeys.length')
     expect(accessSource).toContain('conceptKey.startsWith(`${skillId}__`)')
     expect(accessSource).toContain('expectedConceptKeys.some((conceptKey) => !conceptCounts.has(conceptKey))')
-    expect(accessSource).toContain('some((count) => count < roundLimit)')
+    expect(accessSource).toContain('some((count) => count < (plan.delivery_mode === "self_study" ? questionCount : roundLimit))')
     expect(accessSource).not.toContain('some((levels) => levels.size < 3)')
     expect(accessSource).not.toContain('some((count) => count !== roundLimit)')
     expect(accessSource).toContain('.in("concept_key", targetConceptKeys)')

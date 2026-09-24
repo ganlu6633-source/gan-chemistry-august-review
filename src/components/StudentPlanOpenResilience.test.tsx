@@ -60,7 +60,8 @@ describe('StudentApp plan opening resilience', () => {
     vi.restoreAllMocks()
   })
 
-  it('starts with four choices and opens the matching lecture from a knowledge point', () => {
+  it('starts with four choices and opens a source-backed knowledge challenge catalog', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ catalog: { topics: [{ skillId: 'H1_REDOX', skillTitle: '氧化还原反应', conceptKey: 'H1_REDOX__C01', title: '化合价升降', sequence: 1, originalCount: 5 }] } })))
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)
     expect(screen.getByRole('heading', { name: /今天想怎么学/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /按日期 查看每天安排的题组/ })).toBeInTheDocument()
@@ -68,11 +69,12 @@ describe('StudentApp plan opening resilience', () => {
     expect(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /按题型 按选择题/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ }))
-    fireEvent.click(screen.getByRole('button', { name: /电解质、离子反应与氧化还原/ }))
-    expect(screen.getByTitle('电解质、离子反应与氧化还原讲义原页')).toHaveAttribute('src', expect.stringContaining('h1-required-1.pdf#page=33'))
+    expect(await screen.findByText('化合价升降')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /演示账号只读/ })).toBeDisabled()
+    expect(screen.queryByTitle(/讲义原页/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '按题型' }))
     expect(screen.getByRole('heading', { name: '按题型' })).toBeInTheDocument()
-    expect(screen.queryByTitle('电解质、离子反应与氧化还原讲义原页')).not.toBeInTheDocument()
+    expect(await screen.findByText('化合价升降')).toBeInTheDocument()
   })
 
   it('prefetches today once and reuses the same in-flight request when clicked', async () => {

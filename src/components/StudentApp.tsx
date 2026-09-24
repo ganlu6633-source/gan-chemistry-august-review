@@ -143,8 +143,8 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const planRequestDisposeTimer = useRef<number | null>(null)
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  const todayPlan = selectFocusPlan(dashboard.plans, today)
-  const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
+  const visiblePlans = useMemo(() => dashboard.plans.filter((plan) => plan.deliveryMode !== 'self_study').sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
+  const todayPlan = selectFocusPlan(visiblePlans, today)
   const duePlans = visiblePlans.filter((plan) => plan.date <= today && !plan.isComplete)
   const completedPlans = visiblePlans.filter((plan) => plan.date <= today && plan.isComplete)
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
@@ -297,6 +297,20 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     if (nextPlan) await openPlan(nextPlan, previewMode || nextDashboard.profile.isDemo ? nextRound : undefined)
   }
 
+  async function openSelfStudy(skillId: string, conceptKey: string) {
+    if (busy || previewMode || dashboard.profile.isDemo) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', { skillId, conceptKey })
+      setActivePlan(result.payload)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '这组原题暂时无法打开，请换一个知识点。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function switchDemoGrade(gradeBand: string) {
     if (gradeBand === dashboard.profile.gradeBand || busy) return
     planRequestCache.current.forEach((entry) => entry.controller.abort())
@@ -329,7 +343,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   if (activePlan) {
-    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
   }
 
   const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
@@ -349,7 +363,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       </aside>
       <div className="role-content">
         {error && <div className="inline-alert" role="alert">{error}</div>}
-        {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title"><div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 自己选择学习方向</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天想怎么学？</h1><p>你可以随时换一种方式继续，学习记录都会保留。</p></div><div className="study-choice-grid"><button type="button" onClick={() => setView('today')}><Clock3 /><b>按日期</b><span>查看每天安排的题组，也能补学以前没做过的内容。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('stage')}><Layers3 /><b>按学习阶段</b><span>从专题或进度节点进入，按讲义顺序学习。</span><ChevronRight /></button>}<button type="button" onClick={() => setView('directory')}><BookOpen /><b>按知识点</b><span>自己挑选一个知识点，直接打开对应内容。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('type')}><ListFilter /><b>按题型</b><span>按选择题、计算、实验等题型选择材料。</span><ChevronRight /></button>}{dashboard.profile.gradeBand === '初三' && <button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒</b><span>处理到期复习和还没有完成的题组。</span><ChevronRight /></button>}</div>{dashboard.profile.isDemo && <div className="demo-grade-switch"><div><span className="eyebrow">演示查看</span><h2>切换年级查看讲义</h2></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></div>}</section>}
+        {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title"><div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 自己选择学习方向</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天想怎么学？</h1><p>你可以随时换一种方式继续，学习记录都会保留。</p></div><div className="study-choice-grid"><button type="button" onClick={() => setView('today')}><Clock3 /><b>按日期</b><span>查看每天安排的题组，也能补学以前没做过的内容。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('stage')}><Layers3 /><b>按学习阶段</b><span>从专题或进度节点进入，选择知识点后直接做原题。</span><ChevronRight /></button>}<button type="button" onClick={() => setView('directory')}><BookOpen /><b>按知识点</b><span>自己挑选一个知识点，直接做选择题并查看解析。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('type')}><ListFilter /><b>按题型</b><span>按选择题专题选择原题训练。</span><ChevronRight /></button>}{dashboard.profile.gradeBand === '初三' && <button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒</b><span>处理到期复习和还没有完成的题组。</span><ChevronRight /></button>}</div>{dashboard.profile.isDemo && <div className="demo-grade-switch"><div><span className="eyebrow">演示查看</span><h2>切换年级查看原题目录</h2></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></div>}</section>}
         {view === 'today' && <>
           <section className="welcome-banner">
             <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlanIsCatchUp ? '按进度补学' : todayPlan?.isComplete ? '今天已完成' : todayPlan ? '今日安排' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一次学习已经安排好了。' : todayPlanIsCatchUp ? '先接上还没做完的内容。' : todayPlan?.isComplete ? '今天的学习已完成。' : todayPlan ? '今天先把安排好的题组完成。' : '今天暂未安排正式任务。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将于北京时间 ${todayPlan?.date} 00:00 开启，现在可先看知识卡。` : todayPlanIsCatchUp ? `这组原本安排在 ${todayPlan?.date}。系统根据实际作答记录发现它尚未完成，可以从第一轮开始补学。` : todayPlan?.isComplete ? '可以查看今日成果和历史学习记录。' : !todayPlan ? '已有学习记录保留在“我的战绩”中，请留意甘老师的后续安排。' : dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度和最近表现安排了今天的原题。'}</p></div>
@@ -371,9 +385,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
-        {view === 'directory' && ['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) ? <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} /> : view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
-        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
+        {view === 'directory' && ['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) ? <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} /> : view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}

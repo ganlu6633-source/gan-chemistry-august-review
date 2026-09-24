@@ -1,57 +1,75 @@
-import { useMemo, useState } from 'react'
-import { BookOpen, ChevronRight, ExternalLink, Search, X } from 'lucide-react'
-import { LECTURE_BOOKS, LECTURE_SECTIONS, lectureUrl, type LectureSection } from '../data/lectureCatalog'
-import type { LearningPlanDay, StudentDashboardData } from '../domain/types'
+import { useEffect, useMemo, useState } from 'react'
+import { BookOpen, ChevronRight, ExternalLink, Search, Trophy } from 'lucide-react'
+import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
+import type { SessionIdentity, StudentDashboardData } from '../domain/types'
+import { accessApi } from '../lib/api'
 
 export type LibraryAxis = 'stage' | 'knowledge' | 'type'
-
-const AXIS_COPY = {
-  stage: { title: '按学习阶段或进度节点', intro: '从讲义的专题与复习阶段选择。每个节点都能直接打开讲义。' },
-  knowledge: { title: '按知识点', intro: '从讲义目录选择具体知识点，已经学过的可以回看，未学过的也能先学。' },
-  type: { title: '按题型', intro: '从讲义中的题型板块进入。高三选择题与综合题材料分开列出。' },
+type Topic = { skillId: string; skillTitle: string; conceptKey: string; title: string; sequence: number; originalCount: number }
+const COPY = {
+  stage: ['按学习阶段', '从当前专题选一个知识点，直接做已核对的原题。'],
+  knowledge: ['按知识点', '自己挑选想突破的知识点，纸上演算后选择 A、B、C、D。'],
+  type: ['按题型', '从选择题专题进入；所有题组都用题库原题和四个选项。'],
 } as const
 
-function relevantPlan(section: LectureSection, plans: LearningPlanDay[], today: string) {
-  return plans.filter((plan) => plan.date <= today && section.skillIds.some((skill) => plan.skillIds.includes(skill)))
-    .sort((a, b) => Number(a.isComplete) - Number(b.isComplete) || b.date.localeCompare(a.date))[0]
-}
-
-export function StudyLibrary({ axis, dashboard, onOpenPlan, busy }: {
+export function StudyLibrary({ axis, dashboard, session, onStart, busy }: {
   axis: LibraryAxis
   dashboard: StudentDashboardData
-  onOpenPlan: (plan: LearningPlanDay) => void
+  session: SessionIdentity
+  onStart: (skillId: string, conceptKey: string) => Promise<void>
   busy: boolean
 }) {
   const [search, setSearch] = useState('')
-  const [active, setActive] = useState<LectureSection | null>(null)
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  const sections = useMemo(() => LECTURE_SECTIONS.filter((section) => section.grade === dashboard.profile.gradeBand), [dashboard.profile.gradeBand])
-  const filtered = sections.filter((section) => `${section.title} ${section.stage} ${section.type} ${LECTURE_BOOKS[section.book].title}`.includes(search.trim()))
-  const groups = new Map<string, LectureSection[]>()
-  filtered.forEach((section) => {
-    const label = axis === 'stage' ? section.stage : axis === 'type' ? section.type : LECTURE_BOOKS[section.book].title
-    groups.set(label, [...(groups.get(label) ?? []), section])
-  })
+  const [topics, setTopics] = useState<Topic[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const grade = dashboard.profile.gradeBand
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    accessApi<{ catalog: { topics: Topic[] } }>(session, 'self_study_catalog', dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
+      .then((result) => { if (active) setTopics(result.catalog.topics) })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '题库目录暂时无法加载。') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [session, dashboard.profile.id, dashboard.profile.isDemo])
 
-  if (active) {
-    const plan = relevantPlan(active, dashboard.plans, today)
-    return <section className="lecture-reader" aria-label={`${active.title}讲义`}>
-      <div className="lecture-reader-head">
-        <button type="button" className="text-button" onClick={() => setActive(null)}><X size={16} />返回{AXIS_COPY[axis].title}</button>
-        <div><span className="eyebrow">{LECTURE_BOOKS[active.book].title} · 第 {active.page}—{active.endPage} 页</span><h1>{active.title}</h1></div>
-        <div className="lecture-reader-actions"><a className="secondary-button compact" href={lectureUrl(active)} target="_blank" rel="noopener noreferrer">单独打开讲义<ExternalLink size={15} /></a>{plan && <button type="button" className="primary-button compact" onClick={() => onOpenPlan(plan)} disabled={busy}>做相关已安排原题<ChevronRight size={16} /></button>}</div>
-      </div>
-      <p className="lecture-source-note">下方是讲义原页。做题时可在纸上演算；题组只会使用网站中已审核的选择题。{!plan && '这节尚无可直接打开的已安排题组，可以先阅读讲义。'}</p>
-      <iframe title={`${active.title}讲义原页`} src={lectureUrl(active)} loading="lazy" />
-    </section>
-  }
+  const lectureBySkill = useMemo(() => {
+    const map = new Map<string, typeof LECTURE_SECTIONS[number]>()
+    LECTURE_SECTIONS.filter((section) => section.grade === grade).forEach((section) => section.skillIds.forEach((skill) => {
+      if (!map.has(skill)) map.set(skill, section)
+    }))
+    return map
+  }, [grade])
+  const groups = new Map<string, Topic[]>()
+  topics.filter((topic) => `${topic.title} ${topic.skillTitle} ${lectureBySkill.get(topic.skillId)?.type || ''}`.includes(search.trim()))
+    .sort((a, b) => a.skillTitle.localeCompare(b.skillTitle, 'zh-CN') || a.sequence - b.sequence)
+    .forEach((topic) => {
+      const lecture = lectureBySkill.get(topic.skillId)
+      const label = axis === 'stage' ? lecture?.stage || '题库补充专题'
+        : axis === 'type' ? `选择题 · ${lecture?.type || topic.skillTitle}` : topic.skillTitle
+      groups.set(label, [...groups.get(label) || [], topic])
+    })
+  const completed = dashboard.plans.filter((plan) => plan.deliveryMode === 'self_study' && plan.isComplete).length
 
   return <section className="study-library">
-    <div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 讲义原页</span><h1>{AXIS_COPY[axis].title}</h1><p>{AXIS_COPY[axis].intro}</p></div>
-    <label className="library-search"><Search size={18} aria-hidden="true" /><span className="sr-only">搜索知识点或题型</span><input type="search" placeholder="搜索知识点、题型或专题" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-    {groups.size === 0 ? <p className="empty-state">没有找到对应的讲义章节。</p> : [...groups].map(([label, items]) => <section className="library-group" key={label}><div className="library-group-head"><h2>{label}</h2><span>{items.length} 节</span></div><div className="library-grid">{items.map((section) => {
-      const plan = relevantPlan(section, dashboard.plans, today)
-      return <button type="button" className="library-card" key={section.id} onClick={() => setActive(section)}><span className="library-card-book"><BookOpen size={15} />{LECTURE_BOOKS[section.book].title}</span><b>{section.title}</b><span>{section.type} · 第 {section.page}—{section.endPage} 页</span><em>{plan ? '讲义 + 相关已安排原题' : '打开讲义'}</em><ChevronRight className="library-card-arrow" size={18} /></button>
+    <div className="page-title"><span className="eyebrow">{grade} · 原题闯关</span><h1>{COPY[axis][0]}</h1><p>{COPY[axis][1]}</p></div>
+    <div className="self-study-progress"><Trophy size={20} /><span>已完成 <b>{completed}</b> 个自主题组</span><span>每关 3 道原题 · 作答后看解析与薄弱点</span></div>
+    <label className="library-search"><Search size={18} aria-hidden="true" /><span className="sr-only">搜索知识点或题型</span><input type="search" placeholder="搜索知识点或题型" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+    {loading && <p className="empty-state">正在核对原题目录…</p>}
+    {error && <p className="inline-alert" role="alert">{error}</p>}
+    {!loading && !error && groups.size === 0 && <p className="empty-state">没有找到这个知识点的已审核选择题。</p>}
+    {[...groups].map(([label, items]) => <section className="library-group" key={label}><div className="library-group-head"><h2>{label}</h2><span>{items.length} 个知识点</span></div><div className="library-grid">{items.map((topic) => {
+      const lecture = lectureBySkill.get(topic.skillId)
+      const ready = topic.originalCount >= 3
+      return <article className="library-card self-study-card" key={topic.conceptKey}>
+        <span className="library-card-book"><BookOpen size={15} />{topic.skillTitle}</span><b>{topic.title}</b>
+        <span>{topic.originalCount} 道已核对原题 · 每次 3 道</span>
+        <div className="self-study-card-actions"><button type="button" className="primary-button compact" disabled={!ready || busy || dashboard.profile.isDemo} onClick={() => void onStart(topic.skillId, topic.conceptKey)}>{ready ? dashboard.profile.isDemo ? '演示账号只读' : '开始闯关' : '原题待补充'}<ChevronRight size={16} /></button>
+        {lecture && <a href={lectureUrl(lecture)} target="_blank" rel="noopener noreferrer" aria-label={`查看${topic.title}相关讲义`}>相关讲义<ExternalLink size={14} /></a>}</div>
+      </article>
     })}</div></section>)}
+    {!loading && !error && <p className="lecture-source-note">题目、答案和解析来自已审核的本地原题库。相关讲义仅供需要时查阅；已做过的同一原题不会作为新题再次下发。</p>}
   </section>
 }

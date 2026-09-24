@@ -283,7 +283,7 @@ export interface LearningPlanDay {
   /** Optional teaching-scope difficulty ceiling fixed by the teacher. */
   maxQuestionLevel: number | null
   /** `junior_adaptive` is an independent, one-question-at-a-time delivery path. */
-  deliveryMode?: 'legacy_round' | 'junior_adaptive'
+  deliveryMode?: 'legacy_round' | 'junior_adaptive' | 'self_study'
   /** Explicit course choices saved from teacher management. */
   teachingManaged?: boolean
   /** Grade of the assigned source content; it can differ from the student's grade. */

@@ -13,6 +13,9 @@ describe('bounded review program', () => {
     expect(programContainsDate({ ...program!, participating: false }, '2026-09-12')).toBe(false)
     expect(programPlanVisible(program, { mode: 'REVIEW', plan_date: '2026-09-12', is_scheduled: false })).toBe(false)
   })
+  it('keeps a student-chosen original-question session accessible outside the dated plan', () => {
+    expect(programPlanVisible(program, { mode: 'REVIEW', delivery_mode: 'self_study', plan_date: '2026-09-25', is_scheduled: false })).toBe(true)
+  })
   it('preserves unrelated classroom quizzes and unconfigured profiles', () => {
     expect(programPlanVisible(program, { mode: 'CLASS_QUIZ', plan_date: '2026-09-10' })).toBe(true)
     expect(programPlanVisible(null, { mode: 'REVIEW', plan_date: '2026-09-10' })).toBe(true)
