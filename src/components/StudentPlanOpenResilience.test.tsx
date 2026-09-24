@@ -60,6 +60,18 @@ describe('StudentApp plan opening resilience', () => {
     vi.restoreAllMocks()
   })
 
+  it('starts with four choices and opens the matching lecture from a knowledge point', () => {
+    render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: /今天想怎么学/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /按日期 查看每天安排的题组/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /按学习阶段 从专题或进度节点/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /按题型 按选择题/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ }))
+    fireEvent.click(screen.getByRole('button', { name: /电解质、离子反应与氧化还原/ }))
+    expect(screen.getByTitle('电解质、离子反应与氧化还原讲义原页')).toHaveAttribute('src', expect.stringContaining('h1-required-1.pdf#page=33'))
+  })
+
   it('prefetches today once and reuses the same in-flight request when clicked', async () => {
     let resolveRequest: ((response: Response) => void) | undefined
     const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolveRequest = resolve }))
