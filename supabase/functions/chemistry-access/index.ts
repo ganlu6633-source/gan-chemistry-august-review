@@ -2061,7 +2061,7 @@ async function selfStudyCatalog(studentId: string) {
     throw new RequestError(403, "当前档案没有开放高中自主练习。");
   }
   const releaseId = await activeVerifiedSourceReleaseId(grade);
-  const [catalog, skills, questions] = await Promise.all([
+  const [catalog, skills, questions, history, holds] = await Promise.all([
     supabase.rpc("chem_review_concept_catalog_rows"),
     supabase.from("chem_skills").select("id,title").eq("grade_band", grade).eq("active", true),
     supabase.from("chem_questions")
@@ -2069,10 +2069,20 @@ async function selfStudyCatalog(studentId: string) {
       .eq("grade_band", grade).eq("source_release_id", releaseId)
       .eq("source_kind", "licensed_local").eq("render_mode", "image_primary")
       .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true),
+    supabase.rpc("chem_review_answer_history", { p_student_id: studentId }),
+    supabase.rpc("chem_question_delivery_holds"),
   ]);
-  if (catalog.error || skills.error || questions.error) throw catalog.error || skills.error || questions.error;
+  if (catalog.error || skills.error || questions.error || history.error || holds.error) {
+    throw catalog.error || skills.error || questions.error || history.error || holds.error;
+  }
   const titleBySkill = new Map((skills.data || []).map((skill) => [String(skill.id), String(skill.title)]));
   const mothersByConcept = new Map<string, Set<string>>();
+  const freshMothersByConcept = new Map<string, Set<string>>();
+  const usedIds = new Set(((history.data || []) as Array<Record<string, unknown>>).map((row) => String(row.question_id)));
+  const usedMothers = new Set(((history.data || []) as Array<Record<string, unknown>>).map((row) => String(row.mother_id)).filter(Boolean));
+  const heldIds = new Set(((holds.data || []) as Array<Record<string, unknown>>).map((row) => String(row.question_id)));
+  const scheduledIds = new Set(Object.values((profile.data.metadata?.reviewProgram?.questionAssignments ?? {}) as Record<string, unknown>)
+    .flatMap((ids) => Array.isArray(ids) ? ids.map(String) : []));
   for (const row of questions.data || []) {
     if (!row.mother_id || !hasRequiredReviewSourceAssets(row.asset_refs)
       || !String(row.stem || "").trim() || !String(row.explanation || "").trim()
@@ -2083,6 +2093,12 @@ async function selfStudyCatalog(studentId: string) {
     const mothers = mothersByConcept.get(key) || new Set<string>();
     mothers.add(String(row.mother_id));
     mothersByConcept.set(key, mothers);
+    if (!usedIds.has(String(row.id)) && !usedMothers.has(String(row.mother_id))
+      && !heldIds.has(String(row.id)) && !scheduledIds.has(String(row.id))) {
+      const fresh = freshMothersByConcept.get(key) || new Set<string>();
+      fresh.add(String(row.mother_id));
+      freshMothersByConcept.set(key, fresh);
+    }
   }
   return {
     grade,
@@ -2093,6 +2109,7 @@ async function selfStudyCatalog(studentId: string) {
         conceptKey: String(row.concept_key), title: String(row.concept_title),
         sequence: Number(row.sequence_no) || 0,
         originalCount: mothersByConcept.get(String(row.concept_key))?.size || 0,
+        freshCount: freshMothersByConcept.get(String(row.concept_key))?.size || 0,
       })),
   };
 }
@@ -2100,7 +2117,7 @@ async function selfStudyCatalog(studentId: string) {
 async function openSelfStudy(studentId: string, skillId: string, conceptKey: string) {
   const catalog = await selfStudyCatalog(studentId);
   const topic = catalog.topics.find((item) => item.skillId === skillId && item.conceptKey === conceptKey);
-  if (!topic || topic.originalCount < 3) throw new RequestError(422, "这个知识点暂时没有足够的已核对原题，请选择其他知识点。");
+  if (!topic || topic.freshCount < 3) throw new RequestError(422, "这个知识点剩余的未做原题不足 3 道，请选择其他知识点。");
   const existing = await supabase.from("chem_learning_plans").select("id")
     .eq("student_id", studentId).eq("delivery_mode", "self_study")
     .contains("target_concept_keys", [conceptKey]).order("created_at", { ascending: false });

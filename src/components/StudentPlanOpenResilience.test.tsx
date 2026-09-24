@@ -61,7 +61,7 @@ describe('StudentApp plan opening resilience', () => {
   })
 
   it('starts with four choices and opens a source-backed knowledge challenge catalog', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ catalog: { topics: [{ skillId: 'H1_REDOX', skillTitle: '氧化还原反应', conceptKey: 'H1_REDOX__C01', title: '化合价升降', sequence: 1, originalCount: 5 }] } })))
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ catalog: { topics: [{ skillId: 'H1_REDOX', skillTitle: '氧化还原反应', conceptKey: 'H1_REDOX__C01', title: '化合价升降', sequence: 1, originalCount: 5, freshCount: 5 }] } })))
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)
     expect(screen.getByRole('heading', { name: /今天想怎么学/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /按日期 查看每天安排的题组/ })).toBeInTheDocument()
