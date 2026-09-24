@@ -1,4 +1,4 @@
-import{c as a}from"./app-CMj8Fre5.js";/**
+import{c as a}from"./app-C8f5Jm1A.js";/**
  * @license lucide-react v0.468.0 - ISC
  *
  * This source code is licensed under the ISC license.
@@ -9,4 +9,4 @@ import{c as a}from"./app-CMj8Fre5.js";/**
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */const t=a("ChevronRight",[["path",{d:"m9 18 6-6-6-6",key:"mthhwq"}]]);export{o as B,t as C};
-//# sourceMappingURL=chevron-right-CPYB-ft2.js.map
+//# sourceMappingURL=chevron-right-CprA59gm.js.map

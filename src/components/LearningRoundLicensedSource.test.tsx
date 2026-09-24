@@ -48,6 +48,14 @@ describe('LearningRound licensed source question', () => {
   })
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+  it('opens a self-selected original-question challenge at the question rather than a lecture card', async () => {
+    const selfStudyPayload: PlanPayload = { ...payload, plan: { ...payload.plan, deliveryMode: 'self_study', roundLimit: 1, questionCount: 1 }, attemptSequence: 0, roundNumber: 1, roundLimit: 1 }
+    render(<LearningRound session={session} payload={selfStudyPayload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
+    expect(await screen.findByAltText('本题原题题面图')).toBeInTheDocument()
+    expect(screen.getByText(/原题闯关/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '计量' })).not.toBeInTheDocument()
+  })
+
   it('highlights every option synchronously without reloading the protected image', async () => {
     render(<LearningRound session={session} payload={payload} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
 
