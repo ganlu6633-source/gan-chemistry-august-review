@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
+import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
 import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { selectFocusPlan } from '../domain/focusPlan'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
@@ -16,7 +16,7 @@ import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 
-type StudentView = 'today' | 'directory' | 'map' | 'growth' | 'settings'
+type StudentView = 'today' | 'directory' | 'reminders' | 'map' | 'growth' | 'settings'
 type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
 export type PlanPayload = {
   plan: LearningPlanDay
@@ -143,8 +143,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const todayPlan = selectFocusPlan(dashboard.plans, today)
   const visiblePlans = useMemo(() => [...dashboard.plans].sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
+  const duePlans = visiblePlans.filter((plan) => plan.date <= today && !plan.isComplete)
+  const completedPlans = visiblePlans.filter((plan) => plan.date <= today && plan.isComplete)
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
   const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today && !previewMode)
+  const todayPlanIsCatchUp = Boolean(todayPlan && todayPlan.date < today)
 
   const ensurePlanRequest = useCallback((plan: LearningPlanDay, previewRound?: number) => {
     const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
@@ -332,8 +335,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   return (
     <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">已经收到点击</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>题组正在安全装入，页面没有卡住，请稍候。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}<div className="role-layout student-theme">
       <aside className="side-nav" aria-label="学生导航">
-        <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />今天</button>
-        <button className={view === 'directory' ? 'active' : ''} onClick={() => setView('directory')}><Layers3 />学习目录</button>
+        <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />按日期</button>
+        <button className={view === 'directory' ? 'active' : ''} onClick={() => setView('directory')}><Layers3 />按知识点</button>
+        <button className={view === 'reminders' ? 'active' : ''} onClick={() => setView('reminders')}><Bell />按提醒</button>
         <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力地图</button>
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
         {!previewMode && !dashboard.profile.isDemo && <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings />账户设置</button>}
@@ -342,9 +346,15 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {error && <div className="inline-alert" role="alert">{error}</div>}
         {view === 'today' && <>
           <section className="welcome-banner">
-            <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlan?.isComplete ? '今天已完成' : todayPlan ? '今天也只走一小步' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一次学习已经安排好了。' : todayPlan?.isComplete ? '今天的学习已完成。' : todayPlan ? '今天先把最值得的几件事稳住。' : '今天暂未安排正式任务。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将于北京时间 ${todayPlan?.date} 00:00 开启，现在可先看知识卡。` : todayPlan?.isComplete ? '可以查看今日成果和历史学习记录。' : !todayPlan ? '已有学习记录保留在“我的战绩”中，请留意甘老师的后续安排。' : dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度、记忆节点和最近表现排好了今天的原题。'}</p></div>
+            <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlanIsCatchUp ? '按进度补学' : todayPlan?.isComplete ? '今天已完成' : todayPlan ? '今日安排' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一次学习已经安排好了。' : todayPlanIsCatchUp ? '先接上还没做完的内容。' : todayPlan?.isComplete ? '今天的学习已完成。' : todayPlan ? '今天先把安排好的题组完成。' : '今天暂未安排正式任务。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将于北京时间 ${todayPlan?.date} 00:00 开启，现在可先看知识卡。` : todayPlanIsCatchUp ? `这组原本安排在 ${todayPlan?.date}。系统根据实际作答记录发现它尚未完成，可以从第一轮开始补学。` : todayPlan?.isComplete ? '可以查看今日成果和历史学习记录。' : !todayPlan ? '已有学习记录保留在“我的战绩”中，请留意甘老师的后续安排。' : dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度和最近表现安排了今天的原题。'}</p></div>
             <div className="daily-orb"><b>{todayPlan?.questionCount ?? 0}</b><span>{!todayPlan ? '今日未安排' : todayPlanIsFuturePreview ? '下次题目' : todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : isSingleDailyReviewPlan(todayPlan) ? '今日原题' : '每轮题目'}</span></div>
           </section>
+          <section className="study-paths" aria-label="选择学习方式">
+            <button type="button" onClick={() => setView('today')} className="is-active"><Clock3 /><b>按日期学习</b><span>跟着甘老师安排的每天题组学习</span></button>
+            <button type="button" onClick={() => setView('directory')}><Layers3 /><b>按知识点学习</b><span>自己选择要学或要复习的内容</span></button>
+            <button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒学习</b><span>处理到期复习和待补的题组</span></button>
+          </section>
+          <p className="study-pace" role="status">截至今天，已完成 {completedPlans.length}/{visiblePlans.filter((plan) => plan.date <= today).length} 个日期题组{duePlans.length ? `；还有 ${duePlans.length} 个已安排题组待完成，可以从“按提醒”补做。` : '；已安排题组没有待补项。'}系统以实际作答判断学习进度。</p>
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>每一天都可以打开完整学习链路</h2><p>演示题组只读取已审核、当前范围内、可用于复习的真实原题；作答只在当前页面模拟，不写入任何正式学生记录。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
@@ -353,13 +363,13 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
-          <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} compact />
-          <details className="plan-history-disclosure"><summary>按日期查看历史计划</summary><PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={(plan) => plan.isComplete && !previewMode && !dashboard.profile.isDemo ? setView('growth') : openPlan(plan)} busy={busy} embedded /></details>
+          <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
         {view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'reminders' && <StudyReminders dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}
         {view === 'settings' && <AccountSettings session={session} />}
@@ -482,22 +492,38 @@ function StudyDirectory({ dashboard, onOpenPlan, busy, compact = false }: { dash
     map.set(key, [...(map.get(key) ?? []), skill])
     return map
   }, new Map<string, typeof skills>()), [skills])
-  const typeMode = dashboard.profile.gradeBand === '初三' || dashboard.profile.gradeBand === '高三'
-  const title = typeMode ? '按题型选择训练' : '按知识点选择学习'
-  const description = typeMode
-    ? '先选一个题组入口，再进入对应的讲义和原题。题组按现有计划和题库来源组织，日期只作为记录，不再限制你从哪里开始。'
-    : '先选要学习的知识点，再进入对应讲义和原题。已经学过的内容可以再次复习，尚未学过的历史内容也可以补学。'
+  const title = '按知识点选择学习'
+  const description = '自己选择要学习的知识点，进入对应讲义和已安排的原题。已学过的内容可以复习，历史内容没有做过也可以补学。'
   const visibleGroups = compact ? [...grouped.entries()].slice(0, 3) : [...grouped.entries()]
   return <section className="study-directory section-block" aria-labelledby={compact ? undefined : 'study-directory-title'}>
-    <div className="page-title"><span className="eyebrow"><ListFilter size={14} />{dashboard.profile.gradeBand}学习入口</span>{compact ? <h2>{typeMode ? '按题组/题型进入训练' : '按知识点进入学习'}</h2> : <h1 id="study-directory-title">{title}</h1>}<p>{description}</p></div>
+    <div className="page-title"><span className="eyebrow"><ListFilter size={14} />{dashboard.profile.gradeBand}学习入口</span>{compact ? <h2>按知识点进入学习</h2> : <h1 id="study-directory-title">{title}</h1>}<p>{description}</p></div>
     {visibleGroups.length === 0 ? <EmptyState text="当前年段还没有可选择的知识点。" /> : <div className="directory-groups">{visibleGroups.map(([moduleId, moduleSkills]) => <section className="directory-group" key={moduleId}><div className="directory-group-head"><div><span className="eyebrow">课程模块</span><h2><ChemText>{moduleId}</ChemText></h2></div><span>{moduleSkills.length} 个入口</span></div><div className="directory-grid">{moduleSkills.map((skill) => {
-      const related = [...(plansBySkill.get(skill.id) ?? [])].sort((a, b) => Math.abs(a.date.localeCompare(today)) - Math.abs(b.date.localeCompare(today)) || a.date.localeCompare(b.date))
-      const plan = related.find((item) => item.date <= today && !item.isComplete) ?? related.find((item) => item.date <= today) ?? related.find((item) => item.date > today) ?? related[0]
+      const related = [...(plansBySkill.get(skill.id) ?? [])].sort((a, b) => a.date.localeCompare(b.date))
+      const plan = related.find((item) => item.date <= today && !item.isComplete) ?? [...related].reverse().find((item) => item.date <= today) ?? related.find((item) => item.date > today)
       const state = states.get(skill.id)
       const learned = (state?.verifiedLevel ?? 0) > 0
-      return <article className={`directory-card ${learned ? 'is-learned' : ''}`} key={skill.id}><div className="directory-card-top"><span className="directory-status">{typeMode ? '题组/题型入口' : learned ? '已有学习记录' : '待建立证据'}</span><span className="directory-level">{typeMode ? `涉及 ${skill.title}` : `Lv.${state?.verifiedLevel ?? 0}/${skill.maxLevel}`}</span></div><h3><ChemText>{typeMode && plan ? plan.title : skill.title}</ChemText></h3><p>{plan?.knowledgeSummaries?.slice(0, 2).join(' · ') || '讲义审核后将在这里显示。'}</p><div className="directory-card-foot"><small>{plan ? (plan.date > today ? '可提前看讲义' : plan.attemptCount > 0 ? '可再次复习' : '可补学第一轮') : '暂未安排题组'}</small><button type="button" className="secondary-button compact" onClick={() => plan && onOpenPlan(plan)} disabled={busy || !plan}>{plan ? (plan.date > today ? '进入讲义' : typeMode ? '进入题组' : '开始学习') : '等待安排'}<ChevronRight size={15} /></button></div></article>
+      return <article className={`directory-card ${learned ? 'is-learned' : ''}`} key={skill.id}><div className="directory-card-top"><span className="directory-status">{learned ? '已有学习记录' : '待建立证据'}</span><span className="directory-level">Lv.{state?.verifiedLevel ?? 0}/{skill.maxLevel}</span></div><h3><ChemText>{skill.title}</ChemText></h3><p>{plan?.knowledgeSummaries?.slice(0, 2).join(' · ') || '对应题组尚未安排。'}</p><div className="directory-card-foot"><small>{plan ? (plan.date > today ? '可提前看讲义' : plan.attemptCount > 0 ? '可再次复习' : '可补学第一轮') : '暂未安排题组'}</small><button type="button" className="secondary-button compact" onClick={() => plan && onOpenPlan(plan)} disabled={busy || !plan}>{plan ? (plan.date > today ? '进入讲义' : '开始学习') : '等待安排'}<ChevronRight size={15} /></button></div></article>
     })}</div></section>)}</div>}
-    {compact && (grouped.size > visibleGroups.length || skills.length > 0) && <button type="button" className="text-button directory-more" onClick={() => { const target = document.querySelector('.side-nav button:nth-child(2)') as HTMLButtonElement | null; target?.click() }}>查看全部知识点与题型 <ChevronRight size={16} /></button>}
+    {compact && (grouped.size > visibleGroups.length || skills.length > 0) && <button type="button" className="text-button directory-more" onClick={() => { const target = document.querySelector('.side-nav button:nth-child(2)') as HTMLButtonElement | null; target?.click() }}>查看全部知识点 <ChevronRight size={16} /></button>}
+  </section>
+}
+
+function StudyReminders({ dashboard, onOpenPlan, busy }: { dashboard: StudentDashboardData; onOpenPlan: (plan: LearningPlanDay) => void; busy: boolean }) {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+  const skillNames = new Map(dashboard.skillDefinitions.map((skill) => [skill.id, skill.title]))
+  const dueSkills = dashboard.skillStates.filter((state) => state.nextReviewAt && state.nextReviewAt.slice(0, 10) <= today && state.verifiedLevel > 0)
+  const overduePlans = dashboard.plans.filter((plan) => plan.date < today && !plan.isComplete).sort((a, b) => a.date.localeCompare(b.date))
+  const duePlanIds = new Set(overduePlans.map((plan) => plan.id))
+  const skillReminders = dueSkills.map((state) => ({
+    state,
+    plan: dashboard.plans.filter((plan) => plan.date <= today && plan.skillIds.includes(state.skillId))
+      .sort((a, b) => b.date.localeCompare(a.date))[0],
+  }))
+  const suggested = overduePlans[0] ?? skillReminders.find((item) => item.plan)?.plan
+  return <section className="study-reminders" aria-labelledby="study-reminders-title">
+    <div className="page-title"><span className="eyebrow"><Bell size={14} />根据真实作答提醒</span><h1 id="study-reminders-title">按提醒学习</h1><p>系统把尚未完成的日期题组和已到复习时间的知识点列在这里。提醒根据学习记录变化，完成后会更新。</p></div>
+    {suggested && <div className="reminder-suggestion"><div><span className="eyebrow">建议先做</span><h2><ChemText>{suggested.title}</ChemText></h2><p>{suggested.date < today ? '这是较早安排、尚未完成的题组，先补上有助于接续后面的内容。' : '这个题组覆盖需要复习的知识点。'}</p></div><button className="primary-button compact" type="button" onClick={() => onOpenPlan(suggested)} disabled={busy}>进入题组<ChevronRight size={16} /></button></div>}
+    <div className="reminder-columns"><section><h2>待补的题组 <small>{overduePlans.length}</small></h2>{overduePlans.length ? <div className="reminder-list">{overduePlans.map((plan) => <article key={plan.id}><div><small>{plan.date} · {plan.attemptCount > 0 ? '继续完成' : '第一次学习'}</small><h3><ChemText>{plan.title}</ChemText></h3><p>{plan.knowledgeSummaries.slice(0, 2).join(' · ')}</p></div><button className="secondary-button compact" type="button" onClick={() => onOpenPlan(plan)} disabled={busy}>去补学</button></article>)}</div> : <EmptyState text="目前没有待补的历史题组。" />}</section><section><h2>到期复习的知识点 <small>{dueSkills.length}</small></h2>{skillReminders.length ? <div className="reminder-list">{skillReminders.map(({ state, plan }) => <article key={state.skillId}><div><small>复习时间 {state.nextReviewAt?.slice(0, 10)}</small><h3><ChemText>{skillNames.get(state.skillId) ?? state.skillId}</ChemText></h3><p>已有真实作答证据，建议再次用原题检查是否记牢。</p></div>{plan && !duePlanIds.has(plan.id) ? <button className="secondary-button compact" type="button" onClick={() => onOpenPlan(plan)} disabled={busy}>去复习</button> : !plan ? <small>等待对应题组安排</small> : null}</article>)}</div> : <EmptyState text="目前没有到期的知识点提醒。" />}</section></div>
   </section>
 }
 
