@@ -371,9 +371,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary axis="stage" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
-        {view === 'directory' && ['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) ? <StudyLibrary axis="knowledge" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} /> : view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
-        {view === 'type' && <StudyLibrary axis="type" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'directory' && ['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) ? <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} /> : view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}

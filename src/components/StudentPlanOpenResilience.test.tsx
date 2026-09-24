@@ -70,6 +70,9 @@ describe('StudentApp plan opening resilience', () => {
     fireEvent.click(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ }))
     fireEvent.click(screen.getByRole('button', { name: /电解质、离子反应与氧化还原/ }))
     expect(screen.getByTitle('电解质、离子反应与氧化还原讲义原页')).toHaveAttribute('src', expect.stringContaining('h1-required-1.pdf#page=33'))
+    fireEvent.click(screen.getByRole('button', { name: '按题型' }))
+    expect(screen.getByRole('heading', { name: '按题型' })).toBeInTheDocument()
+    expect(screen.queryByTitle('电解质、离子反应与氧化还原讲义原页')).not.toBeInTheDocument()
   })
 
   it('prefetches today once and reuses the same in-flight request when clicked', async () => {
