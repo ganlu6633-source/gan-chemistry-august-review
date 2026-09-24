@@ -5,6 +5,7 @@ import { selectFocusPlan } from '../domain/focusPlan'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
+import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
 import { accessApi, loadFuturePlanPreview, loadLearningRecord, loadQuestionAsset, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, submitAttempt, teacherApi, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { ChemText } from './ChemText'
@@ -15,8 +16,9 @@ import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
+import { StudyLibrary } from './StudyLibrary'
 
-type StudentView = 'today' | 'directory' | 'reminders' | 'map' | 'growth' | 'settings'
+type StudentView = 'choose' | 'today' | 'stage' | 'directory' | 'type' | 'reminders' | 'map' | 'growth' | 'settings'
 type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
 export type PlanPayload = {
   plan: LearningPlanDay
@@ -127,7 +129,7 @@ const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
 }
 
 export function StudentApp({ session, initialDashboard, onDashboard, previewMode = false, onExitPreview }: { session: SessionIdentity; initialDashboard: StudentDashboardData; onDashboard: (data: StudentDashboardData) => void; previewMode?: boolean; onExitPreview?: () => void }) {
-  const [view, setView] = useState<StudentView>('today')
+  const [view, setView] = useState<StudentView>('choose')
   const [dashboard, setDashboard] = useState(initialDashboard)
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
   const [activeJuniorPlan, setActiveJuniorPlan] = useState<JuniorAdaptivePayload | null>(null)
@@ -305,7 +307,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       const result = await accessApi<{ dashboard: StudentDashboardData }>(session, 'demo_dashboard', { gradeBand })
       setDashboard(result.dashboard)
       onDashboard(result.dashboard)
-      setView('today')
+      setView('choose')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '演示年级暂时无法切换。')
     } finally {
@@ -335,8 +337,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   return (
     <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">已经收到点击</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>题组正在安全装入，页面没有卡住，请稍候。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}<div className="role-layout student-theme">
       <aside className="side-nav" aria-label="学生导航">
+        <button className={view === 'choose' ? 'active' : ''} onClick={() => setView('choose')}><BookOpen />选学习方式</button>
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />按日期</button>
+        {['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button className={view === 'stage' ? 'active' : ''} onClick={() => setView('stage')}><Layers3 />按学习阶段</button>}
         <button className={view === 'directory' ? 'active' : ''} onClick={() => setView('directory')}><Layers3 />按知识点</button>
+        {['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button className={view === 'type' ? 'active' : ''} onClick={() => setView('type')}><ListFilter />按题型</button>}
         <button className={view === 'reminders' ? 'active' : ''} onClick={() => setView('reminders')}><Bell />按提醒</button>
         <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力地图</button>
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
@@ -344,16 +349,13 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       </aside>
       <div className="role-content">
         {error && <div className="inline-alert" role="alert">{error}</div>}
+        {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title"><div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 自己选择学习方向</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天想怎么学？</h1><p>你可以随时换一种方式继续，学习记录都会保留。</p></div><div className="study-choice-grid"><button type="button" onClick={() => setView('today')}><Clock3 /><b>按日期</b><span>查看每天安排的题组，也能补学以前没做过的内容。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('stage')}><Layers3 /><b>按学习阶段</b><span>从专题或进度节点进入，按讲义顺序学习。</span><ChevronRight /></button>}<button type="button" onClick={() => setView('directory')}><BookOpen /><b>按知识点</b><span>自己挑选一个知识点，直接打开对应内容。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('type')}><ListFilter /><b>按题型</b><span>按选择题、计算、实验等题型选择材料。</span><ChevronRight /></button>}{dashboard.profile.gradeBand === '初三' && <button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒</b><span>处理到期复习和还没有完成的题组。</span><ChevronRight /></button>}</div>{dashboard.profile.isDemo && <div className="demo-grade-switch"><div><span className="eyebrow">演示查看</span><h2>切换年级查看讲义</h2></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></div>}</section>}
         {view === 'today' && <>
           <section className="welcome-banner">
             <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlanIsCatchUp ? '按进度补学' : todayPlan?.isComplete ? '今天已完成' : todayPlan ? '今日安排' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一次学习已经安排好了。' : todayPlanIsCatchUp ? '先接上还没做完的内容。' : todayPlan?.isComplete ? '今天的学习已完成。' : todayPlan ? '今天先把安排好的题组完成。' : '今天暂未安排正式任务。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将于北京时间 ${todayPlan?.date} 00:00 开启，现在可先看知识卡。` : todayPlanIsCatchUp ? `这组原本安排在 ${todayPlan?.date}。系统根据实际作答记录发现它尚未完成，可以从第一轮开始补学。` : todayPlan?.isComplete ? '可以查看今日成果和历史学习记录。' : !todayPlan ? '已有学习记录保留在“我的战绩”中，请留意甘老师的后续安排。' : dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度和最近表现安排了今天的原题。'}</p></div>
             <div className="daily-orb"><b>{todayPlan?.questionCount ?? 0}</b><span>{!todayPlan ? '今日未安排' : todayPlanIsFuturePreview ? '下次题目' : todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : isSingleDailyReviewPlan(todayPlan) ? '今日原题' : '每轮题目'}</span></div>
           </section>
-          <section className="study-paths" aria-label="选择学习方式">
-            <button type="button" onClick={() => setView('today')} className="is-active"><Clock3 /><b>按日期学习</b><span>跟着甘老师安排的每天题组学习</span></button>
-            <button type="button" onClick={() => setView('directory')}><Layers3 /><b>按知识点学习</b><span>自己选择要学或要复习的内容</span></button>
-            <button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒学习</b><span>处理到期复习和待补的题组</span></button>
-          </section>
+          <button type="button" className="text-button study-change-way" onClick={() => setView('choose')}>切换学习方式<ChevronRight size={16} /></button>
           <p className="study-pace" role="status">截至今天，已完成 {completedPlans.length}/{visiblePlans.filter((plan) => plan.date <= today).length} 个日期题组{duePlans.length ? `；还有 ${duePlans.length} 个已安排题组待完成，可以从“按提醒”补做。` : '；已安排题组没有待补项。'}系统以实际作答判断学习进度。</p>
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>每一天都可以打开完整学习链路</h2><p>演示题组只读取已审核、当前范围内、可用于复习的真实原题；作答只在当前页面模拟，不写入任何正式学生记录。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
@@ -361,6 +363,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlanIsFuturePreview ? `安排日期 ${todayPlan.date} · ${todayPlan.questionCount} 道起` : planRhythmLabel(todayPlan)}</span></div>{previewMode && todayPlan.deliveryMode === 'junior_adaptive' && <div className="inline-alert" role="status">{JUNIOR_TEACHER_PREVIEW_MESSAGE}</div>}</div>
             <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : previewMode && todayPlan.deliveryMode === 'junior_adaptive' ? '查看只读说明' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
+          {todayPlan && <section className="date-lecture-links"><h2>这一天对应的讲义</h2><div>{LECTURE_SECTIONS.filter((section) => section.grade === dashboard.profile.gradeBand && section.skillIds.some((skillId) => todayPlan.skillIds.includes(skillId))).slice(0, 6).map((section) => <a key={section.id} href={lectureUrl(section)} target="_blank" rel="noopener noreferrer"><BookOpen size={15} />{section.title} · 第 {section.page} 页<ChevronRight size={15} /></a>)}</div></section>}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
           <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
@@ -368,7 +371,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'stage' && <StudyLibrary axis="stage" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'directory' && ['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) ? <StudyLibrary axis="knowledge" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} /> : view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'type' && <StudyLibrary axis="type" dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}

@@ -1,8 +1,16 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { cpSync, existsSync, mkdirSync } from 'node:fs'
 
 export default defineConfig({
   plugins: [react(), {
+    name: 'copy-lecture-pdfs',
+    closeBundle() {
+      if (!existsSync('lectures')) return
+      mkdirSync('dist/lectures', { recursive: true })
+      cpSync('lectures', 'dist/lectures', { recursive: true })
+    },
+  }, {
     name: 'publish-index-name',
     enforce: 'post',
     generateBundle(_options, bundle) {

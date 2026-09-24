@@ -45,6 +45,11 @@ function jsonResponse(body: unknown, status = 200) {
 
 function renderStudent() {
   render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)
+  chooseDate()
+}
+
+function chooseDate() {
+  fireEvent.click(screen.getByRole('button', { name: /按日期 查看每天安排的题组/ }))
 }
 
 describe('StudentApp plan opening resilience', () => {
@@ -138,6 +143,7 @@ describe('StudentApp plan opening resilience', () => {
       plans: [{ ...plan, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'active', hardQuestionCap: 15 }],
     }
     render(<StudentApp session={teacherSession} initialDashboard={juniorDashboard} onDashboard={vi.fn()} previewMode onExitPreview={vi.fn()} />)
+    chooseDate()
 
     expect(screen.getByText(/教师只读模拟不会启动或提交这类会话/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看只读说明' }))
@@ -174,6 +180,7 @@ describe('StudentApp plan opening resilience', () => {
       plans: [futurePlan],
     }
     render(<StudentApp session={session} initialDashboard={futureDashboard} onDashboard={vi.fn()} />)
+    chooseDate()
 
     expect(screen.getByRole('button', { name: '进入预习' })).toBeEnabled()
     expect(screen.getByRole('button', { name: /今天的氧化还原复习，可提前预习/ })).toBeEnabled()
@@ -207,6 +214,7 @@ describe('StudentApp plan opening resilience', () => {
       plans: [{ ...plan, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'not_started', hardQuestionCap: 15 }],
     }
     render(<StudentApp session={session} initialDashboard={juniorDashboard} onDashboard={vi.fn()} />)
+    chooseDate()
 
     fireEvent.click(screen.getByRole('button', { name: '开始今日学习' }))
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -256,6 +264,7 @@ describe('StudentApp plan opening resilience', () => {
       plans: [formalPlan],
     }
     render(<StudentApp session={session} initialDashboard={formalDashboard} onDashboard={vi.fn()} />)
+    chooseDate()
 
     expect(screen.getByText('今日原题')).toBeInTheDocument()
     expect(screen.getByText('今日 1 道原题 · 1 个题组 · 错题次日换原题')).toBeInTheDocument()
