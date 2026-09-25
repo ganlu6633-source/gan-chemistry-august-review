@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionIdentity, StudentDashboardData } from '../domain/types'
 import { StudentApp } from './StudentApp'
@@ -29,5 +29,22 @@ describe('student choice and personal review entry', () => {
     expect(await screen.findByRole('heading', { name: '物质分类判断' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /开练同考点原题/ }))
     expect(requests.find((request) => request.action === 'open_self_study')?.data).toMatchObject({ skillId: 'H1_CLASSIFY', conceptKey: 'classification', releaseId: 'release-1' })
+  })
+
+  it('reuses the pending catalog request while switching learning entrances', async () => {
+    let finishCatalog: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { finishCatalog = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: '题型训练场' }))
+    fireEvent.click(screen.getByRole('button', { name: '知识点任选' }))
+    fireEvent.click(screen.getByRole('button', { name: '复习雷达' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => { finishCatalog?.(new Response(JSON.stringify({ catalog: { topics: [] } }), { status: 200 })) })
+    expect(screen.getByRole('heading', { name: '复习雷达' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

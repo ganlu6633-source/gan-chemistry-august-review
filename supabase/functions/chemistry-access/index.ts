@@ -2166,20 +2166,49 @@ async function selfStudyCatalog(studentId: string) {
 }
 
 async function openSelfStudy(studentId: string, skillId: string, conceptKey: string, releaseId: string) {
-  const catalog = await selfStudyCatalog(studentId);
-  const topic = catalog.topics.find((item) => item.skillId === skillId && item.conceptKey === conceptKey && item.releaseId === releaseId);
-  if (!topic || topic.freshCount < 1) throw new RequestError(422, "这个知识点目前没有可下发的未做原题，请选择其他知识点。");
-  const existing = await supabase.from("chem_learning_plans").select("id")
-    .eq("student_id", studentId).eq("delivery_mode", "self_study")
-    .eq("self_study_release_id", releaseId)
-    .contains("target_concept_keys", [conceptKey]).order("created_at", { ascending: false });
-  if (existing.error) throw existing.error;
+  const profile = await supabase.from("chem_students_v2").select("grade_band,record_status,metadata").eq("id", studentId).single();
+  if (profile.error) throw profile.error;
+  const grade = String(profile.data.grade_band);
+  if (profile.data.record_status !== "active" || !["初三", "高一", "高二", "高三"].includes(grade)) {
+    throw new RequestError(403, "当前档案没有开放自主原题练习。");
+  }
+  // Opening one topic does not need the entire recommended catalog. Check the
+  // exact verified release and the student's used originals directly instead.
+  const [readyRows, history, juniorHistory, existing] = await Promise.all([
+    supabase.rpc("chem_self_study_ready_catalog_rows", { p_grade: grade }),
+    supabase.rpc("chem_review_answer_history", { p_student_id: studentId }),
+    grade === "初三" ? supabase.rpc("chem_junior_choice_identity_history", { p_student_id: studentId }) : Promise.resolve({ data: [], error: null }),
+    supabase.from("chem_learning_plans").select("id")
+      .eq("student_id", studentId).eq("delivery_mode", "self_study")
+      .eq("self_study_release_id", releaseId)
+      .contains("target_concept_keys", [conceptKey]).order("created_at", { ascending: false }),
+  ]);
+  if (readyRows.error || history.error || juniorHistory.error || existing.error) {
+    throw readyRows.error || history.error || juniorHistory.error || existing.error;
+  }
+  const usedHistory = [...(history.data || []), ...(juniorHistory.data || [])] as Array<Record<string, unknown>>;
+  const usedIds = new Set(usedHistory.map((row) => String(row.question_id)));
+  const usedMothers = new Set(usedHistory.map((row) => String(row.mother_id)).filter(Boolean));
+  const scheduledIds = new Set(Object.values((profile.data.metadata?.reviewProgram?.questionAssignments ?? {}) as Record<string, unknown>)
+    .flatMap((ids) => Array.isArray(ids) ? ids.map(String) : []));
+  let topic: { skillTitle: string; title: string } | undefined;
+  const freshMothers = new Set<string>();
+  for (const row of (readyRows.data || []) as Array<Record<string, unknown>>) {
+    if (String(row.skill_id) !== skillId || String(row.concept_key) !== conceptKey
+      || String(row.source_release_id) !== releaseId || !row.mother_id
+      || !validUuid(String(row.source_release_id))
+      || (grade !== "初三" && !hasRequiredReviewSourceAssets(row.asset_refs))) continue;
+    topic ??= { skillTitle: String(row.skill_title), title: String(row.concept_title) };
+    if (!usedIds.has(String(row.question_id)) && !usedMothers.has(String(row.mother_id))
+      && !scheduledIds.has(String(row.question_id))) freshMothers.add(String(row.mother_id));
+  }
+  if (!topic || !freshMothers.size) throw new RequestError(422, "这个知识点目前没有可下发的未做原题，请选择其他知识点。");
   if (existing.data?.length) {
     const attempts = await supabase.from("chem_learning_attempts").select("id").eq("plan_day_id", existing.data[0].id).limit(1);
     if (attempts.error) throw attempts.error;
     if (!attempts.data?.length) return startPlanPayload(studentId, String(existing.data[0].id), { studentOpen: true, includeAnswerLocks: true });
   }
-  const questionCount = Math.min(3, topic.freshCount);
+  const questionCount = Math.min(3, freshMothers.size);
   const created = await supabase.from("chem_learning_plans").insert({
     student_id: studentId, plan_date: shanghaiDate(), mode: "REVIEW",
     title: `自主闯关 · ${topic.skillTitle} · ${topic.title} · 第 ${(existing.data || []).length + 1} 关`,

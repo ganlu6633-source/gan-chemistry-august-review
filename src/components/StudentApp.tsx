@@ -142,6 +142,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [studyCatalogError, setStudyCatalogError] = useState('')
   const [studyCatalogRevision, setStudyCatalogRevision] = useState(0)
   const studyCatalogLoadedKey = useRef('')
+  const studyCatalogRequest = useRef<{ key: string; promise: Promise<StudyTopic[]> } | null>(null)
   const planOpenRequestId = useRef(0)
   const planOpenAbort = useRef<AbortController | null>(null)
   const planRequestCache = useRef(new Map<string, PlanRequestEntry>())
@@ -180,8 +181,14 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     let active = true
     setStudyCatalogLoading(true)
     setStudyCatalogError('')
-    accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog', dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
-      .then((result) => { if (active) { setStudyTopics(result.catalog.topics); studyCatalogLoadedKey.current = catalogKey } })
+    if (studyCatalogRequest.current?.key !== catalogKey) {
+      const promise = accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog', dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
+        .then((result) => result.catalog.topics)
+      studyCatalogRequest.current = { key: catalogKey, promise }
+      void promise.catch(() => { if (studyCatalogRequest.current?.promise === promise) studyCatalogRequest.current = null })
+    }
+    studyCatalogRequest.current.promise
+      .then((topics) => { if (active) { setStudyTopics(topics); studyCatalogLoadedKey.current = catalogKey } })
       .catch((reason) => { if (active) setStudyCatalogError(reason instanceof Error ? reason.message : '原题目录暂时无法读取。') })
       .finally(() => { if (active) setStudyCatalogLoading(false) })
     return () => { active = false }
@@ -682,7 +689,9 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   useEffect(() => {
     let active = true
     async function prefetchIssuedQuestionImages() {
-      for (const issuedQuestion of questions) {
+      // Keep the current and next original warm without filling the network
+      // with images for the whole round while an answer is being submitted.
+      for (const issuedQuestion of questions.slice(questionIndex, questionIndex + 2)) {
         if (!active) return
         const isLicensedReview = payload.plan.mode === 'REVIEW'
           && ['高一', '高二', '高三'].includes(issuedQuestion.gradeBand)
@@ -713,7 +722,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     return () => {
       active = false
     }
-  }, [cachedQuestionAssetLoader, payload.attemptSequence, payload.plan.id, payload.plan.mode, questions, practiceDashboard, practiceMode, roundNumber, session])
+  }, [cachedQuestionAssetLoader, payload.attemptSequence, payload.plan.id, payload.plan.mode, questionIndex, questions, practiceDashboard, practiceMode, roundNumber, session])
 
   useEffect(() => () => sourceAssetRequests.current.clear(), [])
 

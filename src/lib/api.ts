@@ -8,6 +8,15 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T
 }
 
+const learningRecordRequests = new Map<string, { expiresAt: number; promise: Promise<{ record: LearningRecordData }> }>()
+const LEARNING_RECORD_CACHE_MS = 60_000
+
+function invalidateLearningRecord(session: SessionIdentity) {
+  for (const key of learningRecordRequests.keys()) {
+    if (key.startsWith(`${session.token}:`)) learningRecordRequests.delete(key)
+  }
+}
+
 export async function loginWithAccessCode(name: string, code: string) {
   const response = await fetch(functionUrl(ACCESS_FUNCTION), {
     method: 'POST',
@@ -41,7 +50,9 @@ export async function accessApi<T>(session: SessionIdentity, action: string, dat
     body: JSON.stringify({ action, data }),
     signal: options?.signal,
   })
-  return parseResponse<T>(response)
+  const result = await parseResponse<T>(response)
+  if (action === 'submit_attempt' || action === 'junior_submit_step' || action === 'open_self_study') invalidateLearningRecord(session)
+  return result
 }
 
 export interface LoadedQuestionAsset {
@@ -74,7 +85,13 @@ export async function loadGuardianDashboard(session: SessionIdentity) {
 }
 
 export async function loadLearningRecord(session: SessionIdentity, studentId?: string) {
-  return accessApi<{ record: LearningRecordData }>(session, 'learning_record', studentId ? { studentId } : undefined)
+  const key = `${session.token}:${studentId || 'self'}`
+  const cached = learningRecordRequests.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+  const promise = accessApi<{ record: LearningRecordData }>(session, 'learning_record', studentId ? { studentId } : undefined)
+  learningRecordRequests.set(key, { expiresAt: Date.now() + LEARNING_RECORD_CACHE_MS, promise })
+  void promise.catch(() => { if (learningRecordRequests.get(key)?.promise === promise) learningRecordRequests.delete(key) })
+  return promise
 }
 
 export async function submitAttempt(session: SessionIdentity, attempt: LearningAttempt) {

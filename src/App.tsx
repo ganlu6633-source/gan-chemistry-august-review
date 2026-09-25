@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { GuardianDashboardData, SessionIdentity, StudentDashboardData } from './domain/types'
 import { AppShell } from './components/AppShell'
@@ -50,13 +50,24 @@ function AccessExperience() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [loading, setLoading] = useState(Boolean(session))
   const [error, setError] = useState('')
+  const hydratedByLogin = useRef<string | null>(null)
+  const dashboardRequest = useRef<{ token: string; promise: Promise<{ dashboard: Dashboard }> } | null>(null)
 
   useEffect(() => {
     if (!session) return
     if (session.role === 'teacher') { navigate('/teacher', { replace: true }); setLoading(false); return }
-    const load = session.role === 'student' ? loadStudentDashboard(session) : session.role === 'guardian' ? loadGuardianDashboard(session) : null
-    if (!load) { clearAccessSession(); setSession(null); setLoading(false); return }
-    load.then((result) => setDashboard(result.dashboard)).catch((reason) => { clearAccessSession(); setSession(null); setError(reason instanceof Error ? reason.message : '会话已失效。') }).finally(() => setLoading(false))
+    if (hydratedByLogin.current === session.token) { setLoading(false); return }
+    if (!dashboardRequest.current || dashboardRequest.current.token !== session.token) {
+      const promise = session.role === 'student' ? loadStudentDashboard(session) : session.role === 'guardian' ? loadGuardianDashboard(session) : null
+      if (!promise) { clearAccessSession(); setSession(null); setLoading(false); return }
+      dashboardRequest.current = { token: session.token, promise }
+    }
+    let active = true
+    dashboardRequest.current.promise
+      .then((result) => { if (active) setDashboard(result.dashboard) })
+      .catch((reason) => { if (active) { clearAccessSession(); setSession(null); setError(reason instanceof Error ? reason.message : '会话已失效。') } })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
   }, [session, navigate])
 
   useEffect(() => {
@@ -90,6 +101,7 @@ function AccessExperience() {
 
   function success(nextSession: SessionIdentity, nextDashboard?: Dashboard) {
     writeAccessSession(nextSession)
+    hydratedByLogin.current = nextDashboard ? nextSession.token : null
     setSession(nextSession)
     if (nextSession.role === 'teacher') { setDashboard(null); navigate('/teacher'); return }
     if (nextDashboard) setDashboard(nextDashboard)

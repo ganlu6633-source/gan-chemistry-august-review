@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionIdentity } from '../domain/types'
-import { openJuniorAdaptiveSession, previewQuestionFeedback } from './api'
+import { accessApi, loadLearningRecord, openJuniorAdaptiveSession, previewQuestionFeedback } from './api'
 import { clearAccessSession, writeAccessSession } from './session'
 
 const session: SessionIdentity = { role: 'student', token: 'student-session', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }
@@ -63,5 +63,28 @@ describe('openJuniorAdaptiveSession', () => {
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' })
     expect((fetchMock.mock.calls[0][1] as RequestInit).signal).toBe(controller.signal)
+  })
+})
+
+describe('learning record navigation cache', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('shares a pending read and refreshes after an answer is saved', async () => {
+    const currentSession = { ...session, token: 'record-cache-test-session' }
+    const actions: string[] = []
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const action = JSON.parse(String(init?.body)).action as string
+      actions.push(action)
+      return new Response(JSON.stringify(action === 'learning_record' ? { record: { plans: [] } } : { dashboard: {} }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await Promise.all([loadLearningRecord(currentSession), loadLearningRecord(currentSession)])
+    await loadLearningRecord(currentSession)
+    expect(actions).toEqual(['learning_record'])
+
+    await accessApi(currentSession, 'submit_attempt', {})
+    await loadLearningRecord(currentSession)
+    expect(actions).toEqual(['learning_record', 'submit_attempt', 'learning_record'])
   })
 })
