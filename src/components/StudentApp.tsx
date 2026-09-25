@@ -155,6 +155,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const visiblePlans = useMemo(() => dashboard.plans.filter((plan) => plan.deliveryMode !== 'self_study').sort((a, b) => a.date.localeCompare(b.date)), [dashboard.plans])
+  const plannedDates = new Set(visiblePlans.map((plan) => plan.date))
+  const high1PendingDays = HIGH1_SEMESTER_REMAINING_DAYS.filter((day) => !plannedDates.has(day.date))
+  const high1ReleasedDays = [...plannedDates].filter((date) => date >= '2026-09-12' && date <= '2026-12-11').length
   const todayPlan = selectFocusPlan(visiblePlans, today)
   const duePlans = visiblePlans.filter((plan) => plan.date <= today && !plan.isComplete)
   const completedPlans = visiblePlans.filter((plan) => plan.date <= today && plan.isComplete)
@@ -465,12 +468,16 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {todayPlan && <section className="date-lecture-links"><h2>这一天对应的讲义</h2><div>{LECTURE_SECTIONS.filter((section) => section.grade === dashboard.profile.gradeBand && section.skillIds.some((skillId) => todayPlan.skillIds.includes(skillId))).slice(0, 6).map((section) => <a key={section.id} href={lectureUrl(section)} target="_blank" rel="noopener noreferrer"><BookOpen size={15} />{section.title} · 第 {section.page} 页<ChevronRight size={15} /></a>)}</div></section>}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
-          <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
-          {dashboard.profile.gradeBand === '高一' && <details className="semester-roadmap">
-            <summary>11 月 12 日—12 月 11 日教材进度规划 · 原题核对中</summary>
-            <p>后续按苏教版必修第一册推进。这里先列学习顺序；题干、选项和解析核对完成后，才会开放对应日期的选择题。已安排的日期仍可补做。</p>
-            <ol>{HIGH1_SEMESTER_REMAINING_DAYS.map((day) => <li key={day.date}><time dateTime={day.date}>{day.date.slice(5)}</time><span>{day.unit} · {day.topic}</span><small>待核题</small></li>)}</ol>
+          {dashboard.profile.gradeBand === '高一' && <section className="semester-progress" aria-label="高一学期进度">
+            <b>这学期怎么走</b><span>9 月 12 日—12 月 11 日，共 91 天。这名学生已安排 {high1ReleasedDays} 天原题；之后按教材继续学硫、元素周期律和物质结构，最后做全册回看。</span>
+            {high1PendingDays.length > 0 && <span>还有 {high1PendingDays.length} 天原题正在逐题核对；现在可先在下方查看每天的知识点。</span>}
+          </section>}
+          {dashboard.profile.gradeBand === '高一' && high1PendingDays.length > 0 && <details className="semester-roadmap">
+            <summary>查看尚待核题的 {high1PendingDays.length} 天每日知识点</summary>
+            <p>这些日期的学习顺序已经排好。题干、选项和解析核对完成后才会开放对应的选择题；前面已安排的日期仍可补做。</p>
+            <ol>{high1PendingDays.map((day) => <li key={day.date}><time dateTime={day.date}>{day.date.slice(5)}</time><span>{day.unit} · {day.topic}</span><small>待核题</small></li>)}</ol>
           </details>}
+          <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
