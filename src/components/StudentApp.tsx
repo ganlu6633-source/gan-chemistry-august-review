@@ -19,6 +19,7 @@ import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 import { StudyLibrary, type StudyTopic } from './StudyLibrary'
+import { HIGH1_SEMESTER_REMAINING_DAYS } from '../data/high1SemesterRoadmap'
 
 type StudentView = 'choose' | 'today' | 'stage' | 'directory' | 'type' | 'reminders' | 'map' | 'growth' | 'settings'
 type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
@@ -184,7 +185,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     setStudyCatalogLoading(true)
     setStudyCatalogError('')
     if (studyCatalogRequest.current?.key !== catalogKey) {
-      const promise = accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog', dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
+      const promise = accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog', previewMode || dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
         .then((result) => result.catalog.topics)
       studyCatalogRequest.current = { key: catalogKey, promise }
       void promise.catch(() => { if (studyCatalogRequest.current?.promise === promise) studyCatalogRequest.current = null })
@@ -451,13 +452,18 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
           <PlanCalendar plans={visiblePlans} enrollment={dashboard.profile.enrollmentStartDate} onOpen={openPlan} busy={busy} embedded />
+          {dashboard.profile.gradeBand === '高一' && <details className="semester-roadmap">
+            <summary>11 月 12 日—12 月 11 日教材进度规划 · 原题核对中</summary>
+            <p>后续按苏教版必修第一册推进。这里先列学习顺序；题干、选项和解析核对完成后，才会开放对应日期的选择题。已安排的日期仍可补做。</p>
+            <ol>{HIGH1_SEMESTER_REMAINING_DAYS.map((day) => <li key={day.date}><time dateTime={day.date}>{day.date.slice(5)}</time><span>{day.unit} · {day.topic}</span><small>待核题</small></li>)}</ol>
+          </details>}
           <section className="section-block"><div className="section-head"><div><span className="eyebrow">最近获得</span><h2>已经亮起来的部分</h2></div><button className="text-button" onClick={() => setView('growth')}>查看全部</button></div>
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
-        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
-        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy || previewMode} readOnly={previewMode} />}
+        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy || previewMode} readOnly={previewMode} />}
+        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy || previewMode} readOnly={previewMode} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || previewMode || Boolean(dashboard.profile.isDemo)} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}

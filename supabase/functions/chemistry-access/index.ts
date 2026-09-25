@@ -3569,6 +3569,12 @@ Deno.serve(async (req: Request) => {
       return reply(req, { catalog: await selfStudyCatalog(targetId) });
     }
 
+    if (body.action === "self_study_catalog" && identity.role === "teacher") {
+      const targetId = String(body.data?.studentId || "");
+      if (!validUuid(targetId)) return reply(req, { error: "请选择要预览的学生。" }, 400);
+      return reply(req, { catalog: await selfStudyCatalog(targetId) });
+    }
+
     if (body.action === "open_self_study" && identity.role === "student" && identity.studentId) {
       if (await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号只能查看题库目录，不能创建正式学习记录。" }, 403);
       const skillId = String(body.data?.skillId || "");

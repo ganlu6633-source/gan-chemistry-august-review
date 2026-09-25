@@ -134,7 +134,7 @@ describe('StudentApp plan opening resilience', () => {
   })
 
   it('does not prefetch a future fallback or a write-producing junior session', async () => {
-    const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>(() => undefined))
+    const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => undefined))
     vi.stubGlobal('fetch', fetchMock)
     const tomorrow = new Date(`${today}T12:00:00+08:00`)
     tomorrow.setDate(tomorrow.getDate() + 1)
@@ -154,7 +154,7 @@ describe('StudentApp plan opening resilience', () => {
   it('warms the oldest unfinished catch-up plan before the student clicks it', async () => {
     const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
     const catchUp = { ...plan, id: 'catch-up-plan', date: yesterday }
-    const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>(() => undefined))
+    const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>(() => undefined))
     vi.stubGlobal('fetch', fetchMock)
     render(<StudentApp session={session} initialDashboard={{ ...dashboard, plans: [catchUp] }} onDashboard={vi.fn()} />)
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
