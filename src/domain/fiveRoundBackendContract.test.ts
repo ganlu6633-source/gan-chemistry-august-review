@@ -35,8 +35,8 @@ describe('five-round review backend contract', () => {
   })
 
   it('allows explicit round inspection only through teacher or demo preview paths', () => {
-    expect(accessFunction).toContain('allowCompletedPreview: true, previewRound')
-    expect(accessFunction).toMatch(/if \(options\.studentOpen && !demoProfile && options\.previewRound !== undefined\) \{[\s\S]*?throw new RequestError\(403, "真实学习记录不能指定练习轮次。"\);[\s\S]*?\}/)
+    expect(accessFunction).toContain('teacherSimulation: true, includeAnswerLocks: true, previewRound')
+    expect(accessFunction).toMatch(/if \(options\.studentOpen && !demoProfile && options\.previewRound !== undefined && !options\.teacherSimulation\) \{[\s\S]*?throw new RequestError\(403, "真实学习记录不能指定练习轮次。"\);[\s\S]*?\}/)
     expect(accessFunction).toContain('payload: await startPlanPayload(targetId, planId, { studentOpen: true, previewRound })')
     expect(accessFunction).toContain('effectiveOptions.previewRound - 1')
     expect(accessFunction).toContain('for (let previewIndex = 0; previewIndex <= selectionSequence; previewIndex += 1)')

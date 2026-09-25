@@ -73,7 +73,7 @@ describe('teacher-managed native source feedback', () => {
     expect(await screen.findByText('回答正确')).toBeInTheDocument()
     expect(previewQuestionFeedback).toHaveBeenCalledWith(expect.objectContaining({ studentId: 's', previewRound: 1, previewAnswers: [], questionId: 'junior-source-q', selectedOption: 1 }))
     expect(loadQuestionFeedback).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '完成第 1 轮' }))
+    fireEvent.click(screen.getByRole('button', { name: '完成今日题组' }))
     expect(await screen.findByRole('heading', { name: '本组全部回答正确。' })).toBeInTheDocument()
     expect(submitAttempt).not.toHaveBeenCalled()
   })

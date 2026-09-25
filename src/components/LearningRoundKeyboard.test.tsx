@@ -75,7 +75,7 @@ async function finishOneQuestion() {
   fireEvent.keyDown(window, { key: 'Enter' })
   expect(screen.getByText('回答正确')).toBeInTheDocument()
   fireEvent.keyDown(window, { key: 'Enter' })
-  await screen.findByText('演示第 1 轮完成')
+  await screen.findByText('今日题组完成')
 }
 
 describe('LearningRound Enter shortcut', () => {
@@ -102,22 +102,22 @@ describe('LearningRound Enter shortcut', () => {
     fireEvent.keyDown(window, { key: 'Enter' })
     expect(screen.getByText('回答正确')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Enter' })
-    await screen.findByText('演示第 1 轮完成')
+    await screen.findByText('今天第 1 轮完成')
 
     const nextRound = screen.getByRole('button', { name: /进入第 2 轮/ })
     expect(nextRound).toHaveAttribute('aria-keyshortcuts', 'Enter')
     fireEvent.keyDown(window, { key: 'Enter' })
-    await waitFor(() => expect(onContinue).toHaveBeenCalledWith(dashboard, 'plan-1', 2))
+    await waitFor(() => expect(onContinue).toHaveBeenCalledWith(expect.objectContaining({ profile: dashboard.profile }), 'plan-1', 2))
   })
 
   it('uses Enter to return from the final result when no next round exists', async () => {
     const { onComplete } = renderRound(1)
     await finishOneQuestion()
 
-    const returnButton = screen.getByRole('button', { name: /返回演示计划/ })
+    const returnButton = screen.getByRole('button', { name: /查看今日成果/ })
     expect(returnButton).toHaveAttribute('aria-keyshortcuts', 'Enter')
     fireEvent.keyDown(window, { key: 'Enter' })
-    expect(onComplete).toHaveBeenCalledWith(dashboard)
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ profile: dashboard.profile }))
   })
 
   it('does not activate the main Enter shortcut from source-media controls or while its dialog is open', () => {

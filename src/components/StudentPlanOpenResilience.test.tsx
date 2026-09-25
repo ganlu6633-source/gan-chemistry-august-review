@@ -84,10 +84,12 @@ describe('StudentApp plan opening resilience', () => {
     const teacherSession: SessionIdentity = { role: 'teacher', token: 'teacher-session', displayName: '老师', expiresAt: '2099-01-01T00:00:00Z' }
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
       const action = JSON.parse(String(init?.body)).action
-      if (action === 'preview_self_study') return jsonResponse({ preview: { topic: '分类标准与分类树', questions: [{
-        ...question, id: 'source-question-1', options: ['纯净物', '混合物', '单质', '化合物'],
-        stem: '海水属于哪类物质？', correctOption: 1, explanation: '海水含有多种物质，属于混合物。',
-      }] } })
+      if (action === 'preview_self_study') return jsonResponse({ payload: { ...payload(),
+        plan: { ...plan, id: 'topic-preview', deliveryMode: 'self_study', roundLimit: 1 }, cards: [],
+        questions: [{ ...question, id: 'source-question-1', options: ['纯净物', '混合物', '单质', '化合物'],
+          stem: '海水属于哪类物质？', correctOption: 1, explanation: '海水含有多种物质，属于混合物。' }],
+        roundLimit: 1,
+      } })
       return jsonResponse({ catalog: { topics: [{
       skillId: 'H1_CLASSIFY', skillTitle: '物质分类', conceptKey: 'H1_CLASSIFY__C01',
       title: '分类标准与分类树', sequence: 1, originalCount: 5, freshCount: 5, releaseId,
@@ -100,12 +102,11 @@ describe('StudentApp plan opening resilience', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /知识点任选 今天想攻哪一块/ }))
     expect(await screen.findByText('分类标准与分类树')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /模拟练这组/ }))
-    expect(await screen.findByTestId('teacher-topic-preview')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '海水属于哪类物质？' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /开始练题/ }))
+    expect(await screen.findByRole('heading', { name: '海水属于哪类物质？' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /B\. 混合物/ }))
-    fireEvent.click(screen.getByRole('button', { name: '查看答案和解析' }))
-    expect(screen.getByText('选对了')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    expect(screen.getByText('回答正确')).toBeInTheDocument()
     const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
     expect(request).toMatchObject({ action: 'self_study_catalog', data: { studentId } })
     const previewRequest = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))
@@ -195,8 +196,14 @@ describe('StudentApp plan opening resilience', () => {
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toMatchObject({ action: 'start_plan', data: { planId: catchUp.id } })
   })
 
-  it('never opens a mutating junior session from teacher read-only preview', async () => {
-    const fetchMock = vi.fn<typeof fetch>()
+  it('opens the same junior learning screen through a non-persistent teacher route', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => JSON.parse(String(init?.body)).action === 'self_study_catalog'
+      ? jsonResponse({ catalog: { topics: [] } }) : jsonResponse({ payload: {
+      deliveryMode: 'junior_adaptive', plan: { ...plan, deliveryMode: 'junior_adaptive' }, cards: [],
+      session: { id: 'preview-session', status: 'completed', issuedCount: 12, answeredCount: 12,
+        correctCount: 9, initialQuestionTarget: 12, hardQuestionCap: 15 }, currentQuestion: null,
+      completed: true, optionPractice: [],
+    } }))
     vi.stubGlobal('fetch', fetchMock)
     const teacherSession: SessionIdentity = { ...session, role: 'teacher', token: 'teacher-session', displayName: '甘老师' }
     const juniorDashboard: StudentDashboardData = {
@@ -204,15 +211,14 @@ describe('StudentApp plan opening resilience', () => {
       profile: { ...dashboard.profile, gradeBand: '初三', isDemo: false },
       plans: [{ ...plan, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'active', hardQuestionCap: 15 }],
     }
-    render(<StudentApp session={teacherSession} initialDashboard={juniorDashboard} onDashboard={vi.fn()} previewMode onExitPreview={vi.fn()} />)
+    render(<StudentApp session={teacherSession} initialDashboard={juniorDashboard} onDashboard={vi.fn()} previewMode />)
     chooseDate()
 
-    expect(screen.getByText(/教师只读模拟不会启动或提交这类会话/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '查看只读说明' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('不会启动或提交这类会话')
-    expect(screen.getByRole('alert')).toHaveTextContent('不会向学生作答接口发送请求')
-    expect(fetchMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '继续今日学习' }))
+    expect(await screen.findByRole('heading', { name: '今天的练习已完成' })).toBeInTheDocument()
+    const requests = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)))
+    expect(requests).toContainEqual({ action: 'preview_junior_open_session', data: { studentId: dashboard.profile.id, planId: plan.id } })
+    expect(requests.some((request) => request.action === 'junior_open_session')).toBe(false)
   })
 
   it.each([
@@ -359,10 +365,17 @@ describe('StudentApp plan opening resilience', () => {
   })
 
   it('keeps the completed-round result when the next round fails and retries the same plan and round', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ payload: payload(1) }))
-      .mockResolvedValueOnce(jsonResponse({ message: '下一轮暂时读取失败，请重试。' }, 503))
-      .mockResolvedValueOnce(jsonResponse({ payload: payload(2) }))
+    let nextRoundRequests = 0
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body))
+      if (request.data?.previewRound === 2) {
+        nextRoundRequests += 1
+        return nextRoundRequests === 1
+          ? jsonResponse({ message: '下一轮暂时读取失败，请重试。' }, 503)
+          : jsonResponse({ payload: payload(2) })
+      }
+      return jsonResponse({ payload: payload(1) })
+    })
     vi.stubGlobal('fetch', fetchMock)
     renderStudent()
 
@@ -372,17 +385,19 @@ describe('StudentApp plan opening resilience', () => {
     fireEvent.click(screen.getByRole('button', { name: /A.*失电子/ }))
     fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
     fireEvent.click(screen.getByRole('button', { name: /完成第 1 轮/ }))
-    expect(await screen.findByText('演示第 1 轮完成')).toBeInTheDocument()
+    expect(await screen.findByText('今天第 1 轮完成')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /进入第 2 轮/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('下一轮暂时读取失败，请重试。')
-    expect(screen.getByText('演示第 1 轮完成')).toBeInTheDocument()
+    expect(screen.getByText('今天第 1 轮完成')).toBeInTheDocument()
 
+    await act(async () => { await Promise.resolve() })
     fireEvent.click(screen.getByRole('button', { name: '重试进入第 2 轮' }))
     await waitFor(() => expect(screen.getByRole('heading', { name: question.stem })).toBeInTheDocument())
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    const failedRequest = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))
-    const retriedRequest = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))
+    const nextRoundCalls = fetchMock.mock.calls.filter((call) => JSON.parse(String(call[1]?.body)).data?.previewRound === 2)
+    expect(nextRoundCalls).toHaveLength(2)
+    const failedRequest = JSON.parse(String((nextRoundCalls[0][1] as RequestInit).body))
+    const retriedRequest = JSON.parse(String((nextRoundCalls[1][1] as RequestInit).body))
     expect(retriedRequest).toEqual(failedRequest)
     expect(retriedRequest).toMatchObject({ action: 'start_plan', data: { planId: plan.id, previewRound: 2 } })
   })

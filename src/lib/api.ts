@@ -112,6 +112,7 @@ export interface QuestionFeedbackInput {
   revisionToken?: string | null
   previewRound?: number
   previewAnswers?: Array<{ questionId: string; selectedOption: number; revisionToken?: string | null }>
+  previewSelfStudy?: { skillId: string; conceptKey: string; releaseId: string }
 }
 
 export interface QuestionFeedbackResponse {
@@ -136,8 +137,8 @@ export async function openJuniorAdaptiveSession(session: SessionIdentity, planId
  * Open a future plan as knowledge-only preview. The server response never
  * includes questions or creates a learning session/evidence row.
  */
-export async function loadFuturePlanPreview(session: SessionIdentity, planId: string, options?: ApiRequestOptions) {
-  return accessApi<{ preview: FuturePlanPreviewPayload }>(session, 'future_plan_preview', { planId }, options)
+export async function loadFuturePlanPreview(session: SessionIdentity, planId: string, options?: ApiRequestOptions, studentId?: string) {
+  return accessApi<{ preview: FuturePlanPreviewPayload }>(session, 'future_plan_preview', { planId, ...(studentId ? { studentId } : {}) }, options)
 }
 
 export interface JuniorStepAnswerInput {

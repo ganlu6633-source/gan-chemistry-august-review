@@ -87,6 +87,30 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the same junior question and feedback UI while teacher answers stay in a replay-only request', async () => {
+    const teacher: SessionIdentity = { ...session, role: 'teacher', token: 'teacher-session' }
+    const nextPayload = payload(question('question-2', '下一道原题'), 1)
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      void _input
+      void _init
+      return jsonResponse({ feedback, payload: nextPayload, simulated: true })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JuniorAdaptiveSession session={teacher} initialPayload={payload(question('question-1', '第一道原题'))}
+      previewStudentId="student-junior" onExit={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: '第一道原题' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    expect(await screen.findByText('回答正确')).toBeInTheDocument()
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(request).toMatchObject({ action: 'preview_junior_submit_step', data: {
+      studentId: 'student-junior', planId: 'junior-plan', answers: [{ stepId: 'step-1', selectedOption: 0, revisionToken: 'revision-question-1' }],
+    } })
+    expect(fetchMock.mock.calls.some((call) => JSON.parse(String(call[1]?.body)).action === 'junior_submit_step')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }))
+    expect(screen.getByRole('heading', { name: '下一道原题' })).toBeInTheDocument()
+  })
+
   it('submits only the selected option with uncertain false and labels a wrong answer explicitly', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
       void _input

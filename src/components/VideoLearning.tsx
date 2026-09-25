@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Clock3, ExternalLink, Eye, Film, Link2, PlayCircle, PlusCircle, RefreshCw, Send, ShieldCheck, Undo2 } from 'lucide-react'
+import { CheckCircle2, Clock3, ExternalLink, Film, Link2, PlayCircle, PlusCircle, RefreshCw, Send, ShieldCheck, Undo2 } from 'lucide-react'
 import type { CreateVideoRecommendationInput, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, VideoRecommendation, VideoRecommendationProgress, VideoRecommendationStatus } from '../domain/types'
 import { formatVideoEngagementTime as formatEngagementTime, getVideoProgress as progressOf, safeExternalVideoUrl, videoProgressView } from '../domain/videoLearning'
 import { createVideoRecommendation, listVideoRecommendations, publishVideoRecommendation, recordVideoEngagement, teacherApi, withdrawVideoRecommendation } from '../lib/api'
@@ -36,14 +36,13 @@ export function StudentVideoSection({
   }, [])
 
   async function persist(video: VideoRecommendation, input: RecordVideoEngagementInput, optimisticProgress: Partial<VideoRecommendationProgress>) {
-    if (readOnly) return
     setBusyId(video.id)
     setError('')
     setMessage('')
     updateItem(video.id, (item) => ({ ...item, progress: { ...progressOf(item), ...optimisticProgress } }))
     try {
-      const result = onRecord ? await onRecord(input) : await recordVideoEngagement(session, input)
-      if (result.recommendation) updateItem(video.id, () => result.recommendation as VideoRecommendation)
+      const result = readOnly ? { ok: true as const } : onRecord ? await onRecord(input) : await recordVideoEngagement(session, input)
+      if ('recommendation' in result && result.recommendation) updateItem(video.id, () => result.recommendation as VideoRecommendation)
       setMessage(input.event === 'complete' ? '已记录“看完”，甘老师可以看到这条反馈。' : input.event === 'progress' ? '观看位置已保存，下次可以从这里接着看。' : '')
     } catch (reason) {
       updateItem(video.id, () => video)
@@ -54,7 +53,6 @@ export function StudentVideoSection({
   }
 
   function noteOpen(video: VideoRecommendation) {
-    if (readOnly) return
     const now = new Date().toISOString()
     void persist(video, { recommendationId: video.id, event: 'open', trackingMethod: 'link_open_only' }, {
       openedAt: progressOf(video).openedAt ?? now,
@@ -103,7 +101,6 @@ export function StudentVideoSection({
 
   return <section className="video-learning section-block" aria-labelledby="student-video-title">
     <div className="section-head video-section-head"><div><span className="eyebrow">甘老师为这一步挑选</span><h2 id="student-video-title">讲解视频</h2><p>先看老师说明，再打开对应讲解；看到哪里可以自己留下位置。</p></div><Film /></div>
-    {readOnly && <div className="video-readonly-note"><Eye />只读模拟中：可以检查链接与内容，操作不会写入学生记录。</div>}
     {error && <div className="inline-alert" role="alert">{error}</div>}
     {message && <div className="success-message" role="status"><CheckCircle2 />{message}</div>}
     <div className="video-card-list">{items.map((video) => {
@@ -118,7 +115,7 @@ export function StudentVideoSection({
         <div className="video-progress-row"><div className="video-progress-track" aria-label={`观看进度${view.percent}%`}><span style={{ width: `${view.percent}%` }} /></div><small>{view.detail}</small></div>
         <div className="video-actions">
           {safeUrl ? <a className="primary-button compact" href={safeUrl} target="_blank" rel="noreferrer" onClick={() => noteOpen(video)}>打开讲解<ExternalLink /></a> : <span className="video-link-invalid"><Link2 />链接待甘老师修正</span>}
-          {!readOnly && <div className="video-self-report"><label htmlFor={`video-minute-${video.id}`}>我看到<input id={`video-minute-${video.id}`} type="number" min="1" max="600" step="0.5" inputMode="decimal" value={minutesById[video.id] ?? ''} onChange={(event) => setMinutesById((current) => ({ ...current, [video.id]: event.target.value }))} disabled={busyId === video.id} /><span>分钟</span></label><button className="secondary-button" onClick={() => savePosition(video)} disabled={busyId === video.id}>保存位置</button><button className="video-complete-button" onClick={() => markComplete(video)} disabled={busyId === video.id || Boolean(progress.completedAt)}><CheckCircle2 />{progress.completedAt ? '已经看完' : '我已看完'}</button></div>}
+          <div className="video-self-report"><label htmlFor={`video-minute-${video.id}`}>我看到<input id={`video-minute-${video.id}`} type="number" min="1" max="600" step="0.5" inputMode="decimal" value={minutesById[video.id] ?? ''} onChange={(event) => setMinutesById((current) => ({ ...current, [video.id]: event.target.value }))} disabled={busyId === video.id} /><span>分钟</span></label><button className="secondary-button" onClick={() => savePosition(video)} disabled={busyId === video.id}>保存位置</button><button className="video-complete-button" onClick={() => markComplete(video)} disabled={busyId === video.id || Boolean(progress.completedAt)}><CheckCircle2 />{progress.completedAt ? '已经看完' : '我已看完'}</button></div>
         </div>
       </article>
     })}</div>

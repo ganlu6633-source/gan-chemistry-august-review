@@ -19,13 +19,13 @@ import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 import { StudyLibrary, type StudyTopic } from './StudyLibrary'
-import { TeacherTopicPreview, type TeacherTopicPreviewData } from './TeacherTopicPreview'
 import { HIGH1_SEMESTER_REMAINING_DAYS } from '../data/high1SemesterRoadmap'
 
 type StudentView = 'choose' | 'today' | 'stage' | 'directory' | 'type' | 'reminders' | 'map' | 'growth' | 'settings'
 type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
 export type PlanPayload = {
   plan: LearningPlanDay
+  simulationTopic?: { skillId: string; conceptKey: string; releaseId: string }
   cards: KnowledgeCard[]
   questions: IssuedQuestion[]
   /** Existing server-locked answers returned only when resuming this round. */
@@ -90,7 +90,6 @@ function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开题组', sho
 }
 
 const isSingleDailyReviewPlan = (plan: LearningPlanDay | undefined) => Boolean(plan && plan.mode === 'REVIEW' && plan.roundLimit === 1 && plan.deliveryMode !== 'junior_adaptive')
-const JUNIOR_TEACHER_PREVIEW_MESSAGE = '初中自适应题组会在每次作答后生成学习证据，教师只读模拟不会启动或提交这类会话。请返回教师后台查看计划状态。'
 
 const planRhythmLabel = (plan: LearningPlanDay) => {
   if (plan.deliveryMode === 'junior_adaptive') return '今日 12 道原题起步 · 基础未稳最多 15 道 · 每题作答后动态选下一题'
@@ -132,13 +131,12 @@ const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
   return '今天'
 }
 
-export function StudentApp({ session, initialDashboard, onDashboard, previewMode = false, onExitPreview }: { session: SessionIdentity; initialDashboard: StudentDashboardData; onDashboard: (data: StudentDashboardData) => void; previewMode?: boolean; onExitPreview?: () => void }) {
+export function StudentApp({ session, initialDashboard, onDashboard, previewMode = false }: { session: SessionIdentity; initialDashboard: StudentDashboardData; onDashboard: (data: StudentDashboardData) => void; previewMode?: boolean }) {
   const [view, setView] = useState<StudentView>('choose')
   const [dashboard, setDashboard] = useState(initialDashboard)
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
   const [activeJuniorPlan, setActiveJuniorPlan] = useState<JuniorAdaptivePayload | null>(null)
   const [activeFuturePreview, setActiveFuturePreview] = useState<FuturePlanPreviewPayload | null>(null)
-  const [activeTopicPreview, setActiveTopicPreview] = useState<TeacherTopicPreviewData | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
@@ -162,7 +160,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const duePlans = visiblePlans.filter((plan) => plan.date <= today && !plan.isComplete)
   const completedPlans = visiblePlans.filter((plan) => plan.date <= today && plan.isComplete)
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
-  const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today && !previewMode)
+  const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today)
   const todayPlanIsCatchUp = Boolean(todayPlan && todayPlan.date < today)
   const dueSkillCount = dashboard.skillStates.filter((state) => state.nextReviewAt && Date.parse(state.nextReviewAt) <= Date.now() && (state.verifiedLevel > 0 || state.consecutiveErrors > 0)).length
   const recommendedReviews = useMemo(() => {
@@ -183,7 +181,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   useEffect(() => {
     if (!['stage', 'directory', 'type', 'reminders'].includes(view)
-      && !(view === 'choose' && !previewMode && !dashboard.profile.isDemo)) return
+      && !(view === 'choose' && !dashboard.profile.isDemo)) return
     const catalogKey = `${dashboard.profile.id}:${studyCatalogRevision}`
     if (studyCatalogLoadedKey.current === catalogKey) return
     let active = true
@@ -212,9 +210,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     }
     const controller = new AbortController()
     const promise = (plan.deliveryMode === 'junior_adaptive'
-      ? openJuniorAdaptiveSession(session, plan.id, { signal: controller.signal })
+      ? previewMode
+        ? accessApi<{ payload: JuniorAdaptivePayload }>(session, 'preview_junior_open_session', { studentId: dashboard.profile.id, planId: plan.id }, { signal: controller.signal })
+        : openJuniorAdaptiveSession(session, plan.id, { signal: controller.signal })
       : previewMode
-        ? teacherApi<{ payload: PlanPayload }>('preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
+        ? accessApi<{ payload: PlanPayload }>(session, 'preview_start_plan', { studentId: dashboard.profile.id, planId: plan.id, ...(previewRound ? { previewRound } : {}) }, { signal: controller.signal })
         : accessApi<{ payload: PlanPayload }>(session, 'start_plan', { planId: plan.id, ...(dashboard.profile.isDemo ? { studentId: dashboard.profile.id, ...(previewRound ? { previewRound } : {}) } : {}) }, { signal: controller.signal })) as Promise<PlanStartResult>
     const entry = { controller, expiresAt: Date.now() + PLAN_PREFETCH_TTL_MS, promise }
     planRequestCache.current.set(key, entry)
@@ -267,11 +267,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   async function openPlan(plan: LearningPlanDay, previewRound?: number): Promise<boolean> {
     if (busy) return false
-    if (plan.date > today && !previewMode) {
+    if (plan.date > today) {
       setBusy(true)
       setError('')
       try {
-        const result = await loadFuturePlanPreview(session, plan.id)
+        const result = await loadFuturePlanPreview(session, plan.id, undefined, previewMode ? dashboard.profile.id : undefined)
         setActiveFuturePreview(result.preview)
         return true
       } catch (reason) {
@@ -282,11 +282,6 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       }
     }
     const request = { plan, ...(previewRound ? { previewRound } : {}) }
-    if (previewMode && plan.deliveryMode === 'junior_adaptive') {
-      setError('')
-      setPlanOpenState({ status: 'error', request, elapsedSeconds: 0, error: JUNIOR_TEACHER_PREVIEW_MESSAGE, retryable: false })
-      return false
-    }
     const requestId = ++planOpenRequestId.current
     const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
     planRequestCache.current.forEach((entry, cachedKey) => {
@@ -354,10 +349,10 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     setError('')
     try {
       if (previewMode) {
-        const result = await accessApi<{ preview: TeacherTopicPreviewData }>(session, 'preview_self_study', {
+        const result = await accessApi<{ payload: PlanPayload }>(session, 'preview_self_study', {
           studentId: dashboard.profile.id, skillId, conceptKey, releaseId,
         })
-        setActiveTopicPreview(result.preview)
+        setActivePlan({ ...result.payload, simulationTopic: { skillId, conceptKey, releaseId } })
         return
       }
       const result = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', { skillId, conceptKey, releaseId })
@@ -370,17 +365,14 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   async function openRecoveryStudy(skillId: string, conceptKey: string) {
-    if (previewMode || dashboard.profile.isDemo) throw new Error('教师演示只读，不会为真实学生创建专项练习。')
-    const topics = studyTopics.length ? studyTopics : (await accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog')).catalog.topics
+    if (dashboard.profile.isDemo) throw new Error('演示账号不保存专项练习。')
+    const topics = studyTopics.length ? studyTopics : (await accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog', previewMode ? { studentId: dashboard.profile.id } : {})).catalog.topics
     if (!studyTopics.length) setStudyTopics(topics)
     const topic = topics
       .filter((item) => item.skillId === skillId && item.conceptKey === conceptKey && item.freshCount > 0)
       .sort((a, b) => Number(a.releaseKind !== 'primary') - Number(b.releaseKind !== 'primary') || b.freshCount - a.freshCount)[0]
     if (!topic) throw new Error('这个小点暂时没有新的已审核原题。已保留刚才的作答记录，不会拿别的题凑数。')
-    const opened = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', {
-      skillId: topic.skillId, conceptKey: topic.conceptKey, releaseId: topic.releaseId,
-    })
-    setActivePlan(opened.payload)
+    await openSelfStudy(topic.skillId, topic.conceptKey, topic.releaseId)
   }
 
   async function switchDemoGrade(gradeBand: string) {
@@ -407,26 +399,21 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   if (activeJuniorPlan) {
-    return <JuniorAdaptiveSession session={session} initialPayload={activeJuniorPlan} onExit={() => setActiveJuniorPlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActiveJuniorPlan(null); setView('growth') }} />
+    return <JuniorAdaptiveSession session={session} initialPayload={activeJuniorPlan} previewStudentId={previewMode ? dashboard.profile.id : undefined} onExit={() => setActiveJuniorPlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActiveJuniorPlan(null); setView('growth') }} />
   }
 
   if (activeFuturePreview) {
     return <FuturePlanPreview preview={activeFuturePreview} onExit={() => setActiveFuturePreview(null)} />
   }
 
-  if (activeTopicPreview) {
-    return <TeacherTopicPreview session={session} studentName={dashboard.profile.displayName}
-      preview={activeTopicPreview} onExit={() => setActiveTopicPreview(null)} />
-  }
-
   if (activePlan) {
-    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} studyTopics={studyTopics} onOpenFocusedTopic={openRecoveryStudy} onBrowsePractice={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView('directory') }} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} studyTopics={studyTopics} onOpenFocusedTopic={openRecoveryStudy} onBrowsePractice={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView('directory') }} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : 'growth') }} />
   }
 
   const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
 
   return (
-    <>{previewMode && <section className="teacher-preview-strip" role="status"><ShieldCheck /><div><b>甘老师只读模拟 · {dashboard.profile.displayName} · {dashboard.profile.gradeBand}</b><span>可以查看知识点、题目和解析；所有作答都不会写入这名学生的档案。</span></div><button className="secondary-button" onClick={onExitPreview}>返回教师后台</button></section>}{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">正在准备</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>从题库取几道好题，马上见面。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}<div className="role-layout student-theme">
+    <>{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">正在准备</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>从题库取几道好题，马上见面。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}<div className="role-layout student-theme">
       <aside className="side-nav" aria-label="学生导航">
         <button className={view === 'choose' ? 'active' : ''} onClick={() => setView('choose')}><BookOpen />学习大厅</button>
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />学习日历</button>
@@ -439,7 +426,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {!previewMode && !dashboard.profile.isDemo && <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings />账户设置</button>}
       </aside>
       <div className="role-content">
-        {view === 'choose' && <RecommendationOverview schoolClass={dashboard.profile.schoolClass} nextPlan={nextTeachingPlan} newTopic={recommendedNewTopic} reviews={recommendedReviews} dueSkillCount={dueSkillCount} loading={studyCatalogLoading} error={studyCatalogError} busy={busy || previewMode || Boolean(dashboard.profile.isDemo)} onOpenTopic={openSelfStudy} onBrowse={(nextView) => setView(nextView)} />}
+        {view === 'choose' && <RecommendationOverview schoolClass={dashboard.profile.schoolClass} nextPlan={nextTeachingPlan} newTopic={recommendedNewTopic} reviews={recommendedReviews} dueSkillCount={dueSkillCount} loading={studyCatalogLoading} error={studyCatalogError} busy={busy || Boolean(dashboard.profile.isDemo)} onOpenTopic={openSelfStudy} onBrowse={(nextView) => setView(nextView)} />}
         {error && <div className="inline-alert" role="alert">{error}</div>}
         {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title">
           <div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 学习大厅</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天从哪儿开练？</h1><p>跟着计划走，或自己挑想学的；走哪条路，进步都算数。</p></div>
@@ -462,8 +449,8 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {dashboard.profile.isDemo && <section className="demo-grade-switch" aria-label="切换演示年级"><div><span className="eyebrow">演示查看</span><h2>每一天都可以打开完整学习链路</h2><p>演示题组只读取已审核、当前范围内、可用于复习的真实原题；作答只在当前页面模拟，不写入任何正式学生记录。</p></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></section>}
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
-            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlanIsFuturePreview ? `安排日期 ${todayPlan.date} · ${todayPlan.questionCount} 道起` : planRhythmLabel(todayPlan)}</span></div>{previewMode && todayPlan.deliveryMode === 'junior_adaptive' && <div className="inline-alert" role="status">{JUNIOR_TEACHER_PREVIEW_MESSAGE}</div>}</div>
-            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : previewMode && todayPlan.deliveryMode === 'junior_adaptive' ? '查看只读说明' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
+            <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlanIsFuturePreview ? `安排日期 ${todayPlan.date} · ${todayPlan.questionCount} 道起` : planRhythmLabel(todayPlan)}</span></div></div>
+            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {todayPlan && <section className="date-lecture-links"><h2>这一天对应的讲义</h2><div>{LECTURE_SECTIONS.filter((section) => section.grade === dashboard.profile.gradeBand && section.skillIds.some((skillId) => todayPlan.skillIds.includes(skillId))).slice(0, 6).map((section) => <a key={section.id} href={lectureUrl(section)} target="_blank" rel="noopener noreferrer"><BookOpen size={15} />{section.title} · 第 {section.page} 页<ChevronRight size={15} /></a>)}</div></section>}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
@@ -482,9 +469,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} readOnly={previewMode} />}
-        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} readOnly={previewMode} />}
-        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} readOnly={previewMode} />}
+        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || Boolean(dashboard.profile.isDemo)} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}
@@ -666,7 +653,7 @@ function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDas
 
   if (error) return <section><div className="page-title"><span className="eyebrow">我的化学档案</span><h1>学习证据正在整理</h1></div><div className="inline-alert" role="alert">{error}</div></section>
   if (!record) return <section><div className="page-title"><span className="eyebrow">我的化学档案</span><h1>正在接起每一步学习证据…</h1></div><div className="record-loading"><span /><span /><span /></div></section>
-  return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience={previewMode ? 'teacher' : 'student'} />
+  return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience="student" />
 }
 
 export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, studyTopics = [], onOpenFocusedTopic, onBrowsePractice, planOpenState = null, onRetryPlanOpen, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; studyTopics?: StudyTopic[]; onOpenFocusedTopic?: (skillId: string, conceptKey: string) => Promise<void>; onBrowsePractice?: (data: StudentDashboardData) => void; planOpenState?: PlanOpenState | null; onRetryPlanOpen?: () => void; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
@@ -703,7 +690,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const card = payload.cards[cardIndex]
   const question = questions[questionIndex]
   const selfStudy = payload.plan.deliveryMode === 'self_study'
-  const singleDailyReviewPackage = payload.plan.mode === 'REVIEW' && roundLimit === 1 && !practiceMode && !selfStudy
+  const singleDailyReviewPackage = payload.plan.mode === 'REVIEW' && roundLimit === 1 && !selfStudy
   const conceptTitles = Object.fromEntries(studyTopics.map((topic) => [topic.conceptKey, topic.title]))
   const recoveryTargets = buildRecoveryTargets({ questions, answers, branches: optionPractice, cards: payload.cards, cardRatings, conceptTitles })
   const activeRepairTarget = recoveryTargets.find((target) => target.key === repairTargetKey)
@@ -853,6 +840,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           setError('')
           const input = {
             ...(session.role === 'teacher' ? { previewAnswers: answers.map((answer) => ({ questionId: answer.questionId, selectedOption: answer.selectedOption ?? -1, revisionToken: answer.revisionToken })) } : {}),
+            ...(session.role === 'teacher' && payload.simulationTopic ? { previewSelfStudy: payload.simulationTopic } : {}),
             ...(practiceMode && practiceDashboard ? { studentId: practiceDashboard.profile.id, previewRound: roundNumber } : {}),
             planId: payload.plan.id,
             questionId: question.id,
@@ -916,7 +904,15 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       try {
         setError('')
         if (practiceMode && practiceDashboard) {
-          setNextDashboard(practiceDashboard)
+          const simulatedPlan = practiceDashboard.plans.find((plan) => plan.id === payload.plan.id)
+          const updatedPlan = simulatedPlan ? {
+            ...simulatedPlan, attemptCount: Math.max(simulatedPlan.attemptCount, roundNumber),
+            firstScore: simulatedPlan.firstScore ?? attempt.firstScore, latestScore: attempt.firstScore,
+            latestCompletedAt: attempt.completedAt,
+            isComplete: roundNumber >= roundLimit,
+            roundsRemaining: Math.max(0, roundLimit - roundNumber),
+          } : null
+          setNextDashboard(updatedPlan ? { ...practiceDashboard, plans: practiceDashboard.plans.map((plan) => plan.id === updatedPlan.id ? updatedPlan : plan) } : practiceDashboard)
           setPhase('result')
         } else {
           const result = await submitAttempt(session, attempt)
@@ -947,18 +943,16 @@ export function LearningRound({ session, payload, practiceMode = false, practice
 
   const correct = answers.filter((answer) => answer.correct).length
   const nextPlan = nextDashboard?.plans.find((plan) => plan.id === payload.plan.id)
-  const hasNextRound = roundNumber < roundLimit && (practiceMode || (nextPlan ? !nextPlan.isResolved : true))
+  const hasNextRound = roundNumber < roundLimit && (nextPlan ? !nextPlan.isResolved : true)
   const nextRoundOpenState = planOpenState?.request.plan.id === payload.plan.id ? planOpenState : null
   const nextRoundLoading = nextRoundOpenState?.status === 'loading'
   return <section className="learning-stage result-stage">
     {roundTrack}
     <div className="result-badge"><Check /></div>
-    <span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : singleDailyReviewPackage ? '今日题组完成' : `今天第 ${roundNumber} 轮完成`}</span>
+    <span className="eyebrow">{singleDailyReviewPackage ? '今日题组完成' : `今天第 ${roundNumber} 轮完成`}</span>
     <h1>{correct === answers.length ? '本组全部回答正确。' : `本组答对 ${correct}/${answers.length} 题。`}</h1>
-    <p>{selfStudy ? '本关' : singleDailyReviewPackage ? '今日' : '本轮'}完成 {answers.length} 题，答对 {correct} 题。{practiceMode
-      ? '本次结果只在当前页面展示，不会写入真实学生档案。'
-      : recoveryTargets.length ? '需要补的知识点已经列在下面，现在就能复习；有已审核的同知识点原题，还可以接着练。'
-        : hasNextRound ? '下一轮继续用原题检验，看看是不是真的稳了。' : '作答记录已保存，后续会按复习时间提醒你回看。'}</p>
+    <p>{selfStudy ? '本关' : singleDailyReviewPackage ? '今日' : '本轮'}完成 {answers.length} 题，答对 {correct} 题。{recoveryTargets.length ? '需要补的知识点已经列在下面，现在就能复习；有已审核的同知识点原题，还可以接着练。'
+      : hasNextRound ? '下一轮继续用原题检验，看看是不是真的稳了。' : '后续会按复习时间提醒你回看。'}</p>
     <div className="result-stats"><div><b>{answers.length}</b><span>完成练习</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>复习模块</span></div><div><b>{answers.length - correct}</b><span>答错题数</span></div></div>
     {recoveryTargets.length > 0 && <section className="result-recovery" aria-labelledby="result-recovery-title">
       <div className="result-recovery-head"><span className="eyebrow"><RotateCcw size={16} />趁热补一补</span><h2 id="result-recovery-title">从哪里跌倒，就从哪里把题做明白</h2><p>先看错题对应的知识点。选项已有审核过的专项题时，会显示准确小点；没有绑定的题，先由你选卡住的环节，不乱猜。</p></div>
@@ -970,7 +964,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           : target.fromSelfRating ? '你标记了还不熟，先拆开知识卡，再用原题检验。'
             : `这块有 ${target.wrongCount} 道没做对；先查明具体卡在哪一步。`}</p></div>
         <div className="result-recovery-actions"><button type="button" className="primary-button compact" onClick={() => { setRepairTargetKey(target.key); setRepairError(''); setPhase('repair') }}>复习这块<ChevronRight size={16} /></button>
-          {target.conceptKey && onOpenFocusedTopic && !practiceMode && target.branch?.status !== 'reserve_gap'
+          {target.conceptKey && onOpenFocusedTopic && target.branch?.status !== 'reserve_gap'
             && <button type="button" className="secondary-button compact" disabled={busy} onClick={() => void startFocusedPractice(target.skillId, target.conceptKey!)}>练同知识点原题</button>}</div>
       </article>)}</div>
       {repairError && <p className="inline-alert" role="alert">{repairError}</p>}
@@ -983,7 +977,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
         {nextRoundLoading ? `正在读取 · ${nextRoundOpenState.elapsedSeconds}秒` : nextRoundOpenState?.status === 'error' ? `重试进入第 ${roundNumber + 1} 轮` : `进入第 ${roundNumber + 1} 轮 · 继续原题`}<ChevronRight size={18} />
       </button>}
       <button ref={hasNextRound ? undefined : primaryActionRef} className={hasNextRound ? 'secondary-button' : 'primary-button'} aria-keyshortcuts={hasNextRound ? undefined : 'Enter'} disabled={!nextDashboard || nextRoundLoading}
-        onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : selfStudy ? '返回知识点' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button>
+        onClick={() => nextDashboard && onComplete(nextDashboard)}>{selfStudy ? '返回知识点' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button>
     </div>
   </section>
 }

@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, CircleHelp, Clock3, Trophy } from 'lucide-react'
-import type { JuniorAdaptivePayload, JuniorQuestionFeedback, SessionIdentity, StudentDashboardData } from '../domain/types'
+import type { JuniorAdaptivePayload, JuniorQuestionFeedback, JuniorStepSubmissionResult, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
-import { submitJuniorAdaptiveStep } from '../lib/api'
+import { accessApi, submitJuniorAdaptiveStep } from '../lib/api'
 import { ChemText } from './ChemText'
 
 export function JuniorAdaptiveSession({
   session,
   initialPayload,
+  previewStudentId,
   onExit,
   onComplete,
 }: {
   session: SessionIdentity
   initialPayload: JuniorAdaptivePayload
+  previewStudentId?: string
   onExit: () => void
   onComplete: (dashboard: StudentDashboardData) => void
 }) {
@@ -25,6 +27,7 @@ export function JuniorAdaptiveSession({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const primaryAction = useRef<HTMLButtonElement>(null)
+  const previewAnswers = useRef<Array<{ stepId: string; selectedOption: number; revisionToken?: string | null; uncertain: boolean; durationSec: number }>>([])
 
   const question = payload.currentQuestion
   const currentCard = useMemo(() => payload.cards.find((card) => card.skillId === question?.skillId) ?? null, [payload.cards, question?.skillId])
@@ -38,18 +41,31 @@ export function JuniorAdaptiveSession({
     setBusy(true)
     setError('')
     try {
-      const result = await submitJuniorAdaptiveStep(session, {
+      const submitted = {
         planId: payload.plan.id,
         stepId: payload.currentStepId,
         selectedOption: feedback?.selectedOption ?? selected,
         uncertain: feedback?.uncertain ?? false,
         durationSec: feedback?.durationSec ?? Math.min(3600, Math.max(0, Math.round((Date.now() - startedAt) / 1000))),
         revisionToken: feedback?.revisionToken ?? question.revisionToken,
-      })
+      }
+      const nextPreviewAnswers = previewAnswers.current.some((answer) => answer.stepId === submitted.stepId)
+        ? previewAnswers.current : [...previewAnswers.current, submitted]
+      const result: JuniorStepSubmissionResult = previewStudentId
+        ? await accessApi<JuniorStepSubmissionResult>(session, 'preview_junior_submit_step', {
+          studentId: previewStudentId, planId: payload.plan.id, answers: nextPreviewAnswers,
+        })
+        : await submitJuniorAdaptiveStep(session, submitted)
+      if (previewStudentId) previewAnswers.current = nextPreviewAnswers
       setFeedback(result.feedback)
       setSelected(result.feedback.selectedOption)
       setPendingPayload(result.payload)
-      setCompletedDashboard(result.dashboard ?? null)
+      const simulatedDashboard = previewStudentId && result.dashboard && result.payload?.completed
+        ? { ...result.dashboard, plans: result.dashboard.plans.map((plan) => plan.id === payload.plan.id
+          ? { ...plan, isComplete: true, attemptCount: 1, latestScore: result.payload!.session.correctCount,
+            firstScore: result.payload!.session.correctCount, roundsRemaining: 0 }
+          : plan) } : result.dashboard
+      setCompletedDashboard(simulatedDashboard ?? null)
       if (!result.payload) setError(result.continuation?.message ?? '答案已保存，下一题暂时无法打开。你可以查看本题解析，再重试或返回学习计划。')
       else if (result.payload.pendingMessage) setError(result.payload.pendingMessage)
     } catch (reason) {

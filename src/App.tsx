@@ -41,7 +41,7 @@ function TeacherStudentPreview() {
   if (session?.role !== 'teacher') return <Navigate to="/" replace />
   if (error) return <AppShell identity={session.displayName}><div className="inline-alert" role="alert">{error}</div><button className="secondary-button" onClick={() => navigate('/teacher')}>返回教师后台</button></AppShell>
   if (!dashboard) return <AppShell identity={session.displayName}><div className="center-loading">正在准备只读模拟界面…</div></AppShell>
-  return <AppShell identity={`${session.displayName} · 只读模拟`}><StudentApp key={dashboard.profile.id} session={session} initialDashboard={dashboard} onDashboard={setDashboard} previewMode onExitPreview={() => navigate('/teacher')} /></AppShell>
+  return <AppShell identity={dashboard.profile.displayName} onLogout={() => navigate('/teacher')}><StudentApp key={dashboard.profile.id} session={session} initialDashboard={dashboard} onDashboard={setDashboard} previewMode /></AppShell>
 }
 
 function AccessExperience() {
