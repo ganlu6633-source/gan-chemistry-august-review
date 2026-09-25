@@ -44,7 +44,12 @@ export function recommendStudyTopics<T extends StudyTopic>(
     const latest = history[0];
     const state = bySkill.get(topic.skillId);
     const weak = !latest.correct || latest.uncertain;
-    const intervalIndex = weak ? 0 : Math.min(INTERVAL_DAYS.length - 1, Math.max(1, Number(state?.review_interval_index) || 1));
+    let stableStreak = 0;
+    for (const answer of history) {
+      if (!answer.correct || answer.uncertain) break;
+      stableStreak += 1;
+    }
+    const intervalIndex = weak ? 0 : Math.min(INTERVAL_DAYS.length - 1, stableStreak);
     const intervalDays = INTERVAL_DAYS[intervalIndex];
     const dueTime = Date.parse(latest.completed_at) + intervalDays * DAY;
     const stateDue = state?.next_review_at ? Date.parse(state.next_review_at) : NaN;

@@ -21,12 +21,13 @@ describe('personal study recommendations', () => {
     expect(result[0].reviewPriority).toBeGreaterThan(0)
     expect(result[0].reviewReason).toContain('答错')
     expect(result[1].reviewPriority).toBe(0)
-    expect(result[1].reviewDueAt).toBe('2026-09-30T00:00:00.000Z')
+    expect(result[1].reviewDueAt).toBe('2026-09-26T00:00:00.000Z')
   })
 
   it('uses the recent answer curve and marks review due at the interval', () => {
     const result = recommendStudyTopics([topics[0]], [
       { skill_id: 'ions', concept_key: 'sulfate', correct: true, uncertain: false, completed_at: '2026-09-18T00:00:00Z' },
+      { skill_id: 'ions', concept_key: 'sulfate', correct: true, uncertain: false, completed_at: '2026-09-17T00:00:00Z' },
       { skill_id: 'ions', concept_key: 'sulfate', correct: false, uncertain: false, completed_at: '2026-09-10T00:00:00Z' },
     ], [{ skill_id: 'ions', review_interval_index: 2 }], new Date('2026-09-25T00:00:00Z'))
     expect(result[0].reviewDueAt).toBe('2026-09-25T00:00:00.000Z')
