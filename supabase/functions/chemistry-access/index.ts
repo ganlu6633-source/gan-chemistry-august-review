@@ -2221,6 +2221,55 @@ async function openSelfStudy(studentId: string, skillId: string, conceptKey: str
   return startPlanPayload(studentId, String(created.data.id), { studentOpen: true, includeAnswerLocks: true });
 }
 
+async function previewSelfStudy(studentId: string, skillId: string, conceptKey: string, releaseId: string) {
+  const profile = await supabase.from("chem_students_v2")
+    .select("grade_band,record_status,metadata").eq("id", studentId).single();
+  if (profile.error) throw profile.error;
+  const grade = String(profile.data.grade_band);
+  if (profile.data.record_status !== "active" || !["初三", "高一", "高二", "高三"].includes(grade)) {
+    throw new RequestError(403, "当前档案没有开放自主原题练习。");
+  }
+  const [ready, history, juniorHistory] = await Promise.all([
+    supabase.rpc("chem_self_study_ready_catalog_rows", { p_grade: grade }),
+    supabase.rpc("chem_review_answer_history", { p_student_id: studentId }),
+    grade === "初三" ? supabase.rpc("chem_junior_choice_identity_history", { p_student_id: studentId }) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (ready.error || history.error || juniorHistory.error) throw ready.error || history.error || juniorHistory.error;
+  const used = [...(history.data || []), ...(juniorHistory.data || [])] as Array<Record<string, unknown>>;
+  const usedIds = new Set(used.map((row) => String(row.question_id)));
+  const usedMothers = new Set(used.map((row) => String(row.mother_id)).filter(Boolean));
+  const scheduledIds = new Set(Object.values((profile.data.metadata?.reviewProgram?.questionAssignments ?? {}) as Record<string, unknown>)
+    .flatMap((ids) => Array.isArray(ids) ? ids.map(String) : []));
+  const distinctMothers = new Set<string>();
+  const selectedRows = ((ready.data || []) as Array<Record<string, unknown>>)
+    .filter((row) => String(row.skill_id) === skillId && String(row.concept_key) === conceptKey
+      && String(row.source_release_id) === releaseId && Boolean(row.mother_id)
+      && (grade === "初三" || hasRequiredReviewSourceAssets(row.asset_refs))
+      && !usedIds.has(String(row.question_id)) && !usedMothers.has(String(row.mother_id))
+      && !scheduledIds.has(String(row.question_id)))
+    .sort((a, b) => String(a.question_id).localeCompare(String(b.question_id)))
+    .filter((row) => {
+      const mother = String(row.mother_id);
+      if (distinctMothers.has(mother)) return false;
+      distinctMothers.add(mother);
+      return true;
+    }).slice(0, 3);
+  if (!selectedRows.length) throw new RequestError(422, "这个知识点暂时没有未做且未安排到日历的原题。");
+  const questionIds = selectedRows.map((row) => String(row.question_id));
+  const questions = await supabase.from("chem_questions").select("*")
+    .in("id", questionIds).eq("grade_band", grade).eq("skill_id", skillId)
+    .eq("concept_key", conceptKey).eq("source_release_id", releaseId)
+    .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true);
+  if (questions.error) throw questions.error;
+  const safe = await excludeHeldQuestions((questions.data || []) as Array<Record<string, unknown>>);
+  const byId = new Map(safe.map((row) => [String(row.id), row]));
+  if (questionIds.some((id) => !byId.has(id))) throw new RequestError(409, "原题版本已变化，请重新打开目录。");
+  return {
+    topic: String(selectedRows[0].concept_title || conceptKey),
+    questions: questionIds.map((id) => questionShape(byId.get(id)!, false, false)),
+  };
+}
+
 async function guardianDashboard(studentId: string) {
   const programProfile = await supabase.from("chem_students_v2").select("metadata").eq("id", studentId).single();
   if (programProfile.error) throw programProfile.error;
@@ -3573,6 +3622,18 @@ Deno.serve(async (req: Request) => {
       const targetId = String(body.data?.studentId || "");
       if (!validUuid(targetId)) return reply(req, { error: "请选择要预览的学生。" }, 400);
       return reply(req, { catalog: await selfStudyCatalog(targetId) });
+    }
+
+    if (body.action === "preview_self_study" && identity.role === "teacher") {
+      const targetId = String(body.data?.studentId || "");
+      const skillId = String(body.data?.skillId || "");
+      const conceptKey = String(body.data?.conceptKey || "");
+      const releaseId = String(body.data?.releaseId || "");
+      if (!validUuid(targetId) || !validUuid(releaseId)
+        || !/^[A-Za-z0-9_]{1,80}$/.test(skillId) || !/^[A-Za-z0-9_]{1,100}$/.test(conceptKey)) {
+        return reply(req, { error: "请选择题库中的学生和知识点。" }, 400);
+      }
+      return reply(req, { preview: await previewSelfStudy(targetId, skillId, conceptKey, releaseId) });
     }
 
     if (body.action === "open_self_study" && identity.role === "student" && identity.studentId) {

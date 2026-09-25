@@ -58,7 +58,7 @@ export function StudyLibrary({ axis, dashboard, topics, loading, error, onStart,
       return <article className="library-card self-study-card" key={`${topic.conceptKey}:${topic.releaseId}`}>
         <span className="library-card-book"><BookOpen size={15} />{topic.skillTitle} · {topic.releaseKind === 'teaching_material' ? '讲义原题' : '题库原题'} · {status}</span><b>{topic.title}</b>
         <span>{topic.originalCount} 道核对过的原题 · 还有 {topic.freshCount} 道没做{topic.reviewPriority > 0 ? ' · 该回来练练' : ''}</span>
-        <div className="self-study-card-actions"><button type="button" className="primary-button compact" disabled={!ready || busy || dashboard.profile.isDemo} onClick={() => void onStart(topic.skillId, topic.conceptKey, topic.releaseId)}>{readOnly ? '只读预览' : ready ? dashboard.profile.isDemo ? '演示账号只读' : completed.has(topic.conceptKey) ? '再练一组' : '开始练题' : '这块暂时没新题'}<ChevronRight size={16} /></button>
+        <div className="self-study-card-actions"><button type="button" className="primary-button compact" disabled={!ready || busy || dashboard.profile.isDemo} onClick={() => void onStart(topic.skillId, topic.conceptKey, topic.releaseId)}>{ready ? readOnly ? '模拟练这组' : dashboard.profile.isDemo ? '演示账号只读' : completed.has(topic.conceptKey) ? '再练一组' : '开始练题' : '这块暂时没新题'}<ChevronRight size={16} /></button>
         {lecture && <a href={lectureUrl(lecture)} target="_blank" rel="noopener noreferrer" aria-label={`查看${topic.title}相关讲义`}>先看讲义<ExternalLink size={14} /></a>}</div>
       </article>
     })}</div></section>)}

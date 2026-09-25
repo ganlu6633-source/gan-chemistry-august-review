@@ -19,6 +19,7 @@ import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 import { StudyLibrary, type StudyTopic } from './StudyLibrary'
+import { TeacherTopicPreview, type TeacherTopicPreviewData } from './TeacherTopicPreview'
 import { HIGH1_SEMESTER_REMAINING_DAYS } from '../data/high1SemesterRoadmap'
 
 type StudentView = 'choose' | 'today' | 'stage' | 'directory' | 'type' | 'reminders' | 'map' | 'growth' | 'settings'
@@ -137,6 +138,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [activePlan, setActivePlan] = useState<PlanPayload | null>(null)
   const [activeJuniorPlan, setActiveJuniorPlan] = useState<JuniorAdaptivePayload | null>(null)
   const [activeFuturePreview, setActiveFuturePreview] = useState<FuturePlanPreviewPayload | null>(null)
+  const [activeTopicPreview, setActiveTopicPreview] = useState<TeacherTopicPreviewData | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
@@ -344,10 +346,17 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   async function openSelfStudy(skillId: string, conceptKey: string, releaseId: string) {
-    if (busy || previewMode || dashboard.profile.isDemo) return
+    if (busy || dashboard.profile.isDemo) return
     setBusy(true)
     setError('')
     try {
+      if (previewMode) {
+        const result = await accessApi<{ preview: TeacherTopicPreviewData }>(session, 'preview_self_study', {
+          studentId: dashboard.profile.id, skillId, conceptKey, releaseId,
+        })
+        setActiveTopicPreview(result.preview)
+        return
+      }
       const result = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', { skillId, conceptKey, releaseId })
       setActivePlan(result.payload)
     } catch (reason) {
@@ -400,6 +409,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   if (activeFuturePreview) {
     return <FuturePlanPreview preview={activeFuturePreview} onExit={() => setActiveFuturePreview(null)} />
+  }
+
+  if (activeTopicPreview) {
+    return <TeacherTopicPreview session={session} studentName={dashboard.profile.displayName}
+      preview={activeTopicPreview} onExit={() => setActiveTopicPreview(null)} />
   }
 
   if (activePlan) {
@@ -461,10 +475,10 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy || previewMode} readOnly={previewMode} />}
-        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy || previewMode} readOnly={previewMode} />}
-        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy || previewMode} readOnly={previewMode} />}
-        {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || previewMode || Boolean(dashboard.profile.isDemo)} />}
+        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} readOnly={previewMode} />}
+        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} readOnly={previewMode} />}
+        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} readOnly={previewMode} />}
+        {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || Boolean(dashboard.profile.isDemo)} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}
         {view === 'settings' && <AccountSettings session={session} />}

@@ -80,11 +80,19 @@ describe('StudentApp plan opening resilience', () => {
 
   it('loads the selected student’s real catalog during teacher read-only preview', async () => {
     const studentId = '65ec6dae-8ed5-4236-9237-4f96010c1668'
+    const releaseId = 'd065f146-234f-4a4b-9db6-ad473d294ca9'
     const teacherSession: SessionIdentity = { role: 'teacher', token: 'teacher-session', displayName: '老师', expiresAt: '2099-01-01T00:00:00Z' }
-    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ catalog: { topics: [{
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      const action = JSON.parse(String(init?.body)).action
+      if (action === 'preview_self_study') return jsonResponse({ preview: { topic: '分类标准与分类树', questions: [{
+        ...question, id: 'source-question-1', options: ['纯净物', '混合物', '单质', '化合物'],
+        stem: '海水属于哪类物质？', correctOption: 1, explanation: '海水含有多种物质，属于混合物。',
+      }] } })
+      return jsonResponse({ catalog: { topics: [{
       skillId: 'H1_CLASSIFY', skillTitle: '物质分类', conceptKey: 'H1_CLASSIFY__C01',
-      title: '分类标准与分类树', sequence: 1, originalCount: 5, freshCount: 5,
-    }] } }))
+      title: '分类标准与分类树', sequence: 1, originalCount: 5, freshCount: 5, releaseId,
+    }] } })
+    })
     vi.stubGlobal('fetch', fetchMock)
     render(<StudentApp session={teacherSession} initialDashboard={{ ...dashboard, profile: {
       ...dashboard.profile, id: studentId, displayName: '叶鸿诺', isDemo: false,
@@ -92,9 +100,16 @@ describe('StudentApp plan opening resilience', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /知识点任选 今天想攻哪一块/ }))
     expect(await screen.findByText('分类标准与分类树')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /只读预览/ })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /模拟练这组/ }))
+    expect(await screen.findByTestId('teacher-topic-preview')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '海水属于哪类物质？' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /B\. 混合物/ }))
+    fireEvent.click(screen.getByRole('button', { name: '查看答案和解析' }))
+    expect(screen.getByText('选对了')).toBeInTheDocument()
     const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
     expect(request).toMatchObject({ action: 'self_study_catalog', data: { studentId } })
+    const previewRequest = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))
+    expect(previewRequest).toMatchObject({ action: 'preview_self_study', data: { studentId, releaseId } })
   })
 
   it('prefetches today once and reuses the same in-flight request when clicked', async () => {
