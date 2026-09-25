@@ -16,13 +16,14 @@ from pathlib import Path
 GRADES = ("初三", "高一", "高二", "高三")
 
 
-def audit(path: Path, items_out: Path | None = None) -> dict:
+def audit(path: Path, items_out: Path | None = None, sets_out: Path | None = None) -> dict:
     by_grade: dict[str, Counter] = defaultdict(Counter)
     types: dict[str, Counter] = defaultdict(Counter)
     source_sets: dict[str, set[str]] = defaultdict(set)
     knowledge: dict[str, set[str]] = defaultdict(set)
     missing_answer_examples: dict[str, list[str]] = defaultdict(list)
     item_rows: list[dict[str, str]] = []
+    by_set: dict[tuple[str, str, str], Counter] = defaultdict(Counter)
     with path.open(encoding="utf-8-sig") as stream:
         for line_number, line in enumerate(stream, 1):
             if not line.strip():
@@ -30,7 +31,10 @@ def audit(path: Path, items_out: Path | None = None) -> dict:
             row = json.loads(line)
             grade = str(row.get("gradeLevel") or "未标年段")
             counts = by_grade[grade]
+            source_set = (grade, str(row.get("sourceSetID") or ""), str(row.get("sourceTitle") or ""))
+            set_counts = by_set[source_set]
             counts["indexed"] += 1
+            set_counts["indexed"] += 1
             kind = str(row.get("type") or "unknown")
             types[grade][kind] += 1
             source_sets[grade].add(str(row.get("sourceSetID") or ""))
@@ -45,22 +49,28 @@ def audit(path: Path, items_out: Path | None = None) -> dict:
             )
             if four_options:
                 counts["four_options"] += 1
+                set_counts["four_options"] += 1
             unresolved_image = any("[[IMAGE:" in str(value) for value in [row.get("stem"), *option_texts])
             if unresolved_image:
                 counts["contains_unresolved_image_marker"] += 1
+                set_counts["contains_unresolved_image_marker"] += 1
             answer_index = row.get("answerIndex")
             answer_letter = str(row.get("answerLetter") or "").strip().upper()
             # This source index numbers answerIndex from 1 through 4.
             has_answer = (isinstance(answer_index, int) and not isinstance(answer_index, bool) and answer_index in range(1, 5)) or (answer_letter in "ABCD" and len(answer_letter) == 1)
             if has_answer:
                 counts["answer_index_or_letter"] += 1
+                set_counts["answer_index_or_letter"] += 1
             has_explanation = bool(str(row.get("explain") or "").strip() or row.get("explanationAssetRefs"))
             if has_explanation:
                 counts["has_explanation"] += 1
+                set_counts["has_explanation"] += 1
             if four_options and has_answer:
                 counts["four_option_answer_candidates"] += 1
+                set_counts["four_option_answer_candidates"] += 1
             if four_options and has_answer and has_explanation and not unresolved_image:
                 counts["metadata_complete_without_image_markers"] += 1
+                set_counts["metadata_complete_without_image_markers"] += 1
             if isinstance(answer_index, int) and answer_index in range(1, 5) and answer_letter in "ABCD" and len(answer_letter) == 1 and "ABCD"[answer_index - 1] != answer_letter:
                 counts["answer_index_letter_conflict"] += 1
             else:
@@ -94,6 +104,21 @@ def audit(path: Path, items_out: Path | None = None) -> dict:
             writer = csv.DictWriter(stream, fieldnames=["年段", "题源编号", "题源标题", "原题号", "题型", "知识点标签", "待处理"])
             writer.writeheader()
             writer.writerows(item_rows)
+    if sets_out is not None:
+        sets_out.parent.mkdir(parents=True, exist_ok=True)
+        with sets_out.open("w", encoding="utf-8-sig", newline="") as stream:
+            fields = ["年段", "题源集", "题源标题", "索引题数", "四选一且有答案", "有解析且无图片标记", "图片标记未处理", "缺答案"]
+            writer = csv.DictWriter(stream, fieldnames=fields)
+            writer.writeheader()
+            for (grade, set_id, title), counts in sorted(by_set.items(), key=lambda item: (-item[1]["metadata_complete_without_image_markers"], -item[1]["four_option_answer_candidates"], item[0])):
+                writer.writerow({
+                    "年段": grade, "题源集": set_id, "题源标题": title,
+                    "索引题数": counts["indexed"],
+                    "四选一且有答案": counts["four_option_answer_candidates"],
+                    "有解析且无图片标记": counts["metadata_complete_without_image_markers"],
+                    "图片标记未处理": counts["contains_unresolved_image_marker"],
+                    "缺答案": counts["indexed"] - counts["answer_index_or_letter"],
+                })
     return {
         "source": str(path),
         "grades": {
@@ -114,5 +139,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("--items-out", type=Path, help="Private CSV ledger of every indexed candidate; no question text is exported")
+    parser.add_argument("--sets-out", type=Path, help="Private CSV of source-set readiness, sorted for manual review")
     args = parser.parse_args()
-    print(json.dumps(audit(args.source, args.items_out), ensure_ascii=False, indent=2))
+    print(json.dumps(audit(args.source, args.items_out, args.sets_out), ensure_ascii=False, indent=2))
