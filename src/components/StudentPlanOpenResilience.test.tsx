@@ -49,7 +49,7 @@ function renderStudent() {
 }
 
 function chooseDate() {
-  fireEvent.click(screen.getByRole('button', { name: /按日期 查看每天安排的题组/ }))
+  fireEvent.click(screen.getByRole('button', { name: /学习日历 老师排好的题在这里/ }))
 }
 
 describe('StudentApp plan opening resilience', () => {
@@ -63,17 +63,18 @@ describe('StudentApp plan opening resilience', () => {
   it('starts with four choices and opens a source-backed knowledge challenge catalog', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ catalog: { topics: [{ skillId: 'H1_REDOX', skillTitle: '氧化还原反应', conceptKey: 'H1_REDOX__C01', title: '化合价升降', sequence: 1, originalCount: 5, freshCount: 5 }] } })))
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)
-    expect(screen.getByRole('heading', { name: /今天想怎么学/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /按日期 查看每天安排的题组/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /按学习阶段 从专题或进度节点/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /按题型 按选择题/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /按知识点 自己挑选一个知识点/ }))
+    expect(screen.getByRole('heading', { name: /今天从哪儿开练/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /学习日历 老师排好的题在这里/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /跟着进度走 看看学到了哪一站/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /知识点任选 今天想攻哪一块/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /题型训练场 想练哪类选择题/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /复习雷达 到时间该回看的/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /知识点任选 今天想攻哪一块/ }))
     expect(await screen.findByText('化合价升降')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /演示账号只读/ })).toBeDisabled()
     expect(screen.queryByTitle(/讲义原页/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '按题型' }))
-    expect(screen.getByRole('heading', { name: '按题型' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '题型训练场' }))
+    expect(screen.getByRole('heading', { name: '题型训练场' })).toBeInTheDocument()
     expect(await screen.findByText('化合价升降')).toBeInTheDocument()
   })
 
@@ -90,8 +91,8 @@ describe('StudentApp plan opening resilience', () => {
     fireEvent.click(screen.getByRole('button', { name: /开始第一轮/ }))
     const overlay = document.querySelector('.plan-opening-overlay')
     expect(overlay).toBeInTheDocument()
-    expect(overlay).toHaveTextContent('已经收到点击')
-    expect(overlay).toHaveTextContent('页面没有卡住')
+    expect(overlay).toHaveTextContent('正在取题，马上开练')
+    expect(overlay).toHaveTextContent('从题库取几道好题，马上见面')
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await act(async () => { resolveRequest?.(jsonResponse({ payload: payload(1) })) })
@@ -258,18 +259,18 @@ describe('StudentApp plan opening resilience', () => {
     renderStudent()
 
     fireEvent.click(screen.getByRole('button', { name: /开始第一轮/ }))
-    expect(screen.getByText('正在读取所选题组')).toBeInTheDocument()
-    expect(screen.getByText('请求已经发出，请稍候。')).toBeInTheDocument()
+    expect(screen.getByText('正在取题，马上开练')).toBeInTheDocument()
+    expect(screen.getByText('正在把这组知识卡和原题送过来。')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
-    expect(screen.getByText('正在读取所选题组')).toBeInTheDocument()
-    expect(screen.getByText('已等待 6 秒，请不要重复点击。')).toBeInTheDocument()
+    expect(screen.getByText('正在取题，马上开练')).toBeInTheDocument()
+    expect(screen.getByText('已经等了 6 秒，题组还在路上。')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(9_000) })
     expect(screen.getByRole('alert')).toHaveTextContent('连接复习服务已超过15秒')
-    expect(screen.getByRole('heading', { name: /测试学生，今天先把/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /测试学生，今天的题组备好啦/ })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: /重试开始第一轮/ }))
@@ -308,7 +309,7 @@ describe('StudentApp plan opening resilience', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /开始第一轮/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('服务器具体错误：本轮原题数量不足。')
-    expect(screen.getByRole('heading', { name: /测试学生，今天先把/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /测试学生，今天的题组备好啦/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试开始第一轮/ })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
