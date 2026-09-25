@@ -11,6 +11,7 @@ import { juniorPublicOptionProgress, juniorOptionContext, selectJuniorScheduledQ
 import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
 import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
 import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
+import { recommendStudyTopics, type StudyHistoryAnswer } from "./study-recommendations.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -119,6 +120,7 @@ const profileShape = (row: Record<string, unknown>) => ({
   id: row.id,
   displayName: row.display_name,
   gradeBand: row.grade_band,
+  schoolClass: row.school_class || null,
   enrollmentStartDate: row.enrollment_start_date,
   needsInitialDiagnostic: row.needs_initial_diagnostic,
   isDemo: Boolean((row.metadata as Record<string, unknown> | null)?.demo),
@@ -1971,7 +1973,7 @@ async function studentDashboard(studentId: string) {
   // once without weakening row scoping or the student-id checks.
   const [profileResult, planResult, stateResult, attemptResult, videoRecommendations] = await Promise.all([
     supabase.from("chem_students_v2")
-      .select("id,display_name,grade_band,textbook_version,enrollment_start_date,needs_initial_diagnostic,metadata")
+      .select("id,display_name,grade_band,school_class,textbook_version,enrollment_start_date,needs_initial_diagnostic,metadata")
       .eq("id", studentId)
       .single(),
     supabase.from("chem_learning_plans")
@@ -2061,15 +2063,25 @@ async function selfStudyCatalog(studentId: string) {
   if (profile.data.record_status !== "active" || !["初三", "高一", "高二", "高三"].includes(grade)) {
     throw new RequestError(403, "当前档案没有开放自主原题练习。");
   }
-  const [catalog, skills, readyRows, history, juniorHistory] = await Promise.all([
+  const [catalog, skills, readyRows, history, juniorHistory, reviewAttempts, skillStates, juniorSessions] = await Promise.all([
     supabase.rpc("chem_review_concept_catalog_rows"),
     supabase.from("chem_skills").select("id,title").eq("grade_band", grade).eq("active", true),
     supabase.rpc("chem_self_study_ready_catalog_rows", { p_grade: grade }),
     supabase.rpc("chem_review_answer_history", { p_student_id: studentId }),
     grade === "初三" ? supabase.rpc("chem_junior_choice_identity_history", { p_student_id: studentId }) : Promise.resolve({ data: [], error: null }),
+    supabase.from("chem_learning_attempts")
+      .select("completed_at,chem_attempt_answers(skill_id,concept_key,correct,uncertain)")
+      .eq("student_id", studentId).eq("mode", "REVIEW")
+      .order("completed_at", { ascending: false }).limit(500),
+    supabase.from("chem_student_skill_state")
+      .select("skill_id,next_review_at,last_reviewed_at,review_interval_index,consecutive_errors")
+      .eq("student_id", studentId),
+    grade === "初三" ? supabase.from("chem_junior_daily_sessions")
+      .select("chem_junior_session_steps(skill_id,question_id,correct,uncertain,answered_at)")
+      .eq("student_id", studentId).limit(200) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (catalog.error || skills.error || readyRows.error || history.error || juniorHistory.error) {
-    throw catalog.error || skills.error || readyRows.error || history.error || juniorHistory.error;
+  if (catalog.error || skills.error || readyRows.error || history.error || juniorHistory.error || reviewAttempts.error || skillStates.error || juniorSessions.error) {
+    throw catalog.error || skills.error || readyRows.error || history.error || juniorHistory.error || reviewAttempts.error || skillStates.error || juniorSessions.error;
   }
   const titleBySkill = new Map((skills.data || []).map((skill) => [String(skill.id), String(skill.title)]));
   const rows = (readyRows.data || []) as Array<Record<string, unknown>>;
@@ -2126,9 +2138,30 @@ async function selfStudyCatalog(studentId: string) {
     topic.originalCount = mothersByTopic.get(key)?.size || 0;
     topic.freshCount = freshMothersByTopic.get(key)?.size || 0;
   }
+  const answerEvidence: StudyHistoryAnswer[] = (reviewAttempts.data || []).flatMap((attempt) =>
+    (attempt.chem_attempt_answers || []).map((answer) => ({
+      skill_id: String(answer.skill_id || ""), concept_key: String(answer.concept_key || ""),
+      correct: answer.correct === true, uncertain: answer.uncertain === true,
+      completed_at: String(attempt.completed_at || ""),
+    })));
+  if (grade === "初三") {
+    const juniorAnswers = (juniorSessions.data || []).flatMap((session) => session.chem_junior_session_steps || [])
+      .filter((step) => Boolean(step.answered_at));
+    const juniorQuestionIds = [...new Set(juniorAnswers.map((step) => String(step.question_id)))];
+    if (juniorQuestionIds.length) {
+      const juniorQuestions = await supabase.from("chem_questions").select("id,concept_key").in("id", juniorQuestionIds);
+      if (juniorQuestions.error) throw juniorQuestions.error;
+      const conceptById = new Map((juniorQuestions.data || []).map((question) => [String(question.id), String(question.concept_key || "")]));
+      answerEvidence.push(...juniorAnswers.map((step) => ({
+        skill_id: String(step.skill_id || ""), concept_key: conceptById.get(String(step.question_id)) || "",
+        correct: step.correct === true, uncertain: step.uncertain === true,
+        completed_at: String(step.answered_at || ""),
+      })));
+    }
+  }
   return {
     grade,
-    topics: [...topics.values()],
+    topics: recommendStudyTopics([...topics.values()], answerEvidence, skillStates.data || []),
   };
 }
 

@@ -178,7 +178,8 @@ describe('StudentApp plan opening resilience', () => {
     const futurePlan = { ...plan, id: 'plan-future', date: tomorrow }
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
       void _input
-      void _init
+      const request = JSON.parse(String(_init?.body))
+      if (request.action === 'self_study_catalog') return jsonResponse({ catalog: { topics: [] } })
       return jsonResponse({
         preview: {
           previewMode: 'future_knowledge_only',
@@ -201,12 +202,13 @@ describe('StudentApp plan opening resilience', () => {
 
     expect(screen.getByRole('button', { name: '进入预习' })).toBeEnabled()
     expect(screen.getByRole('button', { name: /今天的氧化还原复习，可提前预习/ })).toBeEnabled()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.filter((call) => JSON.parse(String(call[1]?.body)).action === 'future_plan_preview')).toHaveLength(0)
 
     fireEvent.click(screen.getByRole('button', { name: '进入预习' }))
 
     expect(await screen.findByTestId('future-plan-preview')).toBeInTheDocument()
-    const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    const previewCall = fetchMock.mock.calls.find((call) => JSON.parse(String(call[1]?.body)).action === 'future_plan_preview')
+    const request = JSON.parse(String(previewCall?.[1]?.body))
     expect(request).toEqual({ action: 'future_plan_preview', data: { planId: futurePlan.id } })
     expect(screen.getByText('提前预习 · 只读知识页')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '氧化还原知识卡' })).toBeInTheDocument()
@@ -234,9 +236,10 @@ describe('StudentApp plan opening resilience', () => {
     chooseDate()
 
     fireEvent.click(screen.getByRole('button', { name: '开始今日学习' }))
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
-    const requestSignal = (fetchMock.mock.calls[0][1] as RequestInit).signal as AbortSignal
+    const juniorCalls = fetchMock.mock.calls.filter((call) => JSON.parse(String(call[1]?.body)).action === 'junior_open_session')
+    expect(juniorCalls).toHaveLength(1)
+    const request = JSON.parse(String((juniorCalls[0][1] as RequestInit).body))
+    const requestSignal = (juniorCalls[0][1] as RequestInit).signal as AbortSignal
     expect(request).toEqual({ action: 'junior_open_session', data: { planId: plan.id } })
     expect(requestSignal).toBeInstanceOf(AbortSignal)
     expect(requestSignal.aborted).toBe(false)
@@ -274,6 +277,7 @@ describe('StudentApp plan opening resilience', () => {
   })
 
   it('将正式单题组复习准确显示为今日原题，不再显示旧的多轮口径', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ catalog: { topics: [] } })))
     const formalPlan = { ...plan, roundLimit: 1, roundsRemaining: 1 }
     const formalDashboard = {
       ...dashboard,

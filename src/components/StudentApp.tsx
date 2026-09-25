@@ -16,7 +16,7 @@ import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
-import { StudyLibrary } from './StudyLibrary'
+import { StudyLibrary, type StudyTopic } from './StudyLibrary'
 
 type StudentView = 'choose' | 'today' | 'stage' | 'directory' | 'type' | 'reminders' | 'map' | 'growth' | 'settings'
 type IssuedQuestion = Omit<Question, 'correctOption' | 'explanation' | 'scaffold'> & Partial<Pick<Question, 'correctOption' | 'explanation' | 'scaffold'>>
@@ -137,6 +137,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [planOpenState, setPlanOpenState] = useState<PlanOpenState | null>(null)
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([])
+  const [studyCatalogLoading, setStudyCatalogLoading] = useState(false)
+  const [studyCatalogError, setStudyCatalogError] = useState('')
+  const [studyCatalogRevision, setStudyCatalogRevision] = useState(0)
+  const studyCatalogLoadedKey = useRef('')
   const planOpenRequestId = useRef(0)
   const planOpenAbort = useRef<AbortController | null>(null)
   const planRequestCache = useRef(new Map<string, PlanRequestEntry>())
@@ -150,6 +155,37 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
   const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today && !previewMode)
   const todayPlanIsCatchUp = Boolean(todayPlan && todayPlan.date < today)
+  const dueSkillCount = dashboard.skillStates.filter((state) => state.nextReviewAt && Date.parse(state.nextReviewAt) <= Date.now() && (state.verifiedLevel > 0 || state.consecutiveErrors > 0)).length
+  const recommendedReviews = useMemo(() => {
+    const distinct = new Map<string, StudyTopic>()
+    for (const topic of studyTopics.filter((item) => item.reviewPriority > 0)
+      .sort((a, b) => b.reviewPriority - a.reviewPriority || b.freshCount - a.freshCount)) {
+      const key = `${topic.skillId}|${topic.conceptKey}`
+      if (!distinct.has(key) || (!distinct.get(key)!.freshCount && topic.freshCount)) distinct.set(key, topic)
+    }
+    return [...distinct.values()].sort((a, b) => b.reviewPriority - a.reviewPriority)
+  }, [studyTopics])
+  const nextTeachingPlan = visiblePlans.find((plan) => plan.date >= today && !plan.isComplete)
+  const recommendedNewTopic = useMemo(() => {
+    const focus = nextTeachingPlan?.skillIds ?? []
+    return [...studyTopics].filter((topic) => topic.freshCount > 0 && topic.answeredCount === 0)
+      .sort((a, b) => Number(focus.includes(b.skillId)) - Number(focus.includes(a.skillId)) || a.sequence - b.sequence)[0]
+  }, [nextTeachingPlan, studyTopics])
+
+  useEffect(() => {
+    if (!['stage', 'directory', 'type', 'reminders'].includes(view)
+      && !(view === 'choose' && !previewMode && !dashboard.profile.isDemo)) return
+    const catalogKey = `${dashboard.profile.id}:${studyCatalogRevision}`
+    if (studyCatalogLoadedKey.current === catalogKey) return
+    let active = true
+    setStudyCatalogLoading(true)
+    setStudyCatalogError('')
+    accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog', dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
+      .then((result) => { if (active) { setStudyTopics(result.catalog.topics); studyCatalogLoadedKey.current = catalogKey } })
+      .catch((reason) => { if (active) setStudyCatalogError(reason instanceof Error ? reason.message : '原题目录暂时无法读取。') })
+      .finally(() => { if (active) setStudyCatalogLoading(false) })
+    return () => { active = false }
+  }, [session, dashboard.profile.id, dashboard.profile.isDemo, studyCatalogRevision, view, previewMode])
 
   const ensurePlanRequest = useCallback((plan: LearningPlanDay, previewRound?: number) => {
     const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
@@ -343,7 +379,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   if (activePlan) {
-    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
   }
 
   const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
@@ -362,6 +398,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         {!previewMode && !dashboard.profile.isDemo && <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings />账户设置</button>}
       </aside>
       <div className="role-content">
+        {view === 'choose' && <RecommendationOverview schoolClass={dashboard.profile.schoolClass} nextPlan={nextTeachingPlan} newTopic={recommendedNewTopic} reviews={recommendedReviews} dueSkillCount={dueSkillCount} loading={studyCatalogLoading} error={studyCatalogError} busy={busy || previewMode || Boolean(dashboard.profile.isDemo)} onOpenTopic={openSelfStudy} onBrowse={(nextView) => setView(nextView)} />}
         {error && <div className="inline-alert" role="alert">{error}</div>}
         {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title"><div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 自己选择学习方向</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天想怎么学？</h1><p>你可以随时换一种方式继续，学习记录都会保留。</p></div><div className="study-choice-grid"><button type="button" onClick={() => setView('today')}><Clock3 /><b>按日期</b><span>查看每天安排的题组，也能补学以前没做过的内容。</span><ChevronRight /></button><button type="button" onClick={() => setView('stage')}><Layers3 /><b>按学习阶段</b><span>从专题或进度节点进入，选择知识点后直接做原题。</span><ChevronRight /></button><button type="button" onClick={() => setView('directory')}><BookOpen /><b>按知识点</b><span>自己挑选一个知识点，直接做选择题并查看解析。</span><ChevronRight /></button><button type="button" onClick={() => setView('type')}><ListFilter /><b>按题型</b><span>按选择题专题选择原题训练。</span><ChevronRight /></button><button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒</b><span>处理到期复习和还没有完成的题组。</span><ChevronRight /></button></div>{dashboard.profile.isDemo && <div className="demo-grade-switch"><div><span className="eyebrow">演示查看</span><h2>切换年级查看原题目录</h2></div><div>{(dashboard.profile.availableDemoGrades ?? ['初三', '高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></div>}</section>}
         {view === 'today' && <>
@@ -385,10 +422,10 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
-        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
-        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
-        {view === 'reminders' && <StudyReminders dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || previewMode || Boolean(dashboard.profile.isDemo)} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}
         {view === 'settings' && <AccountSettings session={session} />}
@@ -495,22 +532,35 @@ function splitCalendarWeeks(plans: LearningPlanDay[]) {
 
 const weekdayLabel = (date: string) => `周${'日一二三四五六'[new Date(`${date}T12:00:00+08:00`).getUTCDay()]}`
 
-function StudyReminders({ dashboard, onOpenPlan, busy }: { dashboard: StudentDashboardData; onOpenPlan: (plan: LearningPlanDay) => void; busy: boolean }) {
+function RecommendationOverview({ schoolClass, nextPlan, newTopic, reviews, dueSkillCount, loading, error, busy, onOpenTopic, onBrowse }: {
+  schoolClass?: string | null
+  nextPlan?: LearningPlanDay
+  newTopic?: StudyTopic
+  reviews: StudyTopic[]
+  dueSkillCount: number
+  loading: boolean
+  error: string
+  busy: boolean
+  onOpenTopic: (skillId: string, conceptKey: string, releaseId: string) => Promise<void>
+  onBrowse: (view: StudentView) => void
+}) {
+  const firstReadyReview = reviews.find((topic) => topic.freshCount > 0)
+  return <section className="study-recommendations" aria-label="新学与复习建议">
+    <article><span className="eyebrow"><BookOpen size={15} /> 新学计划 · {schoolClass || '按个人与班级进度'}</span><h2>{newTopic ? <ChemText>{newTopic.title}</ChemText> : '自己选想学的内容'}</h2><p>{nextPlan ? `老师的下一项日期安排：${nextPlan.title}。新学内容会参考这份安排，但你可以自由选别的知识点。` : '各学校和班级进度不同，打开题库自由选择；老师的日期安排也会保留。'}</p><div className="study-recommendation-actions">{newTopic && <button className="primary-button compact" disabled={busy} onClick={() => void onOpenTopic(newTopic.skillId, newTopic.conceptKey, newTopic.releaseId)}>开始这组原题<ChevronRight size={16} /></button>}<button className="secondary-button compact" onClick={() => onBrowse('directory')}>自己选知识点</button></div></article>
+    <article><span className="eyebrow"><RotateCcw size={15} /> 复习计划 · 根据个人作答</span><h2>{reviews.length ? `${reviews.length} 个知识点到了复查时间` : dueSkillCount ? `${dueSkillCount} 个模块到了复查时间` : loading ? '正在查看学习记录…' : '当前没有到期提醒'}</h2><p>{firstReadyReview?.reviewReason || (reviews.length ? '同知识点的合格新原题暂时不足，记录已保留，不会拿别的题替代。' : '错题、不确定作答和复查间隔会随每次作答更新。想练什么仍由你自己决定。')}</p><div className="study-recommendation-actions">{firstReadyReview && <button className="primary-button compact" disabled={busy} onClick={() => void onOpenTopic(firstReadyReview.skillId, firstReadyReview.conceptKey, firstReadyReview.releaseId)}>做复习原题<ChevronRight size={16} /></button>}<button className="secondary-button compact" onClick={() => onBrowse('reminders')}>查看复习计划</button></div></article>
+    {error && <p className="inline-alert" role="alert">{error}</p>}
+  </section>
+}
+
+function StudyReminders({ dashboard, reviews, catalogLoading, catalogError, onOpenPlan, onOpenTopic, busy }: { dashboard: StudentDashboardData; reviews: StudyTopic[]; catalogLoading: boolean; catalogError: string; onOpenPlan: (plan: LearningPlanDay) => void; onOpenTopic: (skillId: string, conceptKey: string, releaseId: string) => Promise<void>; busy: boolean }) {
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  const skillNames = new Map(dashboard.skillDefinitions.map((skill) => [skill.id, skill.title]))
-  const dueSkills = dashboard.skillStates.filter((state) => state.nextReviewAt && state.nextReviewAt.slice(0, 10) <= today && state.verifiedLevel > 0)
-  const overduePlans = dashboard.plans.filter((plan) => plan.date < today && !plan.isComplete).sort((a, b) => a.date.localeCompare(b.date))
-  const duePlanIds = new Set(overduePlans.map((plan) => plan.id))
-  const skillReminders = dueSkills.map((state) => ({
-    state,
-    plan: dashboard.plans.filter((plan) => plan.date <= today && plan.skillIds.includes(state.skillId))
-      .sort((a, b) => b.date.localeCompare(a.date))[0],
-  }))
-  const suggested = overduePlans[0] ?? skillReminders.find((item) => item.plan)?.plan
+  const overduePlans = dashboard.plans.filter((plan) => plan.deliveryMode !== 'self_study' && plan.date < today && !plan.isComplete).sort((a, b) => a.date.localeCompare(b.date))
+  const readyReview = reviews.find((topic) => topic.freshCount > 0)
   return <section className="study-reminders" aria-labelledby="study-reminders-title">
-    <div className="page-title"><span className="eyebrow"><Bell size={14} />根据真实作答提醒</span><h1 id="study-reminders-title">按提醒学习</h1><p>系统把尚未完成的日期题组和已到复习时间的知识点列在这里。提醒根据学习记录变化，完成后会更新。</p></div>
-    {suggested && <div className="reminder-suggestion"><div><span className="eyebrow">建议先做</span><h2><ChemText>{suggested.title}</ChemText></h2><p>{suggested.date < today ? '这是较早安排、尚未完成的题组，先补上有助于接续后面的内容。' : '这个题组覆盖需要复习的知识点。'}</p></div><button className="primary-button compact" type="button" onClick={() => onOpenPlan(suggested)} disabled={busy}>进入题组<ChevronRight size={16} /></button></div>}
-    <div className="reminder-columns"><section><h2>待补的题组 <small>{overduePlans.length}</small></h2>{overduePlans.length ? <div className="reminder-list">{overduePlans.map((plan) => <article key={plan.id}><div><small>{plan.date} · {plan.attemptCount > 0 ? '继续完成' : '第一次学习'}</small><h3><ChemText>{plan.title}</ChemText></h3><p>{plan.knowledgeSummaries.slice(0, 2).join(' · ')}</p></div><button className="secondary-button compact" type="button" onClick={() => onOpenPlan(plan)} disabled={busy}>去补学</button></article>)}</div> : <EmptyState text="目前没有待补的历史题组。" />}</section><section><h2>到期复习的知识点 <small>{dueSkills.length}</small></h2>{skillReminders.length ? <div className="reminder-list">{skillReminders.map(({ state, plan }) => <article key={state.skillId}><div><small>复习时间 {state.nextReviewAt?.slice(0, 10)}</small><h3><ChemText>{skillNames.get(state.skillId) ?? state.skillId}</ChemText></h3><p>已有真实作答证据，建议再次用原题检查是否记牢。</p></div>{plan && !duePlanIds.has(plan.id) ? <button className="secondary-button compact" type="button" onClick={() => onOpenPlan(plan)} disabled={busy}>去复习</button> : !plan ? <small>等待对应题组安排</small> : null}</article>)}</div> : <EmptyState text="目前没有到期的知识点提醒。" />}</section></div>
+    <div className="page-title"><span className="eyebrow"><Bell size={14} />根据个人作答与复查间隔</span><h1 id="study-reminders-title">我的复习计划</h1><p>错题和不确定作答优先；稳定后逐步拉开复查间隔。你可随时改选别的内容。</p></div>
+    {catalogError && <p className="inline-alert" role="alert">{catalogError}</p>}
+    {readyReview && <div className="reminder-suggestion"><div><span className="eyebrow">建议先复习</span><h2><ChemText>{readyReview.title}</ChemText></h2><p>{readyReview.reviewReason}</p></div><button className="primary-button compact" type="button" onClick={() => void onOpenTopic(readyReview.skillId, readyReview.conceptKey, readyReview.releaseId)} disabled={busy}>做同知识点原题<ChevronRight size={16} /></button></div>}
+    <div className="reminder-columns"><section><h2>日期计划待补 <small>{overduePlans.length}</small></h2>{overduePlans.length ? <div className="reminder-list">{overduePlans.map((plan) => <article key={plan.id}><div><small>{plan.date} · {plan.attemptCount > 0 ? '继续完成' : '第一次学习'}</small><h3><ChemText>{plan.title}</ChemText></h3><p>{plan.knowledgeSummaries.slice(0, 2).join(' · ')}</p></div><button className="secondary-button compact" type="button" onClick={() => onOpenPlan(plan)} disabled={busy}>去补学</button></article>)}</div> : <EmptyState text="目前没有待补的历史题组。" />}</section><section><h2>到期复习 <small>{reviews.length}</small></h2>{catalogLoading ? <p>正在读取个人复习记录…</p> : reviews.length ? <div className="reminder-list">{reviews.map((topic) => <article key={`${topic.skillId}:${topic.conceptKey}`}><div><small>建议复查 {topic.reviewDueAt ? new Date(topic.reviewDueAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) : ''} · 已做 {topic.answeredCount} 道</small><h3><ChemText>{topic.title}</ChemText></h3><p>{topic.reviewReason}</p></div>{topic.freshCount > 0 ? <button className="secondary-button compact" type="button" onClick={() => void onOpenTopic(topic.skillId, topic.conceptKey, topic.releaseId)} disabled={busy}>去复习</button> : <small>同知识点新原题待补</small>}</article>)}</div> : <EmptyState text="目前没有到期的知识点提醒。" />}</section></div>
   </section>
 }
 

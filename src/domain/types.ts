@@ -497,6 +497,7 @@ export interface VideoRecommendationFilter {
 export interface StudentDashboardData {
   profile: Pick<StudentProfile, 'id' | 'displayName' | 'gradeBand' | 'enrollmentStartDate' | 'needsInitialDiagnostic'> & {
     isDemo?: boolean
+    schoolClass?: string | null
     availableDemoGrades?: GradeBand[]
   }
   plans: LearningPlanDay[]

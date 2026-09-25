@@ -1,39 +1,27 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { BookOpen, ChevronRight, ExternalLink, Search, Trophy } from 'lucide-react'
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
-import type { SessionIdentity, StudentDashboardData } from '../domain/types'
-import { accessApi } from '../lib/api'
+import type { StudentDashboardData } from '../domain/types'
 
 export type LibraryAxis = 'stage' | 'knowledge' | 'type'
-type Topic = { skillId: string; skillTitle: string; conceptKey: string; title: string; sequence: number; originalCount: number; freshCount: number; releaseId: string; releaseKind: 'primary' | 'teaching_material' }
+export type StudyTopic = { skillId: string; skillTitle: string; conceptKey: string; title: string; sequence: number; originalCount: number; freshCount: number; releaseId: string; releaseKind: 'primary' | 'teaching_material'; answeredCount: number; recentCorrect: number; reviewDueAt: string | null; reviewPriority: number; reviewReason: string | null }
 const COPY = {
   stage: ['按学习阶段', '从当前专题选一个知识点，直接做已核对的原题。'],
   knowledge: ['按知识点', '自己挑选想突破的知识点，纸上演算后选择 A、B、C、D。'],
   type: ['按题型', '从选择题专题进入；所有题组都用题库原题和四个选项。'],
 } as const
 
-export function StudyLibrary({ axis, dashboard, session, onStart, busy }: {
+export function StudyLibrary({ axis, dashboard, topics, loading, error, onStart, busy }: {
   axis: LibraryAxis
   dashboard: StudentDashboardData
-  session: SessionIdentity
+  topics: StudyTopic[]
+  loading: boolean
+  error: string
   onStart: (skillId: string, conceptKey: string, releaseId: string) => Promise<void>
   busy: boolean
 }) {
   const [search, setSearch] = useState('')
-  const [topics, setTopics] = useState<Topic[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const grade = dashboard.profile.gradeBand
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError('')
-    accessApi<{ catalog: { topics: Topic[] } }>(session, 'self_study_catalog', dashboard.profile.isDemo ? { studentId: dashboard.profile.id } : {})
-      .then((result) => { if (active) setTopics(result.catalog.topics) })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '题库目录暂时无法加载。') })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [session, dashboard.profile.id, dashboard.profile.isDemo])
 
   const lectureBySkill = useMemo(() => {
     const map = new Map<string, typeof LECTURE_SECTIONS[number]>()
@@ -42,7 +30,7 @@ export function StudyLibrary({ axis, dashboard, session, onStart, busy }: {
     }))
     return map
   }, [grade])
-  const groups = new Map<string, Topic[]>()
+  const groups = new Map<string, StudyTopic[]>()
   topics.filter((topic) => `${topic.title} ${topic.skillTitle} ${lectureBySkill.get(topic.skillId)?.type || ''}`.includes(search.trim()))
     .sort((a, b) => a.skillTitle.localeCompare(b.skillTitle, 'zh-CN') || a.sequence - b.sequence)
     .forEach((topic) => {
@@ -65,10 +53,10 @@ export function StudyLibrary({ axis, dashboard, session, onStart, busy }: {
     {[...groups].map(([label, items]) => <section className="library-group" key={label}><div className="library-group-head"><h2>{label}</h2><span>{items.length} 个知识点</span></div><div className="library-grid">{items.map((topic) => {
       const lecture = lectureBySkill.get(topic.skillId)
       const ready = topic.freshCount >= 1
-      const status = perfect.has(topic.conceptKey) ? '满分通关' : completed.has(topic.conceptKey) ? '已挑战' : '待挑战'
+      const status = perfect.has(topic.conceptKey) ? '满分通关' : completed.has(topic.conceptKey) || topic.answeredCount > 0 ? '已练过' : '待挑战'
       return <article className="library-card self-study-card" key={`${topic.conceptKey}:${topic.releaseId}`}>
         <span className="library-card-book"><BookOpen size={15} />{topic.skillTitle} · {topic.releaseKind === 'teaching_material' ? '讲义原题' : '题库原题'} · {status}</span><b>{topic.title}</b>
-        <span>{topic.originalCount} 道已核对原题 · 还可练 {topic.freshCount} 道</span>
+        <span>{topic.originalCount} 道已核对原题 · 还可练 {topic.freshCount} 道{topic.reviewPriority > 0 ? ' · 到期复习' : ''}</span>
         <div className="self-study-card-actions"><button type="button" className="primary-button compact" disabled={!ready || busy || dashboard.profile.isDemo} onClick={() => void onStart(topic.skillId, topic.conceptKey, topic.releaseId)}>{ready ? dashboard.profile.isDemo ? '演示账号只读' : completed.has(topic.conceptKey) ? '再练一关' : '开始闯关' : '暂无未做原题'}<ChevronRight size={16} /></button>
         {lecture && <a href={lectureUrl(lecture)} target="_blank" rel="noopener noreferrer" aria-label={`查看${topic.title}相关讲义`}>相关讲义<ExternalLink size={14} /></a>}</div>
       </article>
