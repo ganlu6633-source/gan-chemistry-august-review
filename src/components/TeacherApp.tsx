@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { AlertCircle, BookOpen, CheckCircle2, ClipboardPen, Eye, Film, GraduationCap, KeyRound, LayoutDashboard, LogIn, MessageSquareText, MonitorPlay, RefreshCw, Save, Settings2, Shield, Users } from 'lucide-react'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import type { GradeBand, QuestionAssetRef, QuestionSourceInfo, StudentDashboardData, TeacherDashboardData, TeacherObservation } from '../domain/types'
-import { loadTeacherDashboard, saveTeacherObservation, teacherApi } from '../lib/api'
+import { loadStudentPreviewDashboard, loadTeacherDashboard, saveTeacherObservation, teacherApi } from '../lib/api'
 import { clearAccessSession, readAccessSession } from '../lib/session'
 import { ChemText } from './ChemText'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
@@ -27,15 +27,17 @@ function TeacherWorkspace({ onPreviewStudent }: { onPreviewStudent?: (studentId:
   const [loading, setLoading] = useState(true)
   const [dismissedPoolBlockerKey, setDismissedPoolBlockerKey] = useState('')
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, force = true) => {
     if (refreshing.current || (silent && document.visibilityState === 'hidden')) return
     refreshing.current = true
     if (!silent) setLoading(true)
     setError('')
-    try { const result = await loadTeacherDashboard(); setDashboard(result.dashboard) } catch (reason) { setError(reason instanceof Error ? reason.message : '教师数据读取失败。') } finally { refreshing.current = false; if (!silent) setLoading(false) }
+    try { const result = await loadTeacherDashboard(force); setDashboard(result.dashboard) } catch (reason) { setError(reason instanceof Error ? reason.message : '教师数据读取失败。') } finally { refreshing.current = false; if (!silent) setLoading(false) }
   }, [])
   useEffect(() => {
-    void refresh()
+    void refresh(false, false)
+  }, [refresh])
+  useEffect(() => {
     const silentRefresh = () => { if (view === 'overview') void refresh(true) }
     const onVisibility = () => { if (document.visibilityState === 'visible') silentRefresh() }
     const timer = window.setInterval(silentRefresh, 10000)
@@ -182,7 +184,7 @@ function StudentPreview({ dashboard, initialStudentId, onOpenFull }: { dashboard
     setLoading(true)
     setError('')
     setPreview((current) => current?.profile.id === studentId ? current : null)
-    void teacherApi<{ dashboard: StudentDashboardData }>('student_preview_dashboard', { studentId })
+    void loadStudentPreviewDashboard(studentId)
       .then((result) => { if (active) setPreview(result.dashboard) })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '学生端预览暂时无法打开。') })
       .finally(() => { if (active) setLoading(false) })

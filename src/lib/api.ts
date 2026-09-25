@@ -10,6 +10,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 const learningRecordRequests = new Map<string, { expiresAt: number; promise: Promise<{ record: LearningRecordData }> }>()
 const LEARNING_RECORD_CACHE_MS = 60_000
+const studentPreviewRequests = new Map<string, { expiresAt: number; promise: Promise<{ dashboard: StudentDashboardData }> }>()
+const STUDENT_PREVIEW_CACHE_MS = 15_000
+const teacherDashboardRequests = new Map<string, { expiresAt: number; promise: Promise<{ dashboard: TeacherDashboardData }> }>()
+const TEACHER_DASHBOARD_CACHE_MS = 20_000
 
 function invalidateLearningRecord(session: SessionIdentity) {
   for (const key of learningRecordRequests.keys()) {
@@ -172,11 +176,39 @@ export async function teacherApi<T>(action: string, data?: unknown, options?: Ap
     body: JSON.stringify({ action, data }),
     signal: options?.signal,
   })
-  return parseResponse<T>(response)
+  const result = await parseResponse<T>(response)
+  if (['manage_student', 'manage_class', 'apply_teaching_plan'].includes(action)) studentPreviewRequests.clear()
+  if (['manage_student', 'manage_class', 'apply_teaching_plan', 'create_video_recommendation',
+    'publish_video_recommendation', 'withdraw_video_recommendation', 'save_observation',
+    'reset_access_code', 'reset_access_codes', 'review_question', 'approve_course_node'].includes(action)) teacherDashboardRequests.clear()
+  return result
 }
 
-export async function loadTeacherDashboard() {
-  return teacherApi<{ dashboard: TeacherDashboardData }>('teacher_dashboard')
+export function loadTeacherDashboard(force = false) {
+  const session = readAccessSession()
+  if (session?.role !== 'teacher') return Promise.reject(new Error('教师登录已失效，请重新输入姓名和登录码。'))
+  const key = session.token
+  const cached = teacherDashboardRequests.get(key)
+  if (!force && cached && cached.expiresAt > Date.now()) return cached.promise
+  const promise = teacherApi<{ dashboard: TeacherDashboardData }>('teacher_dashboard')
+  const entry = { expiresAt: Date.now() + TEACHER_DASHBOARD_CACHE_MS, promise }
+  teacherDashboardRequests.set(key, entry)
+  void promise.catch(() => { if (teacherDashboardRequests.get(key) === entry) teacherDashboardRequests.delete(key) })
+  return promise
+}
+
+/** Reuse the just-loaded read-only preview when entering its full-screen route. */
+export function loadStudentPreviewDashboard(studentId: string) {
+  const session = readAccessSession()
+  if (session?.role !== 'teacher') return Promise.reject(new Error('教师登录已失效，请重新输入姓名和登录码。'))
+  const key = `${session.token}:${studentId}`
+  const cached = studentPreviewRequests.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+  const promise = teacherApi<{ dashboard: StudentDashboardData }>('student_preview_dashboard', { studentId })
+  const entry = { expiresAt: Date.now() + STUDENT_PREVIEW_CACHE_MS, promise }
+  studentPreviewRequests.set(key, entry)
+  void promise.catch(() => { if (studentPreviewRequests.get(key) === entry) studentPreviewRequests.delete(key) })
+  return promise
 }
 
 export async function saveTeacherObservation(observation: Omit<TeacherObservation, 'id'>) {

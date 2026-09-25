@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TeacherDashboardData } from '../domain/types'
-import { SourcePoolWarnings, StudentTable } from './TeacherApp'
+import { SourcePoolWarnings, StudentTable, TeacherGate } from './TeacherApp'
+import { clearAccessSession, writeAccessSession } from '../lib/session'
 
 const dashboard: TeacherDashboardData = {
   students: [
@@ -17,7 +18,21 @@ const dashboard: TeacherDashboardData = {
 }
 
 describe('Teacher student directory', () => {
-  afterEach(cleanup)
+  afterEach(() => { cleanup(); clearAccessSession(); vi.unstubAllGlobals() })
+
+  it('keeps the loaded dashboard while switching sections instead of blocking on a repeat request', async () => {
+    writeAccessSession({ role: 'teacher', token: 'teacher-section-speed-test', displayName: '甘老师', expiresAt: '2099-01-01T00:00:00Z' })
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(JSON.parse(String(init?.body)).action)
+      return new Response(JSON.stringify({ dashboard }), { status: 200 })
+    }))
+    render(<TeacherGate />)
+    expect(await screen.findByRole('heading', { name: '今天最值得看的事' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '课堂记录' }))
+    expect(screen.getByRole('heading', { name: '快速课堂记录' })).toBeInTheDocument()
+    await waitFor(() => expect(requests).toEqual(['teacher_dashboard']))
+  })
 
   it('filters students by grade and keeps all registered guardian names visible', () => {
     render(<StudentTable dashboard={dashboard} onPreview={() => undefined} />)

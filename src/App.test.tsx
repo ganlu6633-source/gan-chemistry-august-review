@@ -33,4 +33,26 @@ describe('student login speed', () => {
     expect(actions.filter((action) => action === 'login')).toHaveLength(1)
     expect(actions.filter((action) => action === 'student_dashboard')).toHaveLength(0)
   })
+
+  it('starts one teacher dashboard request as soon as login succeeds and reuses it on the teacher route', async () => {
+    const actions: string[] = []
+    const teacherSession = { ...session, role: 'teacher' as const, token: 'teacher-login-speed-test', displayName: '甘老师' }
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const action = JSON.parse(String(init?.body)).action as string
+      actions.push(action)
+      const payload = action === 'login' ? { session: teacherSession } : { dashboard: {
+        students: [], alerts: [], dailySummary: { generatedAt: null, classQuizCount: 0, quizCompletedStudentCount: 0,
+          quizRosterCount: 0, reviewCount: 0, interventionCount: 0 }, recentQuizSessions: [], pendingCourseNodes: 0, pendingQuestions: 0,
+      } }
+      return new Response(JSON.stringify(payload), { status: 200 })
+    }))
+
+    render(<MemoryRouter><App /></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText('输入姓名'), { target: { value: '甘老师' } })
+    fireEvent.change(screen.getByLabelText('登录码'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: /进入我的化学世界/ }))
+
+    expect(await screen.findByRole('heading', { name: '今天最值得看的事' })).toBeInTheDocument()
+    expect(actions).toEqual(['login', 'teacher_dashboard'])
+  })
 })

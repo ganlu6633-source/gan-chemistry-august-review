@@ -6,7 +6,7 @@ import { AccessGate } from './components/AccessGate'
 const StudentApp = lazy(() => import('./components/StudentApp').then((module) => ({ default: module.StudentApp })))
 const GuardianApp = lazy(() => import('./components/GuardianApp').then((module) => ({ default: module.GuardianApp })))
 const TeacherGate = lazy(() => import('./components/TeacherApp').then((module) => ({ default: module.TeacherGate })))
-import { loadGuardianDashboard, loadStudentDashboard, teacherApi } from './lib/api'
+import { loadGuardianDashboard, loadStudentDashboard, loadStudentPreviewDashboard, loadTeacherDashboard } from './lib/api'
 import { clearAccessSession, readAccessSession, writeAccessSession } from './lib/session'
 
 type Dashboard = StudentDashboardData | GuardianDashboardData
@@ -32,7 +32,7 @@ function TeacherStudentPreview() {
     let active = true
     setDashboard(null)
     setError('')
-    void teacherApi<{ dashboard: StudentDashboardData }>('student_preview_dashboard', { studentId })
+    void loadStudentPreviewDashboard(studentId)
       .then((result) => { if (active) setDashboard(result.dashboard) })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '只读预览暂时无法打开。') })
     return () => { active = false }
@@ -103,7 +103,13 @@ function AccessExperience() {
     writeAccessSession(nextSession)
     hydratedByLogin.current = nextDashboard ? nextSession.token : null
     setSession(nextSession)
-    if (nextSession.role === 'teacher') { setDashboard(null); navigate('/teacher'); return }
+    if (nextSession.role === 'teacher') {
+      setDashboard(null)
+      // Overlap the teacher-data request with loading the teacher route chunk.
+      void loadTeacherDashboard().catch(() => undefined)
+      navigate('/teacher')
+      return
+    }
     if (nextDashboard) setDashboard(nextDashboard)
   }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionIdentity } from '../domain/types'
-import { accessApi, loadLearningRecord, openJuniorAdaptiveSession, previewQuestionFeedback } from './api'
+import { accessApi, loadLearningRecord, loadStudentPreviewDashboard, loadTeacherDashboard, openJuniorAdaptiveSession, previewQuestionFeedback, teacherApi } from './api'
 import { clearAccessSession, writeAccessSession } from './session'
 
 const session: SessionIdentity = { role: 'student', token: 'student-session', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }
@@ -86,5 +86,39 @@ describe('learning record navigation cache', () => {
     await accessApi(currentSession, 'submit_attempt', {})
     await loadLearningRecord(currentSession)
     expect(actions).toEqual(['learning_record', 'submit_attempt', 'learning_record'])
+  })
+})
+
+describe('teacher student preview navigation cache', () => {
+  afterEach(() => { clearAccessSession(); vi.unstubAllGlobals() })
+
+  it('reuses the same authorized preview between the summary and full-screen page, then invalidates after management changes', async () => {
+    writeAccessSession({ ...session, role: 'teacher', token: 'teacher-preview-cache-session' })
+    const actions: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { action: string }
+      actions.push(request.action)
+      return new Response(JSON.stringify(request.action === 'student_preview_dashboard'
+        ? { dashboard: { profile: { id: 'student-one' } } } : { ok: true }), { status: 200 })
+    }))
+
+    await Promise.all([loadStudentPreviewDashboard('student-one'), loadStudentPreviewDashboard('student-one')])
+    await loadStudentPreviewDashboard('student-one')
+    expect(actions).toEqual(['student_preview_dashboard'])
+
+    await teacherApi('manage_student', { action: 'update' })
+    await loadStudentPreviewDashboard('student-one')
+    expect(actions).toEqual(['student_preview_dashboard', 'manage_student', 'student_preview_dashboard'])
+  })
+
+  it('opens the teacher workspace from a recent in-memory dashboard while explicit refresh still requests current data', async () => {
+    writeAccessSession({ ...session, role: 'teacher', token: 'teacher-dashboard-cache-session' })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ dashboard: { students: [] } }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await loadTeacherDashboard()
+    await loadTeacherDashboard()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await loadTeacherDashboard(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

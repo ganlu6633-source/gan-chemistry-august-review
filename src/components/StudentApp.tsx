@@ -221,7 +221,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   useEffect(() => {
     if (
       !todayPlan
-      || todayPlan.date !== today
+      || todayPlan.date > today
       || todayPlan.isComplete
       || todayPlan.mode !== 'REVIEW'
       || todayPlan.deliveryMode === 'junior_adaptive'
@@ -358,9 +358,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   async function openRecoveryStudy(skillId: string, conceptKey: string) {
     if (previewMode || dashboard.profile.isDemo) throw new Error('教师演示只读，不会为真实学生创建专项练习。')
-    const result = await accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog')
-    setStudyTopics(result.catalog.topics)
-    const topic = result.catalog.topics
+    const topics = studyTopics.length ? studyTopics : (await accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog')).catalog.topics
+    if (!studyTopics.length) setStudyTopics(topics)
+    const topic = topics
       .filter((item) => item.skillId === skillId && item.conceptKey === conceptKey && item.freshCount > 0)
       .sort((a, b) => Number(a.releaseKind !== 'primary') - Number(b.releaseKind !== 'primary') || b.freshCount - a.freshCount)[0]
     if (!topic) throw new Error('这个小点暂时没有新的已审核原题。已保留刚才的作答记录，不会拿别的题凑数。')
