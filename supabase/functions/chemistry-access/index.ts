@@ -171,6 +171,7 @@ const planShape = (
     estimatedMinutes: row.estimated_minutes, source: row.source, isScheduled: row.is_scheduled,
     questionCount: latestAnswers.length > questionCount ? latestAnswers.length : questionCount,
     roundLimit, maxQuestionLevel: maximumLevel, deliveryMode,
+    selfStudyReleaseId: row.self_study_release_id || null,
     teachingManaged: row.teaching_managed === true, teachingSourceGrade: row.teaching_source_grade || null,
     juniorSessionStatus: deliveryMode === "junior_adaptive" ? String(juniorSession?.status || "not_started") : null,
     hardQuestionCap: deliveryMode === "junior_adaptive" ? 15 : null,
@@ -2057,69 +2058,87 @@ async function selfStudyCatalog(studentId: string) {
   const profile = await supabase.from("chem_students_v2").select("grade_band,record_status,metadata").eq("id", studentId).single();
   if (profile.error) throw profile.error;
   const grade = String(profile.data.grade_band);
-  if (profile.data.record_status !== "active" || !["高一", "高二", "高三"].includes(grade)) {
-    throw new RequestError(403, "当前档案没有开放高中自主练习。");
+  if (profile.data.record_status !== "active" || !["初三", "高一", "高二", "高三"].includes(grade)) {
+    throw new RequestError(403, "当前档案没有开放自主原题练习。");
   }
-  const releaseId = await activeVerifiedSourceReleaseId(grade);
-  const [catalog, skills, questions, history, holds] = await Promise.all([
+  const [catalog, skills, readyRows, history, juniorHistory] = await Promise.all([
     supabase.rpc("chem_review_concept_catalog_rows"),
     supabase.from("chem_skills").select("id,title").eq("grade_band", grade).eq("active", true),
-    supabase.from("chem_questions")
-      .select("id,mother_id,concept_key,asset_refs,stem,options,correct_option,explanation,source_item_key,content_fingerprint")
-      .eq("grade_band", grade).eq("source_release_id", releaseId)
-      .eq("source_kind", "licensed_local").eq("render_mode", "image_primary")
-      .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true),
+    supabase.rpc("chem_self_study_ready_catalog_rows", { p_grade: grade }),
     supabase.rpc("chem_review_answer_history", { p_student_id: studentId }),
-    supabase.rpc("chem_question_delivery_holds"),
+    grade === "初三" ? supabase.rpc("chem_junior_choice_identity_history", { p_student_id: studentId }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (catalog.error || skills.error || questions.error || history.error || holds.error) {
-    throw catalog.error || skills.error || questions.error || history.error || holds.error;
+  if (catalog.error || skills.error || readyRows.error || history.error || juniorHistory.error) {
+    throw catalog.error || skills.error || readyRows.error || history.error || juniorHistory.error;
   }
   const titleBySkill = new Map((skills.data || []).map((skill) => [String(skill.id), String(skill.title)]));
-  const mothersByConcept = new Map<string, Set<string>>();
-  const freshMothersByConcept = new Map<string, Set<string>>();
-  const usedIds = new Set(((history.data || []) as Array<Record<string, unknown>>).map((row) => String(row.question_id)));
-  const usedMothers = new Set(((history.data || []) as Array<Record<string, unknown>>).map((row) => String(row.mother_id)).filter(Boolean));
-  const heldIds = new Set(((holds.data || []) as Array<Record<string, unknown>>).map((row) => String(row.question_id)));
+  const rows = (readyRows.data || []) as Array<Record<string, unknown>>;
+  const primaryReleaseId = grade === "初三"
+    ? String(rows.find((row) => row.release_kind === "primary")?.source_release_id || "")
+    : await activeVerifiedSourceReleaseId(grade);
+  const topics = new Map<string, {
+    skillId: string; skillTitle: string; conceptKey: string; title: string; sequence: number;
+    releaseId: string; releaseKind: string; originalCount: number; freshCount: number;
+  }>();
+  const topicId = (skillId: string, conceptKey: string, releaseId: string) => `${skillId}|${conceptKey}|${releaseId}`;
+  // Keep the full audited concept outline visible, including sections still
+  // short of original questions, while only enabling genuinely ready rows.
+  for (const row of (catalog.data || []) as Array<Record<string, unknown>>) {
+    if (String(row.grade_band) !== grade || !primaryReleaseId || !titleBySkill.has(String(row.skill_id))) continue;
+    const skillId = String(row.skill_id);
+    const conceptKey = String(row.concept_key);
+    topics.set(topicId(skillId, conceptKey, primaryReleaseId), {
+      skillId, skillTitle: titleBySkill.get(skillId)!, conceptKey,
+      title: String(row.concept_title), sequence: Number(row.sequence_no) || 0,
+      releaseId: primaryReleaseId, releaseKind: "primary", originalCount: 0, freshCount: 0,
+    });
+  }
+  const mothersByTopic = new Map<string, Set<string>>();
+  const freshMothersByTopic = new Map<string, Set<string>>();
+  const allHistory = [...(history.data || []), ...(juniorHistory.data || [])] as Array<Record<string, unknown>>;
+  const usedIds = new Set(allHistory.map((row) => String(row.question_id)));
+  const usedMothers = new Set(allHistory.map((row) => String(row.mother_id)).filter(Boolean));
   const scheduledIds = new Set(Object.values((profile.data.metadata?.reviewProgram?.questionAssignments ?? {}) as Record<string, unknown>)
     .flatMap((ids) => Array.isArray(ids) ? ids.map(String) : []));
-  for (const row of questions.data || []) {
-    if (!row.mother_id || !hasRequiredReviewSourceAssets(row.asset_refs)
-      || !String(row.stem || "").trim() || !String(row.explanation || "").trim()
-      || !Array.isArray(row.options) || row.options.length !== 4
-      || row.options.some((option: unknown) => typeof option !== "string" || !option.trim())
-      || !Number.isInteger(row.correct_option) || row.correct_option < 0 || row.correct_option > 3) continue;
-    const key = String(row.concept_key || "");
-    const mothers = mothersByConcept.get(key) || new Set<string>();
+  for (const row of rows) {
+    if (!row.mother_id || !validUuid(String(row.source_release_id || ""))
+      || (grade !== "初三" && !hasRequiredReviewSourceAssets(row.asset_refs))) continue;
+    const skillId = String(row.skill_id);
+    const conceptKey = String(row.concept_key);
+    const releaseId = String(row.source_release_id);
+    const key = topicId(skillId, conceptKey, releaseId);
+    if (!topics.has(key)) topics.set(key, {
+      skillId, skillTitle: String(row.skill_title), conceptKey,
+      title: String(row.concept_title), sequence: Number(row.sequence_no) || 9999,
+      releaseId, releaseKind: String(row.release_kind), originalCount: 0, freshCount: 0,
+    });
+    const mothers = mothersByTopic.get(key) || new Set<string>();
     mothers.add(String(row.mother_id));
-    mothersByConcept.set(key, mothers);
-    if (!usedIds.has(String(row.id)) && !usedMothers.has(String(row.mother_id))
-      && !heldIds.has(String(row.id)) && !scheduledIds.has(String(row.id))) {
-      const fresh = freshMothersByConcept.get(key) || new Set<string>();
+    mothersByTopic.set(key, mothers);
+    if (!usedIds.has(String(row.question_id)) && !usedMothers.has(String(row.mother_id))
+      && !scheduledIds.has(String(row.question_id))) {
+      const fresh = freshMothersByTopic.get(key) || new Set<string>();
       fresh.add(String(row.mother_id));
-      freshMothersByConcept.set(key, fresh);
+      freshMothersByTopic.set(key, fresh);
     }
+  }
+  for (const [key, topic] of topics) {
+    topic.originalCount = mothersByTopic.get(key)?.size || 0;
+    topic.freshCount = freshMothersByTopic.get(key)?.size || 0;
   }
   return {
     grade,
-    topics: ((catalog.data || []) as Array<Record<string, unknown>>)
-      .filter((row) => String(row.grade_band) === grade && titleBySkill.has(String(row.skill_id)))
-      .map((row) => ({
-        skillId: String(row.skill_id), skillTitle: titleBySkill.get(String(row.skill_id))!,
-        conceptKey: String(row.concept_key), title: String(row.concept_title),
-        sequence: Number(row.sequence_no) || 0,
-        originalCount: mothersByConcept.get(String(row.concept_key))?.size || 0,
-        freshCount: freshMothersByConcept.get(String(row.concept_key))?.size || 0,
-      })),
+    topics: [...topics.values()],
   };
 }
 
-async function openSelfStudy(studentId: string, skillId: string, conceptKey: string) {
+async function openSelfStudy(studentId: string, skillId: string, conceptKey: string, releaseId: string) {
   const catalog = await selfStudyCatalog(studentId);
-  const topic = catalog.topics.find((item) => item.skillId === skillId && item.conceptKey === conceptKey);
-  if (!topic || topic.freshCount < 3) throw new RequestError(422, "这个知识点剩余的未做原题不足 3 道，请选择其他知识点。");
+  const topic = catalog.topics.find((item) => item.skillId === skillId && item.conceptKey === conceptKey && item.releaseId === releaseId);
+  if (!topic || topic.freshCount < 1) throw new RequestError(422, "这个知识点目前没有可下发的未做原题，请选择其他知识点。");
   const existing = await supabase.from("chem_learning_plans").select("id")
     .eq("student_id", studentId).eq("delivery_mode", "self_study")
+    .eq("self_study_release_id", releaseId)
     .contains("target_concept_keys", [conceptKey]).order("created_at", { ascending: false });
   if (existing.error) throw existing.error;
   if (existing.data?.length) {
@@ -2127,12 +2146,14 @@ async function openSelfStudy(studentId: string, skillId: string, conceptKey: str
     if (attempts.error) throw attempts.error;
     if (!attempts.data?.length) return startPlanPayload(studentId, String(existing.data[0].id), { studentOpen: true, includeAnswerLocks: true });
   }
+  const questionCount = Math.min(3, topic.freshCount);
   const created = await supabase.from("chem_learning_plans").insert({
     student_id: studentId, plan_date: shanghaiDate(), mode: "REVIEW",
     title: `自主闯关 · ${topic.skillTitle} · ${topic.title} · 第 ${(existing.data || []).length + 1} 关`,
     skill_ids: [skillId], target_concept_keys: [conceptKey],
-    knowledge_summaries: [topic.title], estimated_minutes: 12, source: "course",
-    is_scheduled: false, question_count: 3, round_limit: 1, delivery_mode: "self_study",
+    knowledge_summaries: [topic.title], estimated_minutes: questionCount * 4, source: "course",
+    is_scheduled: false, question_count: questionCount, round_limit: 1, delivery_mode: "self_study",
+    self_study_release_id: releaseId,
   }).select("id").single();
   if (created.error) throw created.error;
   return startPlanPayload(studentId, String(created.data.id), { studentOpen: true, includeAnswerLocks: true });
@@ -2293,7 +2314,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   }
   const reviewProfile = { gradeBand: String(gradeResult.data.grade_band), isDemo: demoProfile };
   const delivery = ownedPlanDeliveryContext(plan, reviewProfile.gradeBand);
-  if (realStudentOpen && reviewProfile.gradeBand === "初三" && !delivery.managed) {
+  if (realStudentOpen && reviewProfile.gradeBand === "初三" && !delivery.managed && plan.delivery_mode !== "self_study") {
     throw new RequestError(409, "初三正式学习只能通过专用自适应会话进入；通用题组入口不会下发初三题目。");
   }
   if (realStudentOpen && String(plan.plan_date || "") > shanghaiDate()) {
@@ -2306,12 +2327,16 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
   const questionCount = planQuestionCount(plan);
   const roundLimit = effectivePlanRoundLimit(plan, reviewProfile);
   const highSchoolReview = plan.mode === "REVIEW" && delivery.requiresImages;
-  const sourceControlledReview = highSchoolReview || delivery.managed;
+  const sourceControlledReview = highSchoolReview || delivery.managed || plan.delivery_mode === "self_study";
   const formalHighSchoolReview = isFormalHighSchoolReview(formalReviewContext(plan, reviewProfile)) || (delivery.managed && !demoProfile);
   if (highSchoolReview && sourceReleasesResult.error) throw sourceReleasesResult.error;
   let activeSourceReleaseId = highSchoolReview
     ? verifiedSourceReleaseId((sourceReleasesResult.data || []) as Array<Record<string, unknown>>, delivery.sourceGrade)
     : null;
+  if (plan.delivery_mode === "self_study" && plan.self_study_release_id) {
+    if (!validUuid(String(plan.self_study_release_id))) throw new RequestError(422, "自主练习的原题版本无效，请重新选择知识点。");
+    activeSourceReleaseId = String(plan.self_study_release_id);
+  }
   if (
     formalHighSchoolReview
     && effectiveOptions.includeAnswerLocks
@@ -2352,10 +2377,10 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     if ((plan.delivery_mode !== "self_study" && !assignedQuestionIds && targetConceptKeys.length !== questionCount) || targetConceptKeys.length > questionCount || new Set(targetConceptKeys).size !== targetConceptKeys.length) {
       throw new RequestError(422, `当天必须配置 ${questionCount} 个互不重复的细知识点，请联系甘老师。`);
     }
-    if (targetConceptKeys.some((conceptKey) => !skillIds.some((skillId) => conceptKey.startsWith(`${skillId}__`)))) {
+    if (delivery.sourceGrade !== "初三" && targetConceptKeys.some((conceptKey) => !skillIds.some((skillId) => conceptKey.startsWith(`${skillId}__`)))) {
       throw new RequestError(422, "当天细知识点与学习模块没有一一对应，已停止下发并通知甘老师。");
     }
-    if (skillIds.some((skillId) => !targetConceptKeys.some((conceptKey) => conceptKey.startsWith(`${skillId}__`)))) {
+    if (delivery.sourceGrade !== "初三" && skillIds.some((skillId) => !targetConceptKeys.some((conceptKey) => conceptKey.startsWith(`${skillId}__`)))) {
       throw new RequestError(422, "当天学习模块包含没有对应细知识点的项目，已停止下发并通知甘老师。");
     }
   }
@@ -2506,7 +2531,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       attempt_sequence: sequenceByAttemptId.get(String(answer.attempt_id)) ?? null,
     };
   });
-  if (delivery.managed) {
+  if (delivery.managed || (plan.delivery_mode === "self_study" && delivery.sourceGrade === "初三")) {
     const juniorHistory = await supabase.rpc("chem_junior_choice_identity_history", { p_student_id: studentId });
     if (juniorHistory.error) throw juniorHistory.error;
     historyRows = [...historyRows, ...((juniorHistory.data || []) as Array<Record<string, unknown>>).map((row) => ({
@@ -2532,6 +2557,13 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
       && Number.isInteger(question.correct_option) && question.correct_option >= 0 && question.correct_option < 4
       && question.options.every((option: unknown) => typeof option === "string" && option.trim())
       && String(question.stem || "").trim() && String(question.explanation || "").trim()) as SourceAdaptiveQuestion[]);
+  if (plan.delivery_mode === "self_study") {
+    const ready = await teachingReadyQuestions(delivery.sourceGrade, questionPool.map((question) => String(question.id)));
+    const readyIds = new Set(ready.filter((row) => String(row.source_release_id) === activeSourceReleaseId).map((row) => String(row.question_id)));
+    if (readyIds.size !== questionPool.length) {
+      throw new RequestError(409, "这组原题的来源或内容已调整，请重新选择知识点。");
+    }
+  }
   if (assignedQuestionIds && questionPool.length !== assignedQuestionIds.length) {
     throw new RequestError(422, "当天材料题组有题目尚未就绪，已停止下发，请联系甘老师。");
   }
@@ -2972,11 +3004,13 @@ Deno.serve(async (req: Request) => {
           const assetPlanId = String(body.data?.planId || "");
           if (validUuid(assetPlanId)) {
             const assetPlan = await supabase.from("chem_learning_plans")
-              .select("teaching_managed,teaching_source_grade")
+              .select("teaching_managed,teaching_source_grade,delivery_mode,self_study_release_id")
               .eq("id", assetPlanId).eq("student_id", assetStudentId).maybeSingle();
             if (assetPlan.error) throw assetPlan.error;
-            if (assetPlan.data?.teaching_managed === true
-              && assetPlan.data.teaching_source_grade === question.grade_band) {
+            if ((assetPlan.data?.teaching_managed === true
+              && assetPlan.data.teaching_source_grade === question.grade_band)
+              || (assetPlan.data?.delivery_mode === "self_study"
+                && assetPlan.data.self_study_release_id === question.source_release_id)) {
               const readyAssets = await teachingReadyQuestions(String(question.grade_band), [questionId]);
               const readyAsset = readyAssets.find((row) => String(row.question_id) === questionId);
               if (readyAsset) activeAssetReleaseId = String(readyAsset.source_release_id);
@@ -3153,13 +3187,14 @@ Deno.serve(async (req: Request) => {
       );
       if (payload.plan.mode !== "REVIEW") return reply(req, { error: "该反馈接口只用于已安排的选择题练习。" }, 409);
       const managedFeedback = payload.plan.teachingManaged === true;
+      const selfStudyFeedback = payload.plan.deliveryMode === "self_study";
       const issuedQuestion = (payload.questions as Array<Record<string, unknown>>)
         .find((candidate) => String(candidate.id) === questionId);
       if (
         !issuedQuestion
-        || (managedFeedback
-          ? issuedQuestion.gradeBand !== payload.plan.teachingSourceGrade
-            || issuedQuestion.sourceKind !== (issuedQuestion.gradeBand === "初三" ? "user_provided_local" : "licensed_local")
+        || (managedFeedback && issuedQuestion.gradeBand !== payload.plan.teachingSourceGrade)
+        || (managedFeedback || selfStudyFeedback
+          ? issuedQuestion.sourceKind !== (issuedQuestion.gradeBand === "初三" ? "user_provided_local" : "licensed_local")
           : !["高一", "高二", "高三"].includes(String(issuedQuestion.gradeBand)) || issuedQuestion.sourceKind !== "licensed_local")
       ) return reply(req, { error: "这道题不属于服务器刚刚生成的本轮原题。" }, 409);
       if (!readOnlyPreview) {
@@ -3179,20 +3214,24 @@ Deno.serve(async (req: Request) => {
         return reply(req, { error: "原题内容已经更新，请重新打开本轮练习后再作答。" }, 409);
       }
 
-      const feedbackReady = managedFeedback ? await teachingReadyQuestions(String(issuedQuestion.gradeBand), [questionId]) : null;
+      const feedbackReady = managedFeedback || selfStudyFeedback ? await teachingReadyQuestions(String(issuedQuestion.gradeBand), [questionId]) : null;
       if (feedbackReady && feedbackReady.length !== 1) return reply(req, { error: "这道题已暂停下发，请联系甘老师核对。" }, 409);
       const activeFeedbackReleaseId = feedbackReady ? String(feedbackReady[0].source_release_id)
         : await activeVerifiedSourceReleaseId(String(issuedQuestion.gradeBand));
+      if (selfStudyFeedback && payload.plan.selfStudyReleaseId
+        && activeFeedbackReleaseId !== payload.plan.selfStudyReleaseId) {
+        return reply(req, { error: "自主练习的原题版本已变化，请重新打开题组。" }, 409);
+      }
       const questionResult = await supabase
         .from("chem_questions")
         .select("id,grade_band,source_kind,correct_option,explanation,scaffold,asset_refs,question_revision_token")
         .eq("id", questionId)
         .eq("grade_band", issuedQuestion.gradeBand)
-        .eq("source_kind", managedFeedback && issuedQuestion.gradeBand === "初三" ? "user_provided_local" : "licensed_local")
+        .eq("source_kind", (managedFeedback || selfStudyFeedback) && issuedQuestion.gradeBand === "初三" ? "user_provided_local" : "licensed_local")
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
         .eq("usable_for_review", true)
-        .eq("render_mode", managedFeedback && issuedQuestion.gradeBand === "初三" ? "native" : "image_primary")
+        .eq("render_mode", (managedFeedback || selfStudyFeedback) && issuedQuestion.gradeBand === "初三" ? "native" : "image_primary")
         .eq("source_release_id", activeFeedbackReleaseId)
         .maybeSingle();
       if (questionResult.error) throw questionResult.error;
@@ -3472,10 +3511,11 @@ Deno.serve(async (req: Request) => {
       if (await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号只能查看题库目录，不能创建正式学习记录。" }, 403);
       const skillId = String(body.data?.skillId || "");
       const conceptKey = String(body.data?.conceptKey || "");
-      if (!/^[A-Za-z0-9_]{1,80}$/.test(skillId) || !/^[A-Za-z0-9_]{1,100}$/.test(conceptKey)) {
+      const releaseId = String(body.data?.releaseId || "");
+      if (!/^[A-Za-z0-9_]{1,80}$/.test(skillId) || !/^[A-Za-z0-9_]{1,100}$/.test(conceptKey) || !validUuid(releaseId)) {
         return reply(req, { error: "请选择题库中的知识点。" }, 400);
       }
-      return reply(req, { payload: await openSelfStudy(identity.studentId, skillId, conceptKey) });
+      return reply(req, { payload: await openSelfStudy(identity.studentId, skillId, conceptKey, releaseId) });
     }
 
     if (body.action === "preview_start_plan" && identity.role === "teacher") {
@@ -3542,14 +3582,14 @@ Deno.serve(async (req: Request) => {
 
       const { data: plan, error: planError } = await supabase
         .from("chem_learning_plans")
-        .select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level,delivery_mode,teaching_managed,teaching_source_grade")
+        .select("id,student_id,plan_date,mode,skill_ids,target_concept_keys,question_count,round_limit,max_question_level,delivery_mode,self_study_release_id,teaching_managed,teaching_source_grade")
         .eq("id", String(attempt.planDayId))
         .eq("student_id", targetId)
         .maybeSingle();
       if (planError) throw planError;
       if (!plan) return reply(req, { error: "无权提交该学习记录。" }, 403);
       const delivery = ownedPlanDeliveryContext(plan, String(targetProfile.data.grade_band));
-      if (String(targetProfile.data.grade_band) === "初三" && !delivery.managed) {
+      if (String(targetProfile.data.grade_band) === "初三" && !delivery.managed && plan.delivery_mode !== "self_study") {
         return reply(req, { error: "初三原自适应课程请从专用会话提交。" }, 409);
       }
       if (plan.delivery_mode === "junior_adaptive") {
@@ -3570,8 +3610,10 @@ Deno.serve(async (req: Request) => {
       if (!teachingAssignmentValid(delivery.managed, managedAssignedIds, questionCount)) return reply(req, { error: "老师安排的固定题目不完整，请重新打开课程。" }, 422);
       const managedReady = delivery.managed ? await teachingReadyQuestions(delivery.sourceGrade, managedAssignedIds!) : null;
       if (managedReady && (managedReady.length !== managedAssignedIds!.length || new Set(managedReady.map((row) => row.source_release_id)).size !== 1)) return reply(req, { error: "老师安排的题目来源尚未就绪。" }, 422);
-      const activeSourceReleaseId = managedReady ? String(managedReady[0].source_release_id) : (formalHighSchoolReview || plan.delivery_mode === "self_study")
-        ? await activeVerifiedSourceReleaseId(delivery.sourceGrade) : null;
+      const activeSourceReleaseId = managedReady ? String(managedReady[0].source_release_id)
+        : plan.delivery_mode === "self_study" && plan.self_study_release_id ? String(plan.self_study_release_id)
+        : (formalHighSchoolReview || plan.delivery_mode === "self_study") && delivery.sourceGrade !== "初三"
+          ? await activeVerifiedSourceReleaseId(delivery.sourceGrade) : null;
       if (formalHighSchoolReview && String(plan.plan_date || "") > shanghaiDate()) {
         return reply(req, { error: "后续日期的正式复习尚未开放，请在计划当天进入。" }, 409);
       }
@@ -3642,7 +3684,7 @@ Deno.serve(async (req: Request) => {
       if (!expectedIds && plan.mode === "REVIEW" && targetConceptKeys.length) {
         questionQuery = questionQuery.in("concept_key", targetConceptKeys);
       }
-      if (plan.mode === "REVIEW" && (delivery.managed || delivery.requiresImages)) {
+      if (plan.mode === "REVIEW" && (delivery.managed || delivery.requiresImages || plan.delivery_mode === "self_study")) {
         questionQuery = questionQuery
           .eq("source_kind", delivery.sourceKind)
           .eq("render_mode", delivery.renderMode)

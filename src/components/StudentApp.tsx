@@ -297,12 +297,12 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     if (nextPlan) await openPlan(nextPlan, previewMode || nextDashboard.profile.isDemo ? nextRound : undefined)
   }
 
-  async function openSelfStudy(skillId: string, conceptKey: string) {
+  async function openSelfStudy(skillId: string, conceptKey: string, releaseId: string) {
     if (busy || previewMode || dashboard.profile.isDemo) return
     setBusy(true)
     setError('')
     try {
-      const result = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', { skillId, conceptKey })
+      const result = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', { skillId, conceptKey, releaseId })
       setActivePlan(result.payload)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '这组原题暂时无法打开，请换一个知识点。')
@@ -353,9 +353,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       <aside className="side-nav" aria-label="学生导航">
         <button className={view === 'choose' ? 'active' : ''} onClick={() => setView('choose')}><BookOpen />选学习方式</button>
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />按日期</button>
-        {['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button className={view === 'stage' ? 'active' : ''} onClick={() => setView('stage')}><Layers3 />按学习阶段</button>}
+        <button className={view === 'stage' ? 'active' : ''} onClick={() => setView('stage')}><Layers3 />按学习阶段</button>
         <button className={view === 'directory' ? 'active' : ''} onClick={() => setView('directory')}><Layers3 />按知识点</button>
-        {['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button className={view === 'type' ? 'active' : ''} onClick={() => setView('type')}><ListFilter />按题型</button>}
+        <button className={view === 'type' ? 'active' : ''} onClick={() => setView('type')}><ListFilter />按题型</button>
         <button className={view === 'reminders' ? 'active' : ''} onClick={() => setView('reminders')}><Bell />按提醒</button>
         <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}><MapIcon />能力地图</button>
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
@@ -363,7 +363,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       </aside>
       <div className="role-content">
         {error && <div className="inline-alert" role="alert">{error}</div>}
-        {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title"><div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 自己选择学习方向</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天想怎么学？</h1><p>你可以随时换一种方式继续，学习记录都会保留。</p></div><div className="study-choice-grid"><button type="button" onClick={() => setView('today')}><Clock3 /><b>按日期</b><span>查看每天安排的题组，也能补学以前没做过的内容。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('stage')}><Layers3 /><b>按学习阶段</b><span>从专题或进度节点进入，选择知识点后直接做原题。</span><ChevronRight /></button>}<button type="button" onClick={() => setView('directory')}><BookOpen /><b>按知识点</b><span>自己挑选一个知识点，直接做选择题并查看解析。</span><ChevronRight /></button>{['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) && <button type="button" onClick={() => setView('type')}><ListFilter /><b>按题型</b><span>按选择题专题选择原题训练。</span><ChevronRight /></button>}{dashboard.profile.gradeBand === '初三' && <button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒</b><span>处理到期复习和还没有完成的题组。</span><ChevronRight /></button>}</div>{dashboard.profile.isDemo && <div className="demo-grade-switch"><div><span className="eyebrow">演示查看</span><h2>切换年级查看原题目录</h2></div><div>{(dashboard.profile.availableDemoGrades ?? ['高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></div>}</section>}
+        {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title"><div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 自己选择学习方向</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天想怎么学？</h1><p>你可以随时换一种方式继续，学习记录都会保留。</p></div><div className="study-choice-grid"><button type="button" onClick={() => setView('today')}><Clock3 /><b>按日期</b><span>查看每天安排的题组，也能补学以前没做过的内容。</span><ChevronRight /></button><button type="button" onClick={() => setView('stage')}><Layers3 /><b>按学习阶段</b><span>从专题或进度节点进入，选择知识点后直接做原题。</span><ChevronRight /></button><button type="button" onClick={() => setView('directory')}><BookOpen /><b>按知识点</b><span>自己挑选一个知识点，直接做选择题并查看解析。</span><ChevronRight /></button><button type="button" onClick={() => setView('type')}><ListFilter /><b>按题型</b><span>按选择题专题选择原题训练。</span><ChevronRight /></button><button type="button" onClick={() => setView('reminders')}><Bell /><b>按提醒</b><span>处理到期复习和还没有完成的题组。</span><ChevronRight /></button></div>{dashboard.profile.isDemo && <div className="demo-grade-switch"><div><span className="eyebrow">演示查看</span><h2>切换年级查看原题目录</h2></div><div>{(dashboard.profile.availableDemoGrades ?? ['初三', '高一', '高二', '高三']).map((grade) => <button key={grade} className={dashboard.profile.gradeBand === grade ? 'active' : ''} onClick={() => void switchDemoGrade(grade)} disabled={busy}>{grade}</button>)}</div></div>}</section>}
         {view === 'today' && <>
           <section className="welcome-banner">
             <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlanIsCatchUp ? '按进度补学' : todayPlan?.isComplete ? '今天已完成' : todayPlan ? '今日安排' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一次学习已经安排好了。' : todayPlanIsCatchUp ? '先接上还没做完的内容。' : todayPlan?.isComplete ? '今天的学习已完成。' : todayPlan ? '今天先把安排好的题组完成。' : '今天暂未安排正式任务。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将于北京时间 ${todayPlan?.date} 00:00 开启，现在可先看知识卡。` : todayPlanIsCatchUp ? `这组原本安排在 ${todayPlan?.date}。系统根据实际作答记录发现它尚未完成，可以从第一轮开始补学。` : todayPlan?.isComplete ? '可以查看今日成果和历史学习记录。' : !todayPlan ? '已有学习记录保留在“我的战绩”中，请留意甘老师的后续安排。' : dashboard.profile.needsInitialDiagnostic ? '我们会先做一组轻量诊断，不会根据缺失数据猜你的水平。' : '系统已经结合课堂进度和最近表现安排了今天的原题。'}</p></div>
@@ -386,7 +386,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           </section>
         </>}
         {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
-        {view === 'directory' && ['高一', '高二', '高三'].includes(dashboard.profile.gradeBand) ? <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} /> : view === 'directory' && <StudyDirectory dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
+        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
         {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} session={session} onStart={openSelfStudy} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
@@ -494,38 +494,6 @@ function splitCalendarWeeks(plans: LearningPlanDay[]) {
 }
 
 const weekdayLabel = (date: string) => `周${'日一二三四五六'[new Date(`${date}T12:00:00+08:00`).getUTCDay()]}`
-
-function StudyDirectory({ dashboard, onOpenPlan, busy, compact = false }: { dashboard: StudentDashboardData; onOpenPlan: (plan: LearningPlanDay) => void; busy: boolean; compact?: boolean }) {
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  const states = useMemo(() => new Map(dashboard.skillStates.map((state) => [state.skillId, state])), [dashboard.skillStates])
-  const plansBySkill = useMemo(() => {
-    const map = new Map<string, LearningPlanDay[]>()
-    dashboard.plans.forEach((plan) => plan.skillIds.forEach((skillId) => map.set(skillId, [...(map.get(skillId) ?? []), plan])))
-    return map
-  }, [dashboard.plans])
-  const skills = useMemo(() => dashboard.skillDefinitions
-    .filter((skill) => skill.gradeBand === dashboard.profile.gradeBand)
-    .sort((a, b) => a.moduleId.localeCompare(b.moduleId) || a.title.localeCompare(b.title)), [dashboard.profile.gradeBand, dashboard.skillDefinitions])
-  const grouped = useMemo(() => skills.reduce((map, skill) => {
-    const key = skill.moduleId || '课程内容'
-    map.set(key, [...(map.get(key) ?? []), skill])
-    return map
-  }, new Map<string, typeof skills>()), [skills])
-  const title = '按知识点选择学习'
-  const description = '自己选择要学习的知识点，进入对应讲义和已安排的原题。已学过的内容可以复习，历史内容没有做过也可以补学。'
-  const visibleGroups = compact ? [...grouped.entries()].slice(0, 3) : [...grouped.entries()]
-  return <section className="study-directory section-block" aria-labelledby={compact ? undefined : 'study-directory-title'}>
-    <div className="page-title"><span className="eyebrow"><ListFilter size={14} />{dashboard.profile.gradeBand}学习入口</span>{compact ? <h2>按知识点进入学习</h2> : <h1 id="study-directory-title">{title}</h1>}<p>{description}</p></div>
-    {visibleGroups.length === 0 ? <EmptyState text="当前年段还没有可选择的知识点。" /> : <div className="directory-groups">{visibleGroups.map(([moduleId, moduleSkills]) => <section className="directory-group" key={moduleId}><div className="directory-group-head"><div><span className="eyebrow">课程模块</span><h2><ChemText>{moduleId}</ChemText></h2></div><span>{moduleSkills.length} 个入口</span></div><div className="directory-grid">{moduleSkills.map((skill) => {
-      const related = [...(plansBySkill.get(skill.id) ?? [])].sort((a, b) => a.date.localeCompare(b.date))
-      const plan = related.find((item) => item.date <= today && !item.isComplete) ?? [...related].reverse().find((item) => item.date <= today) ?? related.find((item) => item.date > today)
-      const state = states.get(skill.id)
-      const learned = (state?.verifiedLevel ?? 0) > 0
-      return <article className={`directory-card ${learned ? 'is-learned' : ''}`} key={skill.id}><div className="directory-card-top"><span className="directory-status">{learned ? '已有学习记录' : '待建立证据'}</span><span className="directory-level">Lv.{state?.verifiedLevel ?? 0}/{skill.maxLevel}</span></div><h3><ChemText>{skill.title}</ChemText></h3><p>{plan?.knowledgeSummaries?.slice(0, 2).join(' · ') || '对应题组尚未安排。'}</p><div className="directory-card-foot"><small>{plan ? (plan.date > today ? '可提前看讲义' : plan.attemptCount > 0 ? '可再次复习' : '可补学第一轮') : '暂未安排题组'}</small><button type="button" className="secondary-button compact" onClick={() => plan && onOpenPlan(plan)} disabled={busy || !plan}>{plan ? (plan.date > today ? '进入讲义' : '开始学习') : '等待安排'}<ChevronRight size={15} /></button></div></article>
-    })}</div></section>)}</div>}
-    {compact && (grouped.size > visibleGroups.length || skills.length > 0) && <button type="button" className="text-button directory-more" onClick={() => { const target = document.querySelector('.side-nav button:nth-child(2)') as HTMLButtonElement | null; target?.click() }}>查看全部知识点 <ChevronRight size={16} /></button>}
-  </section>
-}
 
 function StudyReminders({ dashboard, onOpenPlan, busy }: { dashboard: StudentDashboardData; onOpenPlan: (plan: LearningPlanDay) => void; busy: boolean }) {
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })

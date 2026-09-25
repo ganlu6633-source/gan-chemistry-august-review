@@ -24,6 +24,9 @@ const preview: TeachingPlanPreview = { previewToken: 'preview-123', canApply: tr
 async function courseReady() {
   render(<TeacherManagement mode="courses" initialDate="2026-09-12" />)
   await screen.findByRole('heading', { name: '课程安排' })
+  // The app advances a past initial date to Beijing today; these historical
+  // fixtures intentionally exercise the saved 2026-09-12 plan.
+  fireEvent.change(screen.getByLabelText('起始日期（北京时间）'), { target: { value: '2026-09-12' } })
   fireEvent.change(screen.getByLabelText('选择班级'), { target: { value: 'c1' } })
   fireEvent.click(screen.getByRole('checkbox', { name: '选择纯净物与混合物' }))
 }
