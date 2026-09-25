@@ -3,6 +3,7 @@ import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Laye
 import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { selectFocusPlan } from '../domain/focusPlan'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
+import { buildRecoveryTargets, type KnowledgeConfidence } from '../domain/learningRecovery'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
@@ -12,6 +13,7 @@ import { ChemText } from './ChemText'
 import { EquilibriumConstantFormulaVisual } from './EquilibriumConstantFormulaVisual'
 import { LearningRecordPanel } from './LearningRecordPanel'
 import { JuniorAdaptiveSession } from './JuniorAdaptiveSession'
+import { KnowledgeConfidencePicker, KnowledgeRepairPanel } from './KnowledgeRepairPanel'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
 import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
@@ -354,6 +356,20 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     }
   }
 
+  async function openRecoveryStudy(skillId: string, conceptKey: string) {
+    if (previewMode || dashboard.profile.isDemo) throw new Error('教师演示只读，不会为真实学生创建专项练习。')
+    const result = await accessApi<{ catalog: { topics: StudyTopic[] } }>(session, 'self_study_catalog')
+    setStudyTopics(result.catalog.topics)
+    const topic = result.catalog.topics
+      .filter((item) => item.skillId === skillId && item.conceptKey === conceptKey && item.freshCount > 0)
+      .sort((a, b) => Number(a.releaseKind !== 'primary') - Number(b.releaseKind !== 'primary') || b.freshCount - a.freshCount)[0]
+    if (!topic) throw new Error('这个小点暂时没有新的已审核原题。已保留刚才的作答记录，不会拿别的题凑数。')
+    const opened = await accessApi<{ payload: PlanPayload }>(session, 'open_self_study', {
+      skillId: topic.skillId, conceptKey: topic.conceptKey, releaseId: topic.releaseId,
+    })
+    setActivePlan(opened.payload)
+  }
+
   async function switchDemoGrade(gradeBand: string) {
     if (gradeBand === dashboard.profile.gradeBand || busy) return
     planRequestCache.current.forEach((entry) => entry.controller.abort())
@@ -386,7 +402,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   if (activePlan) {
-    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
+    return <LearningRound key={`${activePlan.plan.id}:${activePlan.roundNumber}:${activePlan.attemptSequence}`} session={session} payload={activePlan} practiceMode={previewMode || Boolean(dashboard.profile.isDemo)} practiceDashboard={dashboard} studyTopics={studyTopics} onOpenFocusedTopic={openRecoveryStudy} onBrowsePractice={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView('directory') }} planOpenState={planOpenState?.request.plan.id === activePlan.plan.id ? planOpenState : null} onRetryPlanOpen={retryPlanOpen} onExit={() => setActivePlan(null)} onContinue={(next, planId, nextRound) => continuePlan(next, planId, nextRound)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActivePlan(null); setStudyCatalogRevision((value) => value + 1); setView(activePlan.plan.deliveryMode === 'self_study' ? 'directory' : previewMode || dashboard.profile.isDemo ? 'today' : 'growth') }} />
   }
 
   const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
@@ -626,7 +642,7 @@ function GrowthPage({ dashboard, session, previewMode }: { dashboard: StudentDas
   return <LearningRecordPanel record={record} gradeBand={dashboard.profile.gradeBand} audience={previewMode ? 'teacher' : 'student'} />
 }
 
-export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, planOpenState = null, onRetryPlanOpen, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; planOpenState?: PlanOpenState | null; onRetryPlanOpen?: () => void; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
+export function LearningRound({ session, payload, practiceMode = false, practiceDashboard, studyTopics = [], onOpenFocusedTopic, onBrowsePractice, planOpenState = null, onRetryPlanOpen, onExit, onContinue, onComplete }: { session: SessionIdentity; payload: PlanPayload; practiceMode?: boolean; practiceDashboard?: StudentDashboardData; studyTopics?: StudyTopic[]; onOpenFocusedTopic?: (skillId: string, conceptKey: string) => Promise<void>; onBrowsePractice?: (data: StudentDashboardData) => void; planOpenState?: PlanOpenState | null; onRetryPlanOpen?: () => void; onExit: () => void; onContinue: (data: StudentDashboardData, planId: string, nextRound: number) => Promise<void>; onComplete: (data: StudentDashboardData) => void }) {
   const roundNumber = payload.roundNumber || payload.attemptSequence + 1
   const roundLimit = payload.roundLimit || payload.plan.roundLimit || 5
   const initialServerFeedback = Object.fromEntries((payload.lockedFeedback ?? []).map((item) => [item.questionId, item]))
@@ -637,7 +653,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const firstUnansweredQuestion = payload.questions.findIndex((question) => !initialServerFeedback[question.id])
   const initialQuestionIndex = firstUnansweredQuestion >= 0 ? firstUnansweredQuestion : Math.max(0, payload.questions.length - 1)
   const resumedFeedback = payload.questions[initialQuestionIndex] ? initialServerFeedback[payload.questions[initialQuestionIndex].id] : undefined
-  const [phase, setPhase] = useState<'cards' | 'quiz' | 'result'>(payload.plan.deliveryMode === 'self_study' ? 'quiz' : roundNumber === 1 && initialAnswers.length === 0 ? 'cards' : 'quiz')
+  const [phase, setPhase] = useState<'cards' | 'quiz' | 'result' | 'repair'>(payload.plan.deliveryMode === 'self_study' ? 'quiz' : roundNumber === 1 && initialAnswers.length === 0 ? 'cards' : 'quiz')
   const [cardIndex, setCardIndex] = useState(0)
   const [questions, setQuestions] = useState(payload.questions)
   const [questionIndex, setQuestionIndex] = useState(initialQuestionIndex)
@@ -647,6 +663,10 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const [questionStartedAt, setQuestionStartedAt] = useState(Date.now())
   const [feedback, setFeedback] = useState(Boolean(resumedFeedback))
   const [serverFeedback, setServerFeedback] = useState<Record<string, QuestionFeedback>>(initialServerFeedback)
+  const [optionPractice, setOptionPractice] = useState(payload.optionPractice ?? [])
+  const [cardRatings, setCardRatings] = useState<Record<string, KnowledgeConfidence>>({})
+  const [repairTargetKey, setRepairTargetKey] = useState<string | null>(null)
+  const [repairError, setRepairError] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
@@ -657,6 +677,22 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const question = questions[questionIndex]
   const selfStudy = payload.plan.deliveryMode === 'self_study'
   const singleDailyReviewPackage = payload.plan.mode === 'REVIEW' && roundLimit === 1 && !practiceMode && !selfStudy
+  const conceptTitles = Object.fromEntries(studyTopics.map((topic) => [topic.conceptKey, topic.title]))
+  const recoveryTargets = buildRecoveryTargets({ questions, answers, branches: optionPractice, cards: payload.cards, cardRatings, conceptTitles })
+  const activeRepairTarget = recoveryTargets.find((target) => target.key === repairTargetKey)
+
+  async function startFocusedPractice(skillId: string, conceptKey: string) {
+    if (!onOpenFocusedTopic || busy) return
+    setBusy(true)
+    setRepairError('')
+    try {
+      await onOpenFocusedTopic(skillId, conceptKey)
+    } catch (reason) {
+      setRepairError(reason instanceof Error ? reason.message : '专项原题暂时无法打开。')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const cachedQuestionAssetLoader = useCallback((
     activeSession: SessionIdentity,
@@ -745,7 +781,23 @@ export function LearningRound({ session, payload, practiceMode = false, practice
 
   const roundTrack = <div className="round-track" aria-label={selfStudy ? '自主原题关卡' : singleDailyReviewPackage ? '今日复习题组' : `今天共${roundLimit}轮，当前第${roundNumber}轮`}>{Array.from({ length: roundLimit }, (_, index) => <span key={index} className={index + 1 < roundNumber ? 'done' : index + 1 === roundNumber ? 'current' : ''}><i>{index + 1}</i><b>{selfStudy ? '原题关卡' : singleDailyReviewPackage ? '今日题组' : index + 1 === roundNumber ? '本轮' : index + 1 < roundNumber ? '完成' : '待检验'}</b></span>)}</div>
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <KnowledgeCardArticle card={card} position={cardIndex + 1} total={payload.cards.length} /> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+  if (phase === 'repair' && activeRepairTarget) {
+    const reviewCard = payload.cards.find((item) => item.skillId === activeRepairTarget.skillId)
+    const reviewExplanation = activeRepairTarget.anchorQuestionId ? serverFeedback[activeRepairTarget.anchorQuestionId]?.explanation : undefined
+    const topicByConcept = new Map<string, StudyTopic>()
+    studyTopics.filter((topic) => topic.skillId === activeRepairTarget.skillId)
+      .sort((a, b) => Number(b.freshCount > 0) - Number(a.freshCount > 0) || Number(a.releaseKind !== 'primary') - Number(b.releaseKind !== 'primary') || b.freshCount - a.freshCount)
+      .forEach((topic) => { if (!topicByConcept.has(topic.conceptKey)) topicByConcept.set(topic.conceptKey, topic) })
+    const practiceTopics = [...topicByConcept.values()].sort((a, b) => Number(b.conceptKey === activeRepairTarget.conceptKey) - Number(a.conceptKey === activeRepairTarget.conceptKey) || b.freshCount - a.freshCount || a.sequence - b.sequence)
+    return <><KnowledgeRepairPanel key={activeRepairTarget.key} target={activeRepairTarget} card={reviewCard} explanation={reviewExplanation}
+      practiceTopics={practiceTopics}
+      onBack={() => { setRepairError(''); setPhase('result') }}
+      onPractice={onOpenFocusedTopic && !practiceMode ? (conceptKey) => startFocusedPractice(activeRepairTarget.skillId, conceptKey) : undefined}
+      onRating={(point, rating) => setCardRatings((current) => ({ ...current, [`${activeRepairTarget.key}:${point}`]: rating }))}
+      practiceBusy={busy} />{repairError && <p className="inline-alert repair-error" role="alert">{repairError}</p>}</>
+  }
+
+  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <><KnowledgeCardArticle card={card} position={cardIndex + 1} total={payload.cards.length} /><KnowledgeConfidencePicker value={cardRatings[card.id]} onChange={(rating) => setCardRatings((current) => ({ ...current, [card.id]: rating }))} /></> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
     <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '开始练习'}<ChevronRight size={18} /></button></div></section>
 
   if (phase === 'quiz' && question) {
@@ -799,6 +851,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
             setQuestions(result.questions)
             setQuestionIndex(currentIndex)
           }
+          if (result.optionPractice) setOptionPractice(result.optionPractice)
           setServerFeedback((items) => ({ ...items, [question.id]: result.feedback }))
           setAnswers((items) => [...items.filter((item) => item.questionId !== question.id), { questionId: question.id, motherId: question.motherId, skillId: question.skillId, level: question.level, correct: result.feedback.correct, uncertain: result.feedback.uncertain, durationSec: result.feedback.durationSec, selectedOption: result.feedback.selectedOption, revisionToken: question.revisionToken }])
           setFeedback(true)
@@ -870,7 +923,42 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const hasNextRound = roundNumber < roundLimit && (practiceMode || (nextPlan ? !nextPlan.isResolved : true))
   const nextRoundOpenState = planOpenState?.request.plan.id === payload.plan.id ? planOpenState : null
   const nextRoundLoading = nextRoundOpenState?.status === 'loading'
-  return <section className="learning-stage result-stage">{roundTrack}<div className="result-badge"><Check /></div><span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : singleDailyReviewPackage ? '今日题组完成' : `今天第 ${roundNumber} 轮完成`}</span><h1>{correct === answers.length ? '本组全部回答正确。' : `本组答对 ${correct}/${answers.length} 题。`}</h1><p>{selfStudy ? '本关' : singleDailyReviewPackage ? '今日' : '本轮'}完成 {answers.length} 题，答对 {correct} 题。{practiceMode ? '本次结果只在当前页面展示，不会写入任何真实学生档案。' : hasNextRound ? '下一轮将继续练习同一知识点，后续安排会结合多道题的实际作答结果。' : '作答记录已保存，甘老师可在后台查看并安排后续练习。'}</p><div className="result-stats"><div><b>{answers.length}</b><span>完成练习</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>复习模块</span></div><div><b>{answers.length - correct}</b><span>答错题数</span></div></div>{nextRoundOpenState && onRetryPlanOpen && <PlanOpenNotice state={nextRoundOpenState} onRetry={onRetryPlanOpen} retryLabel={`重试进入第 ${roundNumber + 1} 轮`} />}<div className="result-actions">{hasNextRound && <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={!nextDashboard || busy || nextRoundLoading} onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>{nextRoundLoading ? `正在读取 · ${nextRoundOpenState.elapsedSeconds}秒` : nextRoundOpenState?.status === 'error' ? `重试进入第 ${roundNumber + 1} 轮` : `进入第 ${roundNumber + 1} 轮`}<ChevronRight size={18} /></button>}<button ref={hasNextRound ? undefined : primaryActionRef} className={hasNextRound ? 'secondary-button' : 'primary-button'} aria-keyshortcuts={hasNextRound ? undefined : 'Enter'} disabled={!nextDashboard || nextRoundLoading} onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : selfStudy ? '返回知识点' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button></div></section>
+  return <section className="learning-stage result-stage">
+    {roundTrack}
+    <div className="result-badge"><Check /></div>
+    <span className="eyebrow">{practiceMode ? `演示第 ${roundNumber} 轮完成` : singleDailyReviewPackage ? '今日题组完成' : `今天第 ${roundNumber} 轮完成`}</span>
+    <h1>{correct === answers.length ? '本组全部回答正确。' : `本组答对 ${correct}/${answers.length} 题。`}</h1>
+    <p>{selfStudy ? '本关' : singleDailyReviewPackage ? '今日' : '本轮'}完成 {answers.length} 题，答对 {correct} 题。{practiceMode
+      ? '本次结果只在当前页面展示，不会写入真实学生档案。'
+      : recoveryTargets.length ? '需要补的知识点已经列在下面，现在就能复习；有已审核的同知识点原题，还可以接着练。'
+        : hasNextRound ? '下一轮继续用原题检验，看看是不是真的稳了。' : '作答记录已保存，后续会按复习时间提醒你回看。'}</p>
+    <div className="result-stats"><div><b>{answers.length}</b><span>完成练习</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>复习模块</span></div><div><b>{answers.length - correct}</b><span>答错题数</span></div></div>
+    {recoveryTargets.length > 0 && <section className="result-recovery" aria-labelledby="result-recovery-title">
+      <div className="result-recovery-head"><span className="eyebrow"><RotateCcw size={16} />趁热补一补</span><h2 id="result-recovery-title">从哪里跌倒，就从哪里把题做明白</h2><p>先看错题对应的知识点。选项已有审核过的专项题时，会显示准确小点；没有绑定的题，先由你选卡住的环节，不乱猜。</p></div>
+      <div className="result-recovery-list">{recoveryTargets.map((target) => <article key={target.key}>
+        <div><b><ChemText>{target.title}</ChemText></b><p>{target.branch
+          ? target.branch.status === 'reserve_gap' ? '这条选项暂缺足量、已审核的同类型原题；先复习知识点，不拿别的题凑数。'
+            : target.branch.status === 'consolidated' ? `已做 ${target.branch.answered} 道专项原题，这一轮接稳了；之后还会复查。`
+              : `已做 ${target.branch.answered}/${target.branch.questionIds.length} 道对应选项原题，仍需继续巩固。`
+          : target.fromSelfRating ? '你标记了还不熟，先拆开知识卡，再用原题检验。'
+            : `这块有 ${target.wrongCount} 道没做对；先查明具体卡在哪一步。`}</p></div>
+        <div className="result-recovery-actions"><button type="button" className="primary-button compact" onClick={() => { setRepairTargetKey(target.key); setRepairError(''); setPhase('repair') }}>复习这块<ChevronRight size={16} /></button>
+          {target.conceptKey && onOpenFocusedTopic && !practiceMode && target.branch?.status !== 'reserve_gap'
+            && <button type="button" className="secondary-button compact" disabled={busy} onClick={() => void startFocusedPractice(target.skillId, target.conceptKey!)}>练同知识点原题</button>}</div>
+      </article>)}</div>
+      {repairError && <p className="inline-alert" role="alert">{repairError}</p>}
+    </section>}
+    {nextRoundOpenState && onRetryPlanOpen && <PlanOpenNotice state={nextRoundOpenState} onRetry={onRetryPlanOpen} retryLabel={`重试进入第 ${roundNumber + 1} 轮`} />}
+    <div className="result-actions">
+      {onBrowsePractice && <button type="button" className="secondary-button" disabled={!nextDashboard || busy || nextRoundLoading} onClick={() => nextDashboard && onBrowsePractice(nextDashboard)}>自己挑下一组原题<ChevronRight size={18} /></button>}
+      {hasNextRound && <button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" disabled={!nextDashboard || busy || nextRoundLoading}
+        onClick={async () => { if (!nextDashboard) return; setBusy(true); try { await onContinue(nextDashboard, payload.plan.id, roundNumber + 1) } finally { setBusy(false) } }}>
+        {nextRoundLoading ? `正在读取 · ${nextRoundOpenState.elapsedSeconds}秒` : nextRoundOpenState?.status === 'error' ? `重试进入第 ${roundNumber + 1} 轮` : `进入第 ${roundNumber + 1} 轮 · 继续原题`}<ChevronRight size={18} />
+      </button>}
+      <button ref={hasNextRound ? undefined : primaryActionRef} className={hasNextRound ? 'secondary-button' : 'primary-button'} aria-keyshortcuts={hasNextRound ? undefined : 'Enter'} disabled={!nextDashboard || nextRoundLoading}
+        onClick={() => nextDashboard && onComplete(nextDashboard)}>{practiceMode ? '返回演示计划' : selfStudy ? '返回知识点' : hasNextRound ? '先回首页' : '查看今日成果'}<Trophy size={18} /></button>
+    </div>
+  </section>
 }
 
 function KnowledgeBranch({ node, depth = 0 }: { node: KnowledgeTreeNode; depth?: number }) {
