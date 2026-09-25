@@ -1,6 +1,24 @@
 export type ImageRowSlice = { start: number; end: number }
 export type ImageBounds = { left: number; top: number; right: number; bottom: number }
 
+/** Only completely white/transparent rows can be removed from a source scan.
+ * Check every pixel so a thin bond, superscript or vertical line is not missed. */
+export function findBlankImageRows(pixels: Uint8ClampedArray, width: number, height: number): boolean[] {
+  const blankRows: boolean[] = []
+  for (let y = 0; y < height; y += 1) {
+    let blank = true
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      if (pixels[offset + 3] > 16 && (pixels[offset] < 248 || pixels[offset + 1] < 248 || pixels[offset + 2] < 248)) {
+        blank = false
+        break
+      }
+    }
+    blankRows.push(blank)
+  }
+  return blankRows
+}
+
 export function findTopBlueCitationBounds(
   pixels: Uint8ClampedArray,
   width: number,

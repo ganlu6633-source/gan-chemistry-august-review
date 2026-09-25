@@ -2,9 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuestionAssetRef, SessionIdentity } from '../domain/types'
 import { loadQuestionAsset } from '../lib/api'
+import { inspectImageWhitespaceOffThread } from '../domain/compactImageWhitespace'
 import { QuestionSourceMedia, type SourceBackedQuestionView } from './QuestionSourceMedia'
 
 vi.mock('../lib/api', () => ({ loadQuestionAsset: vi.fn() }))
+vi.mock('../domain/compactImageWhitespace', () => ({ inspectImageWhitespaceOffThread: vi.fn() }))
 
 const session: SessionIdentity = { role: 'student', token: 'session-token', displayName: '高三学生', expiresAt: '2099-01-01T00:00:00Z' }
 const asset = (assetId: string, kind: string, alt: string) => ({ assetId, kind, alt, sha256: `${assetId}-sha`, width: 900, height: 520 }) as unknown as QuestionAssetRef
@@ -20,6 +22,7 @@ const question: SourceBackedQuestionView = {
 
 describe('QuestionSourceMedia', () => {
   beforeEach(() => {
+    vi.mocked(inspectImageWhitespaceOffThread).mockResolvedValue(null)
     vi.mocked(loadQuestionAsset).mockImplementation(async (_session, _questionId, assetId) => ({ asset: { dataUrl: `data:image/png;base64,${assetId}`, mimeType: 'image/png', sha256: `${assetId}-sha`, width: 900, height: 520 } }))
   })
   afterEach(() => { cleanup(); vi.clearAllMocks() })
@@ -70,6 +73,21 @@ describe('QuestionSourceMedia', () => {
     expect(original).toHaveAttribute('src', 'data:image/png;base64,problem-asset')
     fireEvent.click(analysis.closest('button')!)
     expect(await screen.findByAltText('放大查看：2025年福建省质检第8题原解析图')).toHaveAttribute('src', 'data:image/png;base64,analysis-asset')
+  })
+
+  it('hides only internal blank bands while retaining the exact source in every visible slice and zoom', async () => {
+    vi.mocked(inspectImageWhitespaceOffThread).mockResolvedValue({ width: 900, height: 520, slices: [{ start: 0, end: 200 }, { start: 350, end: 520 }] })
+    render(<QuestionSourceMedia question={{ ...question, assetRefs: [asset('problem-asset', 'question_image', '原题图')] }} enabled session={session} />)
+    await waitFor(() => expect(screen.getByRole('img', { name: '原题图' }).querySelectorAll('.source-image-slice')).toHaveLength(2))
+    const display = screen.getByRole('img', { name: '原题图' })
+    expect(Array.from(display.querySelectorAll('img')).map((img) => img.src)).toEqual([
+      'data:image/png;base64,problem-asset', 'data:image/png;base64,problem-asset',
+    ])
+    fireEvent.click(display.closest('button')!)
+    const zoomed = await screen.findByRole('img', { name: '放大查看：原题图' })
+    expect(zoomed.querySelectorAll('.source-image-slice')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: '查看完整原图' }))
+    expect(await screen.findByAltText('放大查看：原题图')).toHaveAttribute('src', 'data:image/png;base64,problem-asset')
   })
 
   it('uses neutral learner-facing image labels when source display is disabled', async () => {

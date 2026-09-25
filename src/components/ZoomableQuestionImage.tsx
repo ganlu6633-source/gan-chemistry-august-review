@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { MAX_IMAGE_ZOOM, MIN_IMAGE_ZOOM, zoomImageAt, type ImageTransform, type Point } from '../domain/imageZoom'
+import type { CompactImageLayout } from '../domain/compactImageWhitespace'
 
 const initialTransform: ImageTransform = { scale: 1, x: 0, y: 0 }
 
-export function ZoomableQuestionImage({ dataUrl, alt, width, height }: { dataUrl: string; alt: string; width: number; height: number }) {
+export function ZoomableQuestionImage({ dataUrl, alt, width, height, layout }: { dataUrl: string; alt: string; width: number; height: number; layout?: CompactImageLayout }) {
   const viewport = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Point>())
   const transform = useRef(initialTransform)
   const [view, setView] = useState(initialTransform)
   const [size, setSize] = useState({ width: 0, height: 0 })
-  const fit = Math.min(size.width / width, size.height / height) || 1
+  const [showOriginal, setShowOriginal] = useState(false)
+  const compactLayout = showOriginal ? undefined : layout
+  const displayWidth = compactLayout?.width ?? width
+  const displayHeight = compactLayout?.slices.reduce((total, slice) => total + slice.end - slice.start, 0) ?? height
+  const fit = Math.min(size.width / displayWidth, size.height / displayHeight) || 1
 
   function update(next: ImageTransform) {
     transform.current = next
@@ -38,7 +43,7 @@ export function ZoomableQuestionImage({ dataUrl, alt, width, height }: { dataUrl
     }
     element.addEventListener('wheel', wheel, { passive: false })
     return () => { observer?.disconnect(); element.removeEventListener('wheel', wheel) }
-  }, [dataUrl])
+  }, [dataUrl, showOriginal])
 
   function point(event: PointerEvent<HTMLDivElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -70,8 +75,15 @@ export function ZoomableQuestionImage({ dataUrl, alt, width, height }: { dataUrl
         pointers.current.set(event.pointerId, point(event))
       }} onPointerMove={move} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}
       onDoubleClick={() => view.scale > 1 ? update(initialTransform) : changeZoom(2)}>
-      <img src={dataUrl} alt={alt} width={width} height={height} draggable={false}
-        style={{ width: width * fit, height: height * fit, transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
+      {compactLayout ? <div className="source-image-sections source-image-zoomed-sections" role="img" aria-label={alt}
+        style={{ width: displayWidth * fit, height: displayHeight * fit, transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
+        {compactLayout.slices.map((slice) => <div className="source-image-slice" aria-hidden="true" key={`${slice.start}-${slice.end}`}
+          style={{ aspectRatio: `${compactLayout.width} / ${slice.end - slice.start}` }}>
+          <img src={dataUrl} alt="" width={compactLayout.width} height={compactLayout.height} draggable={false}
+            style={{ transform: `translateY(-${slice.start / compactLayout.height * 100}%)` }} />
+        </div>)}
+      </div> : <img src={dataUrl} alt={alt} width={width} height={height} draggable={false}
+        style={{ width: width * fit, height: height * fit, transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />}
     </div>
     <div className="source-image-tools" data-question-media-control>
       <span>双指缩放 · 拖动查看 · 滚轮缩放</span>
@@ -81,6 +93,7 @@ export function ZoomableQuestionImage({ dataUrl, alt, width, height }: { dataUrl
         <output>{Math.round(view.scale * 100)}%</output>
         <button type="button" aria-label="放大原题图" disabled={view.scale >= MAX_IMAGE_ZOOM} onClick={() => changeZoom(view.scale * 1.25)}>＋</button>
         <button type="button" className="source-image-fit" onClick={() => update(initialTransform)}>适应屏幕</button>
+        {layout && <button type="button" className="source-image-fit" onClick={() => setShowOriginal((current) => !current)}>{showOriginal ? '返回紧凑排版' : '查看完整原图'}</button>}
       </div>
     </div>
   </div>

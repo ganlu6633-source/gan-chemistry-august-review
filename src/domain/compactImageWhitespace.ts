@@ -1,25 +1,29 @@
-export { compactBlankRowSlices, findTopBlueCitationBounds } from './compactImageCore'
-export type { ImageBounds, ImageRowSlice } from './compactImageCore'
+export { compactBlankRowSlices, findBlankImageRows, findTopBlueCitationBounds } from './compactImageCore'
+export type { ImageRowSlice } from './compactImageCore'
 
-type CompactImageWorkerResponse = {
-  ok: boolean
-  dataUrl?: string
-}
+import type { ImageRowSlice } from './compactImageCore'
+
+export type CompactImageLayout = { width: number; height: number; slices: ImageRowSlice[] }
+
+type LayoutWorkerResponse = { ok: boolean; width?: number; height?: number; slices?: ImageRowSlice[] }
 
 const WORKER_TIMEOUT_MS = 12_000
 
-function supportsOffThreadImageCompaction() {
-  return typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined'
+function validLayout(response: LayoutWorkerResponse): response is LayoutWorkerResponse & CompactImageLayout {
+  if (!response.ok || !Number.isInteger(response.width) || !Number.isInteger(response.height)
+    || !response.width || !response.height || !Array.isArray(response.slices) || response.slices.length < 2) return false
+  const slices = response.slices
+  return slices[0].start === 0 && slices[slices.length - 1].end === response.height
+    && slices.every((slice, index) => Number.isInteger(slice.start) && Number.isInteger(slice.end)
+      && slice.start >= 0 && slice.end <= response.height! && slice.end > slice.start
+      && (index === 0 || slice.start >= slices[index - 1].end))
 }
 
-/**
- * Compacts source-image whitespace without running pixel scans or PNG encoding
- * on the browser's main thread. Unsupported browsers and any worker failure keep
- * the audited original image unchanged; they never fall back to synchronous work.
- */
-export function compactImageWhitespaceOffThread(dataUrl: string): Promise<string> {
-  if (!supportsOffThreadImageCompaction() || !dataUrl.startsWith('data:image/')) {
-    return Promise.resolve(dataUrl)
+/** Find removable internal blank bands off-thread. The audited source pixels
+ * stay unchanged; the UI only masks rows certified blank by the worker. */
+export function inspectImageWhitespaceOffThread(dataUrl: string): Promise<CompactImageLayout | null> {
+  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' || !dataUrl.startsWith('data:image/')) {
+    return Promise.resolve(null)
   }
 
   return new Promise((resolve) => {
@@ -27,39 +31,30 @@ export function compactImageWhitespaceOffThread(dataUrl: string): Promise<string
     try {
       worker = new Worker(new URL('./compactImageWhitespace.worker.ts', import.meta.url), { type: 'module' })
     } catch {
-      resolve(dataUrl)
+      resolve(null)
       return
     }
 
     let settled = false
     let timeoutId = 0
-    const finish = (result: string) => {
+    const finish = (result: CompactImageLayout | null) => {
       if (settled) return
       settled = true
       window.clearTimeout(timeoutId)
       worker.terminate()
       resolve(result)
     }
-    timeoutId = window.setTimeout(() => finish(dataUrl), WORKER_TIMEOUT_MS)
-
-    worker.onmessage = (event: MessageEvent<CompactImageWorkerResponse>) => {
+    timeoutId = window.setTimeout(() => finish(null), WORKER_TIMEOUT_MS)
+    worker.onmessage = (event: MessageEvent<LayoutWorkerResponse>) => {
       const response = event.data
-      finish(response?.ok && typeof response.dataUrl === 'string' && response.dataUrl.startsWith('data:image/')
-        ? response.dataUrl
-        : dataUrl)
+      finish(response && validLayout(response) ? { width: response.width, height: response.height, slices: response.slices } : null)
     }
-    worker.onerror = () => finish(dataUrl)
-    worker.onmessageerror = () => finish(dataUrl)
-
+    worker.onerror = () => finish(null)
+    worker.onmessageerror = () => finish(null)
     try {
       worker.postMessage({ dataUrl })
     } catch {
-      finish(dataUrl)
+      finish(null)
     }
   })
-}
-
-/** Backward-compatible entrypoint used by the existing question-media component. */
-export function compactImageWhitespace(dataUrl: string): Promise<string> {
-  return compactImageWhitespaceOffThread(dataUrl)
 }

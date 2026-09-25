@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { compactBlankRowSlices, findTopBlueCitationBounds } from './compactImageWhitespace'
+import { compactBlankRowSlices, findBlankImageRows, findTopBlueCitationBounds } from './compactImageWhitespace'
+
+describe('findBlankImageRows', () => {
+  it('keeps a row with a single-pixel diagram line or superscript at any column', () => {
+    const width = 11
+    const pixels = new Uint8ClampedArray(width * 3 * 4).fill(255)
+    pixels[(0 * width + 1) * 4] = 0
+    pixels[(2 * width + 10) * 4 + 2] = 0
+    expect(findBlankImageRows(pixels, width, 3)).toEqual([false, true, false])
+  })
+})
 
 describe('compactBlankRowSlices', () => {
   it('reduces a large internal white band but preserves both content regions', () => {

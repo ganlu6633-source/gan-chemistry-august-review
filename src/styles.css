@@ -212,6 +212,9 @@
    modal, phones keep enough natural width for formulas and may scroll within
    the dialog; the document itself still has no horizontal overflow. */
 .source-image-zoom img{max-height:none}
+.source-image-sections{width:100%;overflow:hidden;border-radius:8px;background:#fff}
+.source-image-slice{position:relative;width:100%;overflow:hidden;background:#fff}
+.source-image-zoom .source-image-slice img{position:absolute;top:0;left:0;width:100%;max-width:none;height:auto;max-height:none;margin:0;border-radius:0;object-fit:fill}
 .source-image-zoom>span{position:static;display:flex;justify-content:center;width:max-content;margin:8px 0 0 auto;box-shadow:none}
 
 
@@ -246,9 +249,11 @@
 .source-image-viewport{position:relative;min-width:0;min-height:0;overflow:hidden;touch-action:none;user-select:none;cursor:grab;background:#eef3f4;overscroll-behavior:contain}
 .source-image-viewport:active{cursor:grabbing}
 .source-image-viewport>img{position:absolute;left:50%;top:50%;display:block;min-width:0;max-width:none!important;max-height:none!important;padding:0;transform-origin:center;pointer-events:none;user-select:none;will-change:transform}
+.source-image-viewport>.source-image-zoomed-sections{position:absolute;left:50%;top:50%;transform-origin:center;pointer-events:none;will-change:transform}
+.source-image-viewport .source-image-slice img{position:absolute;top:0;left:0;width:100%;max-width:none;height:auto;max-height:none;margin:0;border-radius:0;object-fit:fill}
 .source-image-tools{padding:8px 12px max(8px,env(safe-area-inset-bottom));background:#f7fafb;border-top:1px solid #dce6e8;color:#365e6d}
 .source-image-tools>span{display:block;text-align:center;font-size:11px;margin-bottom:6px}
-.source-image-tools>div{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0}
+.source-image-tools>div{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;min-width:0}
 .source-image-tools button{min-width:38px;min-height:40px;border:0;border-radius:8px;background:#e2eeee;color:#175e64;font-size:18px;cursor:pointer}
 .source-image-tools button:disabled{opacity:.4;cursor:default}
 .source-image-tools input{width:180px;min-width:30px;flex:0 1 180px;accent-color:#168f87}
