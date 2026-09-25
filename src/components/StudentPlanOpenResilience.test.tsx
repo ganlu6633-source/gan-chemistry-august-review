@@ -78,6 +78,25 @@ describe('StudentApp plan opening resilience', () => {
     expect(await screen.findByText('化合价升降')).toBeInTheDocument()
   })
 
+  it('loads the selected student’s real catalog during teacher read-only preview', async () => {
+    const studentId = '65ec6dae-8ed5-4236-9237-4f96010c1668'
+    const teacherSession: SessionIdentity = { role: 'teacher', token: 'teacher-session', displayName: '老师', expiresAt: '2099-01-01T00:00:00Z' }
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ catalog: { topics: [{
+      skillId: 'H1_CLASSIFY', skillTitle: '物质分类', conceptKey: 'H1_CLASSIFY__C01',
+      title: '分类标准与分类树', sequence: 1, originalCount: 5, freshCount: 5,
+    }] } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StudentApp session={teacherSession} initialDashboard={{ ...dashboard, profile: {
+      ...dashboard.profile, id: studentId, displayName: '叶鸿诺', isDemo: false,
+    }, plans: [] }} onDashboard={vi.fn()} previewMode />)
+
+    fireEvent.click(screen.getByRole('button', { name: /知识点任选 今天想攻哪一块/ }))
+    expect(await screen.findByText('分类标准与分类树')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /只读预览/ })).toBeDisabled()
+    const request = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(request).toMatchObject({ action: 'self_study_catalog', data: { studentId } })
+  })
+
   it('prefetches today once and reuses the same in-flight request when clicked', async () => {
     let resolveRequest: ((response: Response) => void) | undefined
     const fetchMock = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolveRequest = resolve }))
