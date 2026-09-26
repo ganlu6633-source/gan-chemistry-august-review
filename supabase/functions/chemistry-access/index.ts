@@ -109,6 +109,14 @@ async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
+async function registrationInviteHash(code: string) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`chem-registration-invite-v1:${code}`));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -3140,13 +3148,18 @@ Deno.serve(async (req: Request) => {
 
     if (body.action === "register") {
       const details = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+      const inviteCode = typeof details.inviteCode === "string" ? details.inviteCode.trim().toUpperCase() : "";
+      if (!/^[A-Z0-9]{10}$/.test(inviteCode)) return reply(req, { error: "请填写甘老师发给你的10位邀请码。" }, 400);
+      const registrationData = { ...details };
+      delete registrationData.inviteCode;
       const rawFingerprint = `${req.headers.get("x-forwarded-for") || "unknown"}|${req.headers.get("user-agent") || "unknown"}`;
       const { data, error } = await supabase.rpc("chem_submit_registration", {
-        p_data: details, p_fingerprint_hash: await sha256(rawFingerprint),
+        p_data: registrationData, p_fingerprint_hash: await sha256(rawFingerprint),
+        p_invite_hash: await registrationInviteHash(inviteCode),
       });
       if (error) throw error;
-      if (data !== true) return reply(req, { error: "信息格式不正确，或提交过于频繁，请检查后再试。" }, 400);
-      return reply(req, { ok: true, message: "申请已送达甘老师。请先添加微信，待老师核对后即可用手机号和密码登录。" });
+      if (data !== true) return reply(req, { error: "邀请码与身份或手机号不匹配、已使用或已过期，或提交过于频繁。请联系甘老师核对。" }, 400);
+      return reply(req, { ok: true, message: "申请已送达甘老师，待老师审核后即可用手机号和密码登录。" });
     }
 
     if (body.action === "phone_login") {

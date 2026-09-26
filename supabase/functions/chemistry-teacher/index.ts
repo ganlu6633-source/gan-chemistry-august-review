@@ -18,9 +18,21 @@ function headers(req: Request) {
 }
 const reply = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: headers(req) });
 function code() { return Array.from(crypto.getRandomValues(new Uint32Array(8)), (n) => String(n % 10)).join(""); }
+const REGISTRATION_INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function registrationInviteCode() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(10)), (n) => REGISTRATION_INVITE_ALPHABET[n & 31]).join("");
+}
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function registrationInviteHash(value: string) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`chem-registration-invite-v1:${value}`));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 function validUuid(value: string) {
@@ -638,6 +650,46 @@ Deno.serve(async (req: Request) => {
     const body = parsedBody.value;
     const action = typeof body.action === "string" ? body.action : "";
     const bodyData = recordValue(body.data);
+
+    if (action === "create_registration_invite") {
+      const role = typeof bodyData.role === "string" ? bodyData.role : "";
+      const phone = typeof bodyData.phone === "string" ? bodyData.phone.trim() : "";
+      const note = bodyData.note === undefined || bodyData.note === null ? null
+        : typeof bodyData.note === "string" ? bodyData.note.trim() || null : "";
+      if (!["student", "guardian"].includes(role) || !/^1[3-9][0-9]{9}$/.test(phone)
+        || (note !== null && (note.length < 1 || note.length > 120))) {
+        return reply(req, { error: "请选择身份并填写已在微信核对的11位手机号。" }, 400);
+      }
+      const inviteCode = registrationInviteCode();
+      const { data, error } = await admin.rpc("chem_create_registration_invite", {
+        p_role: role, p_phone: phone, p_code_hash: await registrationInviteHash(inviteCode),
+        p_actor_hash: await sha256(req.headers.get("x-app-session") || ""),
+        p_actor_name: user.displayName, p_note: note,
+      });
+      if (error) {
+        const message = error.code === "P0001" ? error.message : "邀请码生成失败，请稍后重试。";
+        return reply(req, { error: message }, 409);
+      }
+      return reply(req, { invite: { ...data, code: inviteCode } });
+    }
+    if (action === "list_registration_invites") {
+      const { data, error } = await admin.rpc("chem_list_registration_invites", {
+        p_actor_hash: await sha256(req.headers.get("x-app-session") || ""),
+      });
+      if (error) throw error;
+      return reply(req, { invites: data });
+    }
+    if (action === "revoke_registration_invite") {
+      const inviteId = typeof bodyData.inviteId === "string" ? bodyData.inviteId : "";
+      if (!validUuid(inviteId)) return reply(req, { error: "邀请码记录无效。" }, 400);
+      const { data, error } = await admin.rpc("chem_revoke_registration_invite", {
+        p_invite_id: inviteId, p_actor_hash: await sha256(req.headers.get("x-app-session") || ""),
+        p_actor_name: user.displayName,
+      });
+      if (error) throw error;
+      if (data !== true) return reply(req, { error: "邀请码已使用或已撤销。" }, 409);
+      return reply(req, { ok: true });
+    }
 
     if (action === "list_registration_requests") {
       const { data, error } = await admin.rpc("chem_list_registration_requests", {

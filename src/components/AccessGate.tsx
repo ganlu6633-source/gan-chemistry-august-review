@@ -25,7 +25,7 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
   const [gradeBand, setGradeBand] = useState('高一')
   const [childName, setChildName] = useState('')
   const [childPhone, setChildPhone] = useState('')
-  const [wechatAdded, setWechatAdded] = useState(false)
+  const [inviteCode, setInviteCode] = useState('')
   const [registrationDone, setRegistrationDone] = useState(false)
 
   async function submit(event: FormEvent) {
@@ -94,7 +94,7 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
 
   async function register(event: FormEvent) {
     event.preventDefault()
-    if (!wechatAdded) return setError('请先扫码添加甘老师微信。')
+    if (!/^[A-Z0-9]{10}$/.test(inviteCode.trim())) return setError('请先添加甘老师微信，向老师领取10位邀请码。')
     if (!name.trim() || name.trim().length > 30) return setError('请填写不超过30字的姓名。')
     if (!/^1[3-9]\d{9}$/.test(phone)) return setError('请输入11位中国大陆手机号。')
     if (password.length < 6 || password.length > 12 || password.trim() !== password) return setError('密码需为6—12位，首尾不要留空格。')
@@ -102,9 +102,9 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
     if (role === 'guardian' && (!childName.trim() || !/^1[3-9]\d{9}$/.test(childPhone))) return setError('请填写孩子姓名和11位手机号。')
     setLoading(true); setError('')
     try {
-      await submitRegistration({ role, displayName: name.trim(), phone, password,
+      await submitRegistration({ role, displayName: name.trim(), phone, password, inviteCode: inviteCode.trim(),
         ...(role === 'student' ? { gradeBand } : { childName: childName.trim(), childPhone }) })
-      setRegistrationDone(true); setPassword(''); setConfirmPassword('')
+      setRegistrationDone(true); setPassword(''); setConfirmPassword(''); setInviteCode('')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '申请暂时未能提交，请稍后重试。')
     } finally { setLoading(false) }
@@ -127,10 +127,10 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
         <div className="access-tabs" role="tablist" aria-label="登录或注册">
           <button type="button" role="tab" aria-selected={mode === 'code'} className={mode === 'code' ? 'active' : ''} onClick={() => { setMode('code'); setError('') }}>原登录码</button>
           <button type="button" role="tab" aria-selected={mode === 'phone'} className={mode === 'phone' ? 'active' : ''} onClick={() => { setMode('phone'); setError('') }}>手机号登录</button>
-          <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>新用户注册</button>
+          <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>加微信后注册</button>
         </div>
         <h2>{mode === 'register' ? '加入甘老师化学' : '欢迎回来'}</h2>
-        <p>{mode === 'code' ? '输入姓名和登录码，系统会自动进入对应页面。' : mode === 'phone' ? '审核通过后，用注册时的手机号和密码进入。' : '先加甘老师微信，再提交申请；老师确认后开通。'}</p>
+        <p>{mode === 'code' ? '输入姓名和登录码，系统会自动进入对应页面。' : mode === 'phone' ? '审核通过后，用注册时的手机号和密码进入。' : '先添加甘老师微信，拿到老师发的一次性邀请码，才能填写手机号注册。'}</p>
         {mode === 'code' && <>
         <form onSubmit={submit}>
           <label htmlFor="login-name">输入姓名</label>
@@ -167,20 +167,20 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
           <label htmlFor="phone-password">密码</label><input id="phone-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value.slice(0, 12))} placeholder="注册时设置的6—12位密码" required />
           {error && <div className="form-error" role="alert">{error}</div>}
           <button className="primary-button" disabled={loading}>{loading ? '正在登录…' : '进入学习'} <ArrowRight size={18} /></button>
-          <p className="login-help">还没注册？点上方“新用户注册”。已有数字登录码也可以照常使用。</p>
+          <p className="login-help">还没注册？先加甘老师微信，再点上方“加微信后注册”。已有数字登录码也可以照常使用。</p>
         </form>}
-        {mode === 'register' && (registrationDone ? <div className="registration-done" role="status"><ShieldCheck /><h3>申请已提交</h3><p>请确认已经添加甘老师微信。老师在后台核对身份、班级或孩子档案后，你就可以用手机号和自定密码登录。</p><button className="secondary-button" onClick={() => { setMode('phone'); setRegistrationDone(false) }}>去手机号登录</button></div> : <form onSubmit={register} className="phone-access-form">
+        {mode === 'register' && (registrationDone ? <div className="registration-done" role="status"><ShieldCheck /><h3>申请已提交</h3><p>甘老师会在后台核对身份、班级或孩子档案；开通后，你就可以用手机号和自定密码登录。</p><button className="secondary-button" onClick={() => { setMode('phone'); setRegistrationDone(false) }}>去手机号登录</button></div> : <form onSubmit={register} className="phone-access-form">
           <div className="access-role-picker" role="group" aria-label="注册身份"><button type="button" className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>学生注册</button><button type="button" className={role === 'guardian' ? 'active' : ''} onClick={() => setRole('guardian')}>家长注册</button></div>
-          <div className="wechat-register"><b>第一步：扫码添加甘老师微信</b><img src={`${import.meta.env.BASE_URL}wechat-add.jpg`} alt="甘老师微信二维码，扫码添加好友" /><small>扫码后请在微信里说明学生姓名，方便老师核对。</small></div>
-          <label className="wechat-check"><input type="checkbox" checked={wechatAdded} onChange={(event) => setWechatAdded(event.target.checked)} />我已添加甘老师微信</label>
+          <div className="wechat-register"><b>第一步：扫码添加甘老师微信</b><img src={`${import.meta.env.BASE_URL}wechat-add.jpg`} alt="甘老师微信二维码，扫码添加好友" /><small>在微信里告诉老师姓名和注册手机号。老师核对后会发给你一次性邀请码。</small></div>
+          <label htmlFor="register-invite">第二步：输入老师发的邀请码</label><input id="register-invite" value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))} autoComplete="off" inputMode="text" maxLength={10} placeholder="10位一次性邀请码" required />
           <label htmlFor="register-name">{role === 'student' ? '学生姓名' : '家长姓名'}</label><input id="register-name" value={name} onChange={(event) => setName(event.target.value.slice(0, 30))} autoComplete="name" placeholder="填写真实姓名" required />
           <label htmlFor="register-phone">注册手机号</label><input id="register-phone" type="tel" inputMode="numeric" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="11位中国大陆手机号" required />
           {role === 'student' ? <><label htmlFor="register-grade">所在年级</label><select id="register-grade" value={gradeBand} onChange={(event) => setGradeBand(event.target.value)}>{['初三', '高一', '高二', '高三'].map((grade) => <option key={grade}>{grade}</option>)}</select></> : <><label htmlFor="child-name">孩子姓名</label><input id="child-name" value={childName} onChange={(event) => setChildName(event.target.value.slice(0, 40))} placeholder="填写孩子在网站上的姓名" required /><label htmlFor="child-phone">孩子手机号</label><input id="child-phone" type="tel" inputMode="numeric" value={childPhone} onChange={(event) => setChildPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="用于核对孩子档案" required /></>}
           <label htmlFor="register-password">设置密码（6—12位）</label><input id="register-password" type="password" autoComplete="new-password" minLength={6} maxLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required />
           <label htmlFor="register-confirm">再输入一次密码</label><input id="register-confirm" type="password" autoComplete="new-password" minLength={6} maxLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
           {error && <div className="form-error" role="alert">{error}</div>}
-          <button className="primary-button" disabled={loading || !wechatAdded}>{loading ? '正在提交…' : '提交注册申请'} <ArrowRight size={18} /></button>
-          <small className="registration-note">手机号仅用于账号登录与孩子档案核对；提交后须由甘老师确认才能开通。</small>
+          <button className="primary-button" disabled={loading || inviteCode.length !== 10}>{loading ? '正在提交…' : '提交注册申请'} <ArrowRight size={18} /></button>
+          <small className="registration-note">不能直接凭手机号注册。邀请码只对老师确认的身份和手机号有效，使用一次即失效；提交后仍须审核开通。</small>
         </form>)}
       </div>
     </section>

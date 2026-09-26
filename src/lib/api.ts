@@ -32,7 +32,7 @@ export async function loginWithAccessCode(name: string, code: string) {
 
 export type RegistrationData = {
   role: 'student' | 'guardian'; displayName: string; phone: string; password: string;
-  gradeBand?: string; childName?: string; childPhone?: string;
+  inviteCode: string; gradeBand?: string; childName?: string; childPhone?: string;
 }
 
 export async function submitRegistration(data: RegistrationData) {

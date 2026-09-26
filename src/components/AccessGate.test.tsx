@@ -5,7 +5,7 @@ import { AccessGate } from './AccessGate'
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('phone registration', () => {
-  it('collects a guardian and child phone, requires WeChat confirmation, then submits a pending request', async () => {
+  it('requires a teacher-issued invite before collecting a guardian and child phone', async () => {
     const actions: Array<Record<string, unknown>> = []
     vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const payload = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -13,7 +13,7 @@ describe('phone registration', () => {
       return new Response(JSON.stringify({ ok: true, message: '已提交' }), { status: 200 })
     }))
     render(<AccessGate onSuccess={vi.fn()} />)
-    fireEvent.click(screen.getByRole('tab', { name: '新用户注册' }))
+    fireEvent.click(screen.getByRole('tab', { name: '加微信后注册' }))
     expect(screen.getByAltText('甘老师微信二维码，扫码添加好友')).toHaveAttribute('src', '/gan-chemistry-august-review/wechat-add.jpg')
     fireEvent.click(screen.getByRole('button', { name: '家长注册' }))
     fireEvent.change(screen.getByLabelText('家长姓名'), { target: { value: '测试家长' } })
@@ -24,11 +24,11 @@ describe('phone registration', () => {
     fireEvent.change(screen.getByLabelText('再输入一次密码'), { target: { value: 'Parent88' } })
     const submit = screen.getByRole('button', { name: /提交注册申请/ })
     expect(submit).toBeDisabled()
-    fireEvent.click(screen.getByRole('checkbox', { name: '我已添加甘老师微信' }))
+    fireEvent.change(screen.getByLabelText('第二步：输入老师发的邀请码'), { target: { value: 'A1B2C3D4E5' } })
     fireEvent.click(submit)
     await screen.findByRole('heading', { name: '申请已提交' })
     expect(actions).toEqual([{ action: 'register', data: {
-      role: 'guardian', displayName: '测试家长', phone: '13800138000', password: 'Parent88',
+      role: 'guardian', displayName: '测试家长', phone: '13800138000', password: 'Parent88', inviteCode: 'A1B2C3D4E5',
       childName: '测试学生', childPhone: '13900139000',
     } }])
   })

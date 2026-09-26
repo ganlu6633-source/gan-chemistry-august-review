@@ -52,10 +52,55 @@ function RegistrationRequests({ catalog, onChanged }: { catalog: TeachingCatalog
       setMessage(result.message); await load(); await onChanged()
     } catch (reason) { setError(messageOf(reason, '审核没有保存，请检查学生身份和手机号。')) }
   }
-  return <section className="teacher-panel registration-review"><div className="panel-head"><div><h2>手机号注册审核</h2><p className="tm-help">先在微信确认来人身份，再开通账号。家长须核对孩子姓名和手机号；同名学生请逐个核实档案。</p></div><button className="secondary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />刷新申请</button></div>
+  return <section className="teacher-panel registration-review"><div className="panel-head"><div><h2>微信邀请与注册审核</h2><p className="tm-help">先在微信确认来人身份和手机号，再发邀请码。学生或家长提交后，还需在此核对档案并开通。</p></div><button className="secondary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />刷新申请</button></div>
+    <RegistrationInviteIssuer />
     {error && <div className="inline-alert" role="alert">{error}</div>}{message && <div className="success-message" role="status"><CheckCircle2 />{message}</div>}
     {loading ? <p className="tm-help">正在读取申请…</p> : requests.length === 0 ? <p className="tm-help">目前没有待审核申请。</p> : requests.map((request) => <RegistrationReviewCard key={request.id} request={request} catalog={catalog} onReview={review} />)}
   </section>
+}
+
+function RegistrationInviteIssuer() {
+  const [role, setRole] = useState<'student' | 'guardian'>('student')
+  const [phone, setPhone] = useState('')
+  const [note, setNote] = useState('')
+  const [invite, setInvite] = useState<{ code: string; role: 'student' | 'guardian'; phone: string; expiresAt: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [showInvites, setShowInvites] = useState(false)
+  const [invites, setInvites] = useState<Array<{ id: string; role: 'student' | 'guardian'; phone: string; note: string | null; expiresAt: string; status: string }>>([])
+  const [invitesBusy, setInvitesBusy] = useState(false)
+  async function loadInvites() {
+    setInvitesBusy(true); setError('')
+    try { const result = await teacherApi<{ invites: typeof invites }>('list_registration_invites'); setInvites(result.invites) }
+    catch (reason) { setError(messageOf(reason, '邀请码记录暂时无法读取。')) }
+    finally { setInvitesBusy(false) }
+  }
+  async function revoke(inviteId: string) {
+    setInvitesBusy(true); setError('')
+    try { await teacherApi('revoke_registration_invite', { inviteId }); await loadInvites() }
+    catch (reason) { setError(messageOf(reason, '邀请码没有撤销，请刷新后重试。')) }
+    finally { setInvitesBusy(false) }
+  }
+  async function create(event: FormEvent) {
+    event.preventDefault()
+    if (!/^1[3-9]\d{9}$/.test(phone)) return setError('请填写微信中核对过的11位手机号。')
+    setBusy(true); setError(''); setInvite(null)
+    try {
+      const result = await teacherApi<{ invite: { code: string; role: 'student' | 'guardian'; phone: string; expiresAt: string } }>('create_registration_invite', { role, phone, note: note.trim() })
+      setInvite(result.invite); setNote('')
+      if (showInvites) await loadInvites()
+    } catch (reason) { setError(messageOf(reason, '邀请码没有生成，请稍后重试。')) }
+    finally { setBusy(false) }
+  }
+  return <form className="registration-invite-issuer" onSubmit={create} aria-label="微信邀请码"><div><h3>已加微信？发给对方一次性邀请码</h3><p className="tm-help">请先在微信核对身份和手机号。邀请码绑定下方身份与手机号，仅显示这一次，请复制后发给本人。</p></div>
+    <div className="registration-invite-fields"><label>注册身份<select value={role} onChange={(event) => { setRole(event.target.value as typeof role); setInvite(null) }}><option value="student">学生</option><option value="guardian">家长</option></select></label><label>已核对手机号<input type="tel" inputMode="numeric" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/\D/g, '').slice(0, 11)); setInvite(null) }} placeholder="11位中国大陆手机号" required /></label><label>微信备注（可选）<input value={note} onChange={(event) => setNote(event.target.value.slice(0, 60))} placeholder="方便自己辨认" /></label></div>
+    {error && <div className="inline-alert" role="alert">{error}</div>}
+    <button className="secondary-button" disabled={busy}>{busy ? '正在生成…' : '生成邀请码'}</button>
+    {invite && <div className="registration-invite-result" role="status"><span>把这个邀请码通过微信发给对应的{invite.role === 'student' ? '学生' : '家长'}（{invite.phone}）</span><strong>{invite.code}</strong><small>有效期至 {new Date(invite.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}；只能使用一次。关闭或刷新页面后不再显示，请现在复制。</small></div>}
+    <div className="registration-invite-list"><button type="button" className="text-button" onClick={() => { if (showInvites) setShowInvites(false); else { setShowInvites(true); void loadInvites() } }} aria-expanded={showInvites}>{showInvites ? '收起邀请码记录' : '查看尚可使用的邀请码'}</button>
+      {showInvites && (invitesBusy && !invites.length ? <p className="tm-help">正在读取…</p> : invites.filter((item) => item.status === 'active').length ? invites.filter((item) => item.status === 'active').map((item) => <div className="registration-invite-row" key={item.id}><span>{item.role === 'student' ? '学生' : '家长'} · {item.phone}{item.note ? ` · ${item.note}` : ''}<small>有效期至 {new Date(item.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</small></span><button type="button" className="table-action" disabled={invitesBusy} onClick={() => void revoke(item.id)}>撤销邀请码</button></div>) : <p className="tm-help">没有尚可使用的邀请码。</p>)}
+    </div>
+  </form>
 }
 
 function RegistrationReviewCard({ request, catalog, onReview }: { request: RegistrationRequest; catalog: TeachingCatalog; onReview: (request: RegistrationRequest, decision: 'approve' | 'reject', studentId: string, classId: string, referenceStudentId: string) => Promise<void> }) {

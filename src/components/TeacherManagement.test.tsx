@@ -44,6 +44,20 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('teacher management workflow', () => {
+  it('issues a role and phone bound invite only from the teacher workspace', async () => {
+    const original = api.getMockImplementation()!
+    api.mockImplementation(async (action, data) => action === 'create_registration_invite'
+      ? { invite: { code: 'A1B2C3D4E5', role: 'guardian', phone: '13800138000', expiresAt: '2026-10-03T00:00:00Z' } }
+      : original(action, data))
+    render(<TeacherManagement mode="students" />)
+    const form = await screen.findByRole('form', { name: '微信邀请码' })
+    fireEvent.change(within(form).getByLabelText('注册身份'), { target: { value: 'guardian' } })
+    fireEvent.change(within(form).getByLabelText('已核对手机号'), { target: { value: '13800138000' } })
+    fireEvent.click(within(form).getByRole('button', { name: '生成邀请码' }))
+    expect(await within(form).findByText('A1B2C3D4E5')).toBeInTheDocument()
+    expect(api).toHaveBeenCalledWith('create_registration_invite', { role: 'guardian', phone: '13800138000', note: '' })
+  })
+
   it('requires teacher identity confirmation before binding a guardian to the selected child', async () => {
     const original = api.getMockImplementation()!
     api.mockImplementation(async (action, data) => {
