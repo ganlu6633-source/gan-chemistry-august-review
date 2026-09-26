@@ -11,13 +11,13 @@ describe('buildRecoveryTargets', () => {
       anchorQuestionId: 'anchor', optionIndex: 1, knowledgePoint: '电极判断', position: 1, total: 3,
     } }], answers: [answer('anchor', false), answer('drill', false)], branches: [{ anchorQuestionId: 'anchor',
       optionIndex: 1, knowledgePoint: '电极判断', questionIds: ['drill'], answered: 1, correct: 0, status: 'practicing' }],
-    cards: [], cardRatings: {}, conceptTitles: {} })
+    cards: [], pointRatings: {}, conceptTitles: {} })
     expect(targets).toMatchObject([{ title: '电极判断', wrongCount: 2, branch: { status: 'practicing' } }])
   })
 
   it('does not invent an option-level diagnosis when the binding is missing', () => {
     const targets = buildRecoveryTargets({ questions: [question('anchor')], answers: [answer('anchor', false)], branches: [],
-      cards: [], cardRatings: {}, conceptTitles: { H3_ELECTRO__C01: '原电池与燃料电池放电原理' } })
+      cards: [], pointRatings: {}, conceptTitles: { H3_ELECTRO__C01: '原电池与燃料电池放电原理' } })
     expect(targets).toMatchObject([{ title: '原电池与燃料电池放电原理', branch: null, conceptKey: 'H3_ELECTRO__C01' }])
   })
 })

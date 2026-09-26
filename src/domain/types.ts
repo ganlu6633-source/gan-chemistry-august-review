@@ -397,6 +397,8 @@ export interface LearningAttempt {
   startedAt: string
   completedAt: string
   answers: AttemptAnswer[]
+  /** Self-report at one knowledge node at a time; never proof of question mastery. */
+  knowledgeRatings?: Array<{ pointId: string; rating: 'unknown' | 'familiar' | 'fluent' }>
   firstScore: number
 }
 

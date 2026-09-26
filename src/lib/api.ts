@@ -99,7 +99,7 @@ export async function loadLearningRecord(session: SessionIdentity, studentId?: s
 }
 
 export async function submitAttempt(session: SessionIdentity, attempt: LearningAttempt) {
-  return accessApi<{ dashboard: StudentDashboardData; achievements: string[]; feedback?: QuestionFeedback[] }>(session, 'submit_attempt', attempt)
+  return accessApi<{ dashboard: StudentDashboardData; achievements: string[]; feedback?: QuestionFeedback[]; knowledgeRatingsSaved?: boolean }>(session, 'submit_attempt', attempt)
 }
 
 export interface QuestionFeedbackInput {

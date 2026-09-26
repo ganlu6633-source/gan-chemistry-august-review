@@ -4,6 +4,7 @@ import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, Kn
 import { selectFocusPlan } from '../domain/focusPlan'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildRecoveryTargets, type KnowledgeConfidence } from '../domain/learningRecovery'
+import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
@@ -669,6 +670,8 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const resumedFeedback = payload.questions[initialQuestionIndex] ? initialServerFeedback[payload.questions[initialQuestionIndex].id] : undefined
   const [phase, setPhase] = useState<'cards' | 'quiz' | 'result' | 'repair'>(payload.plan.deliveryMode === 'self_study' ? 'quiz' : roundNumber === 1 && initialAnswers.length === 0 ? 'cards' : 'quiz')
   const [cardIndex, setCardIndex] = useState(0)
+  const [pointIndex, setPointIndex] = useState(0)
+  const [showWholeMap, setShowWholeMap] = useState(false)
   const [questions, setQuestions] = useState(payload.questions)
   const [questionIndex, setQuestionIndex] = useState(initialQuestionIndex)
   const [selected, setSelected] = useState<number | null>(resumedFeedback?.selectedOption ?? null)
@@ -678,21 +681,25 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const [feedback, setFeedback] = useState(Boolean(resumedFeedback))
   const [serverFeedback, setServerFeedback] = useState<Record<string, QuestionFeedback>>(initialServerFeedback)
   const [optionPractice, setOptionPractice] = useState(payload.optionPractice ?? [])
-  const [cardRatings, setCardRatings] = useState<Record<string, KnowledgeConfidence>>({})
+  const [pointRatings, setPointRatings] = useState<Record<string, KnowledgeConfidence>>({})
   const [repairTargetKey, setRepairTargetKey] = useState<string | null>(null)
   const [repairError, setRepairError] = useState('')
+  const [ratingsSaveError, setRatingsSaveError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
   const [primaryMediaReady, setPrimaryMediaReady] = useState<Record<string, boolean>>({})
   const primaryActionRef = useRef<HTMLButtonElement>(null)
   const sourceAssetRequests = useRef(new Map<string, Promise<{ asset: LoadedQuestionAsset }>>())
+  const pointsByCard = useMemo(() => payload.cards.map(getKnowledgeReviewPoints), [payload.cards])
   const card = payload.cards[cardIndex]
+  const cardPoints = pointsByCard[cardIndex] ?? []
+  const currentPoint = cardPoints[pointIndex]
   const question = questions[questionIndex]
   const selfStudy = payload.plan.deliveryMode === 'self_study'
   const singleDailyReviewPackage = payload.plan.mode === 'REVIEW' && roundLimit === 1 && !selfStudy
   const conceptTitles = Object.fromEntries(studyTopics.map((topic) => [topic.conceptKey, topic.title]))
-  const recoveryTargets = buildRecoveryTargets({ questions, answers, branches: optionPractice, cards: payload.cards, cardRatings, conceptTitles })
+  const recoveryTargets = buildRecoveryTargets({ questions, answers, branches: optionPractice, cards: payload.cards, pointRatings, conceptTitles })
   const activeRepairTarget = recoveryTargets.find((target) => target.key === repairTargetKey)
 
   async function startFocusedPractice(skillId: string, conceptKey: string) {
@@ -799,7 +806,8 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     const reviewCard = payload.cards.find((item) => item.skillId === activeRepairTarget.skillId)
     const reviewExplanation = activeRepairTarget.anchorQuestionId ? serverFeedback[activeRepairTarget.anchorQuestionId]?.explanation : undefined
     const topicByConcept = new Map<string, StudyTopic>()
-    studyTopics.filter((topic) => topic.skillId === activeRepairTarget.skillId)
+    studyTopics.filter((topic) => topic.skillId === activeRepairTarget.skillId
+      && (!activeRepairTarget.pointId || topic.title === activeRepairTarget.title))
       .sort((a, b) => Number(b.freshCount > 0) - Number(a.freshCount > 0) || Number(a.releaseKind !== 'primary') - Number(b.releaseKind !== 'primary') || b.freshCount - a.freshCount)
       .forEach((topic) => { if (!topicByConcept.has(topic.conceptKey)) topicByConcept.set(topic.conceptKey, topic) })
     const practiceTopics = [...topicByConcept.values()].sort((a, b) => Number(b.conceptKey === activeRepairTarget.conceptKey) - Number(a.conceptKey === activeRepairTarget.conceptKey) || b.freshCount - a.freshCount || a.sequence - b.sequence)
@@ -807,12 +815,34 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       practiceTopics={practiceTopics}
       onBack={() => { setRepairError(''); setPhase('result') }}
       onPractice={onOpenFocusedTopic && !practiceMode ? (conceptKey) => startFocusedPractice(activeRepairTarget.skillId, conceptKey) : undefined}
-      onRating={(point, rating) => setCardRatings((current) => ({ ...current, [`${activeRepairTarget.key}:${point}`]: rating }))}
+      onRating={(point, rating) => setPointRatings((current) => ({ ...current, [`${activeRepairTarget.key}:${point}`]: rating }))}
       practiceBusy={busy} />{repairError && <p className="inline-alert repair-error" role="alert">{repairError}</p>}</>
   }
 
-  if (phase === 'cards') return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="stage-progress"><i style={{ width: `${(cardIndex + 1) / Math.max(payload.cards.length, 1) * 100}%` }} /></div>{card ? <><KnowledgeCardArticle card={card} position={cardIndex + 1} total={payload.cards.length} /><KnowledgeConfidencePicker value={cardRatings[card.id]} onChange={(rating) => setCardRatings((current) => ({ ...current, [card.id]: rating }))} /></> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
-    <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后再学</button><button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { if (cardIndex < payload.cards.length - 1) setCardIndex(cardIndex + 1); else setPhase('quiz') }}>{cardIndex < payload.cards.length - 1 ? '下一张' : '开始练习'}<ChevronRight size={18} /></button></div></section>
+  if (phase === 'cards') {
+    const advancePoint = () => {
+      setShowWholeMap(false)
+      if (pointIndex < cardPoints.length - 1) setPointIndex(pointIndex + 1)
+      else if (cardIndex < payload.cards.length - 1) { setCardIndex(cardIndex + 1); setPointIndex(0) }
+      else setPhase('quiz')
+    }
+    const retreatPoint = () => {
+      setShowWholeMap(false)
+      if (pointIndex > 0) setPointIndex(pointIndex - 1)
+      else if (cardIndex > 0) { const previous = cardIndex - 1; setCardIndex(previous); setPointIndex(Math.max(0, pointsByCard[previous].length - 1)) }
+    }
+    const lastPoint = pointIndex >= cardPoints.length - 1 && cardIndex >= payload.cards.length - 1
+    const completedBefore = pointsByCard.slice(0, cardIndex).reduce((count, points) => count + points.length, 0)
+    const totalPoints = pointsByCard.reduce((count, points) => count + points.length, 0)
+    return <section className="learning-stage"><button className="text-button" onClick={onExit}>← 返回计划</button>{roundTrack}<div className="review-outline"><b>今天复习什么</b>{payload.plan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div>
+      <div className="stage-progress" aria-label={`知识小点 ${completedBefore + pointIndex + 1}/${Math.max(totalPoints, 1)}`}><i style={{ width: `${(completedBefore + pointIndex + 1) / Math.max(totalPoints, 1) * 100}%` }} /></div>
+      {card && currentPoint ? <><article className="knowledge-card knowledge-micro-card" data-testid="learning-skill-card"><span className="eyebrow">{card.title} · 第 {cardIndex + 1}/{payload.cards.length} 张卡</span><p className="knowledge-micro-position">{currentPoint.section} · 小点 {pointIndex + 1}/{cardPoints.length}</p><h1><ChemText>{currentPoint.title}</ChemText></h1><div className="core-rule"><ChemText>{currentPoint.rule}</ChemText></div>
+        {currentPoint.examples.length > 0 && <details><summary>看一个例子</summary><ul>{currentPoint.examples.slice(0, 2).map((example) => <li key={example}><ChemText>{example}</ChemText></li>)}</ul></details>}
+        {currentPoint.caution && <p className="mistake-note"><b>留意</b><ChemText>{currentPoint.caution}</ChemText></p>}
+        {pointIndex === cardPoints.length - 1 && isStructuredKnowledgeContent(card.structuredContent) && <div className="knowledge-whole-map"><button type="button" className="text-button" onClick={() => setShowWholeMap((value) => !value)}>{showWholeMap ? '收起整张知识图' : '想看这一整张知识图？'}</button>{showWholeMap && <StructuredKnowledgeMap content={card.structuredContent} skillId={card.skillId} />}</div>}
+      </article><KnowledgeConfidencePicker value={pointRatings[currentPoint.id]} onChange={(rating) => { setPointRatings((current) => ({ ...current, [currentPoint.id]: rating })); advancePoint() }} /></> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
+      <div className="stage-actions">{(cardIndex > 0 || pointIndex > 0) && <button className="secondary-button" onClick={retreatPoint}>上一小点</button>}<button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" onClick={advancePoint}>{lastPoint ? '开始练习' : '先跳过，下一小点'}<ChevronRight size={18} /></button></div><p className="knowledge-micro-note">每次只给当前小点选一次；跳过不会当作已经掌握，后面的原题仍会检验。</p></section>
+  }
 
   if (phase === 'quiz' && question) {
     const isLicensedReview = payload.plan.mode === 'REVIEW' && ['高一', '高二', '高三'].includes(question.gradeBand) && question.sourceKind === 'licensed_local'
@@ -900,7 +930,9 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       // Preserve the server-issued order even when some answers came from a
       // resumed session rather than this browser visit.
       const finalAnswers = questions.flatMap((item) => answers.filter((answer) => answer.questionId === item.id))
-      const attempt: LearningAttempt = { id: crypto.randomUUID(), studentId: practiceDashboard?.profile.id ?? '', planDayId: payload.plan.id, attemptKind: payload.attemptSequence === 0 ? 'scheduled' : 'review', sequence: payload.attemptSequence, mode: payload.plan.mode, startedAt, completedAt: new Date().toISOString(), answers: finalAnswers, firstScore: finalAnswers.filter((answer) => answer.correct).length }
+      const attempt: LearningAttempt = { id: crypto.randomUUID(), studentId: practiceDashboard?.profile.id ?? '', planDayId: payload.plan.id, attemptKind: payload.attemptSequence === 0 ? 'scheduled' : 'review', sequence: payload.attemptSequence, mode: payload.plan.mode, startedAt, completedAt: new Date().toISOString(), answers: finalAnswers,
+        knowledgeRatings: pointsByCard.flatMap((points) => points.flatMap((point) => pointRatings[point.id] ? [{ pointId: point.id, rating: pointRatings[point.id] }] : [])),
+        firstScore: finalAnswers.filter((answer) => answer.correct).length }
       try {
         setError('')
         if (practiceMode && practiceDashboard) {
@@ -916,6 +948,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           setPhase('result')
         } else {
           const result = await submitAttempt(session, attempt)
+          setRatingsSaveError(result.knowledgeRatingsSaved === false)
           if (requiresServerFeedback) {
             const finalFeedback = result.feedback ?? []
             if (finalFeedback.length !== finalAnswers.length) throw new Error('本轮答案已保存，但反馈不完整，请返回学习档案查看。')
@@ -954,6 +987,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
     <p>{selfStudy ? '本关' : singleDailyReviewPackage ? '今日' : '本轮'}完成 {answers.length} 题，答对 {correct} 题。{recoveryTargets.length ? '需要补的知识点已经列在下面，现在就能复习；有已审核的同知识点原题，还可以接着练。'
       : hasNextRound ? '下一轮继续用原题检验，看看是不是真的稳了。' : '后续会按复习时间提醒你回看。'}</p>
     <div className="result-stats"><div><b>{answers.length}</b><span>完成练习</span></div><div><b>{new Set(answers.map((answer) => answer.skillId)).size}</b><span>复习模块</span></div><div><b>{answers.length - correct}</b><span>答错题数</span></div></div>
+    {ratingsSaveError && <p className="inline-alert" role="alert">题目答案已经保存；这次知识小点自评未能写入档案，请稍后重新复习这些小点。</p>}
     {recoveryTargets.length > 0 && <section className="result-recovery" aria-labelledby="result-recovery-title">
       <div className="result-recovery-head"><span className="eyebrow"><RotateCcw size={16} />趁热补一补</span><h2 id="result-recovery-title">从哪里跌倒，就从哪里把题做明白</h2><p>先看错题对应的知识点。选项已有审核过的专项题时，会显示准确小点；没有绑定的题，先由你选卡住的环节，不乱猜。</p></div>
       <div className="result-recovery-list">{recoveryTargets.map((target) => <article key={target.key}>
@@ -961,7 +995,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           ? target.branch.status === 'reserve_gap' ? '这条选项暂缺足量、已审核的同类型原题；先复习知识点，不拿别的题凑数。'
             : target.branch.status === 'consolidated' ? `已做 ${target.branch.answered} 道专项原题，这一轮接稳了；之后还会复查。`
               : `已做 ${target.branch.answered}/${target.branch.questionIds.length} 道对应选项原题，仍需继续巩固。`
-          : target.fromSelfRating ? '你标记了还不熟，先拆开知识卡，再用原题检验。'
+          : target.fromSelfRating ? `你把这一小点标为“${target.selfRating === 'unknown' ? '不知道' : '眼熟'}”；先补清楚，再用原题检验。`
             : `这块有 ${target.wrongCount} 道没做对；先查明具体卡在哪一步。`}</p></div>
         <div className="result-recovery-actions"><button type="button" className="primary-button compact" onClick={() => { setRepairTargetKey(target.key); setRepairError(''); setPhase('repair') }}>复习这块<ChevronRight size={16} /></button>
           {target.conceptKey && onOpenFocusedTopic && target.branch?.status !== 'reserve_gap'

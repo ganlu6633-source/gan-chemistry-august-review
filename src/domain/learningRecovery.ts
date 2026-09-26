@@ -1,4 +1,5 @@
 import type { KnowledgeCard, LearningAttempt, OptionPracticeProgress, Question } from './types'
+import { getKnowledgeReviewPoints } from './knowledgeReviewPoints'
 
 export type KnowledgeConfidence = 'unknown' | 'familiar' | 'fluent'
 
@@ -11,6 +12,8 @@ export type RecoveryTarget = {
   anchorQuestionId: string | null
   branch: OptionPracticeProgress | null
   fromSelfRating: boolean
+  pointId?: string
+  selfRating?: KnowledgeConfidence
 }
 
 type RecoveryInput = {
@@ -18,14 +21,14 @@ type RecoveryInput = {
   answers: LearningAttempt['answers']
   branches: OptionPracticeProgress[]
   cards: KnowledgeCard[]
-  cardRatings: Record<string, KnowledgeConfidence>
+  pointRatings: Record<string, KnowledgeConfidence>
   conceptTitles: Record<string, string>
 }
 
 /** A wrong option is a clue, not proof of which microscopic rule failed.
  * Use the teacher-verified option branch when available; otherwise stop at
  * the question's audited concept and let the learner choose the weak point. */
-export function buildRecoveryTargets({ questions, answers, branches, cards, cardRatings, conceptTitles }: RecoveryInput): RecoveryTarget[] {
+export function buildRecoveryTargets({ questions, answers, branches, cards, pointRatings, conceptTitles }: RecoveryInput): RecoveryTarget[] {
   const byQuestion = new Map(questions.map((question) => [question.id, question]))
   const targets = new Map<string, RecoveryTarget>()
 
@@ -46,14 +49,17 @@ export function buildRecoveryTargets({ questions, answers, branches, cards, card
   }
 
   for (const card of cards) {
-    const rating = cardRatings[card.id]
-    if (rating !== 'unknown' && rating !== 'familiar') continue
-    if ([...targets.values()].some((target) => target.skillId === card.skillId)) continue
-    const key = `rating:${card.id}`
-    targets.set(key, { key, skillId: card.skillId, conceptKey: null, title: card.title, wrongCount: 0,
-      anchorQuestionId: null, branch: null, fromSelfRating: true })
+    for (const point of getKnowledgeReviewPoints(card)) {
+      const rating = pointRatings[point.id]
+      if (rating !== 'unknown' && rating !== 'familiar') continue
+      const key = `rating:${point.id}`
+      targets.set(key, { key, skillId: card.skillId, conceptKey: null, title: point.title, wrongCount: 0,
+        anchorQuestionId: null, branch: null, fromSelfRating: true, pointId: point.id, selfRating: rating })
+    }
   }
 
   return [...targets.values()].sort((a, b) => Number(Boolean(b.branch)) - Number(Boolean(a.branch))
-    || b.wrongCount - a.wrongCount || a.title.localeCompare(b.title, 'zh-CN'))
+    || b.wrongCount - a.wrongCount
+    || Number(b.selfRating === 'unknown') - Number(a.selfRating === 'unknown')
+    || a.title.localeCompare(b.title, 'zh-CN'))
 }

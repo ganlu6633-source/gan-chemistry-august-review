@@ -138,4 +138,28 @@ describe('LearningRound Enter shortcut', () => {
     expect(screen.getByRole('heading', { name: '第一张知识卡' })).toBeInTheDocument()
     dialog.remove()
   })
+
+  it('asks for and tracks separate ratings on two knowledge points in one card', async () => {
+    const splitCard = { ...card('mole-card', '物质的量'), skillId: 'H1_MOLE_INTRO',
+      structuredContent: { version: 1, intro: '逐点学习', sections: [{ title: '先认清', items: [
+        { label: '物质的量 n', rule: 'n 的单位是 mol。' },
+        { label: '阿伏加德罗常数 N_A', rule: '1 mol 指定微粒含 N_A 个微粒。' },
+      ] }] },
+    }
+    const learning = payload(1)
+    learning.cards = [splitCard]
+    render(<LearningRound session={session} payload={learning} practiceMode practiceDashboard={dashboard}
+      onExit={vi.fn()} onContinue={vi.fn()} onComplete={vi.fn()} />)
+
+    expect(screen.getByRole('heading', { name: '物质的量 n' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /不知道/ }))
+    expect(screen.getByRole('heading', { name: /阿伏加德罗常数 N/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /熟练/ }))
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /A.*升价并失电子/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(screen.getByRole('button', { name: /完成今日题组/ }))
+    expect(await screen.findByText('物质的量 n')).toBeInTheDocument()
+    expect(screen.queryByText('阿伏加德罗常数 N_A')).not.toBeInTheDocument()
+  })
 })

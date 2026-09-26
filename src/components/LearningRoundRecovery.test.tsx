@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { KnowledgeCard, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { submitAttempt } from '../lib/api'
@@ -47,7 +47,7 @@ describe('wrong-answer recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成今日题组' }))
     expect(await screen.findByRole('heading', { name: '本组答对 0/1 题。' })).toBeInTheDocument()
     expect(screen.getByText('原电池与燃料电池放电原理')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '复习这块' }))
+    fireEvent.click(within(screen.getByText('原电池与燃料电池放电原理').closest('article')!).getByRole('button', { name: '复习这块' }))
     expect(screen.getByRole('heading', { name: '先找卡住的那一环' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /电极判断/ }))
     expect(screen.getByText('放电时负极发生氧化反应。')).toBeInTheDocument()

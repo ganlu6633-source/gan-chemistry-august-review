@@ -3906,6 +3906,14 @@ Deno.serve(async (req: Request) => {
         !Array.isArray(attempt.answers) ||
         attempt.answers.length > 48
       ) return reply(req, { error: "提交内容不完整。" }, 400);
+      const submittedKnowledgeRatings = attempt.knowledgeRatings === undefined ? [] : attempt.knowledgeRatings;
+      if (!Array.isArray(submittedKnowledgeRatings) || submittedKnowledgeRatings.length > 500
+        || submittedKnowledgeRatings.some((item) => !item || typeof item !== "object"
+          || !/^[A-Za-z0-9_-]{1,90}:(?:s\d{1,3}:i\d{1,3}:p\d{1,2}|core)$/.test(String(item.pointId || ""))
+          || !["unknown", "familiar", "fluent"].includes(String(item.rating || "")))
+        || new Set(submittedKnowledgeRatings.map((item) => String(item.pointId))).size !== submittedKnowledgeRatings.length) {
+        return reply(req, { error: "知识小点自评格式无效，请重新打开本轮练习。" }, 400);
+      }
       const targetId = await resolveDemoTarget(identity.studentId, String(attempt.studentId));
       if (!targetId) return reply(req, { error: "无权提交该学习记录。" }, 403);
       const targetProfile = await supabase.from("chem_students_v2").select("grade_band,metadata").eq("id", targetId).single();
@@ -4330,6 +4338,18 @@ Deno.serve(async (req: Request) => {
       }
       if (finalization.error) throw finalization.error;
       if (finalization.data !== true) throw new RequestError(500, "本轮记录未能完整保存，请稍后重试。");
+      let knowledgeRatingsSaved = true;
+      if (submittedKnowledgeRatings.length) {
+        const ratingsUpdate = await supabase.from("chem_learning_attempts")
+          .update({ knowledge_ratings: submittedKnowledgeRatings.map((item) => ({
+            pointId: String(item.pointId), rating: String(item.rating),
+          })) })
+          .eq("id", attemptId).eq("student_id", targetId);
+        if (ratingsUpdate.error) {
+          console.error("fine knowledge self-ratings save failed", ratingsUpdate.error);
+          knowledgeRatingsSaved = false;
+        }
+      }
       let nextPlanPersonalized = false;
       if (
         isFormalHighSchoolReview(formalReviewContext(plan, reviewProfile))
@@ -4372,6 +4392,7 @@ Deno.serve(async (req: Request) => {
         dashboard: await studentDashboard(targetId),
         achievements: [],
         feedback: completedFeedback,
+        knowledgeRatingsSaved,
         nextPlanPersonalized,
       });
     }

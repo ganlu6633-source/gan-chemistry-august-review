@@ -5,6 +5,7 @@ import type { KnowledgeConfidence, RecoveryTarget } from '../domain/learningReco
 import type { StudyTopic } from './StudyLibrary'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { ChemText } from './ChemText'
+import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 
 export function KnowledgeConfidencePicker({ value, onChange }: { value?: KnowledgeConfidence; onChange: (value: KnowledgeConfidence) => void }) {
   const choices: Array<{ value: KnowledgeConfidence; label: string; detail: string }> = [
@@ -12,8 +13,8 @@ export function KnowledgeConfidencePicker({ value, onChange }: { value?: Knowled
     { value: 'familiar', label: '眼熟', detail: '见过，但还做不稳' },
     { value: 'fluent', label: '熟练', detail: '能独立解释并做题' },
   ]
-  return <div className="knowledge-confidence" role="group" aria-label="这块知识现在有多熟">
-    <b>这块知识现在有多熟？</b><span>先凭感觉选，真正掌握还要看后面的原题。</span>
+  return <div className="knowledge-confidence" role="group" aria-label="这一点知识现在有多熟">
+    <b>这一点知识现在有多熟？</b><span>只判断上面这一小点；真正掌握还要看后面的原题。</span>
     <div>{choices.map((choice) => <button type="button" key={choice.value} className={value === choice.value ? 'selected' : ''}
       aria-pressed={value === choice.value} onClick={() => onChange(choice.value)}><strong>{choice.label}</strong><small>{choice.detail}</small></button>)}</div>
   </div>
@@ -22,8 +23,14 @@ export function KnowledgeConfidencePicker({ value, onChange }: { value?: Knowled
 type RepairSection = { id: string; title: string; items: KnowledgeTreeNode[] }
 
 function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, explanation?: string): RepairSection[] {
+  const exactPoint = target.pointId && card ? getKnowledgeReviewPoints(card).find((point) => point.id === target.pointId) : null
+  if (exactPoint) return [{ id: exactPoint.id, title: exactPoint.section, items: [{ label: exactPoint.title, rule: exactPoint.rule,
+    examples: exactPoint.examples, caution: exactPoint.caution }] }]
   if (card && isStructuredKnowledgeContent(card.structuredContent) && card.structuredContent.sections.length) {
-    const sections = card.structuredContent.sections.map((section, index) => ({ ...section, id: `${card.id}:${index}` }))
+    const points = getKnowledgeReviewPoints(card)
+    const sections = card.structuredContent.sections.map((section, index) => ({ title: section.title,
+      id: `${card.id}:${index}`, items: points.filter((point) => point.id.startsWith(`${card.id}:s${index}:`))
+        .map((point) => ({ label: point.title, rule: point.rule, examples: point.examples, caution: point.caution })) }))
     const route = card.structuredContent.overview?.find((item) => item.includes('电子') && item.includes('外电路'))
     if ((card.skillId === 'H3_ELECTRO' || card.skillId === 'H2_ELECTRO') && route) return [
       ...sections.slice(0, 1),
@@ -74,10 +81,10 @@ export function KnowledgeRepairPanel({ target, card, explanation, practiceTopics
       <div>{sections.map((item, index) => <button type="button" key={item.id} onClick={() => { setSectionIndex(index); setPointIndex(0) }}><span><ChemText>{item.title}</ChemText></span><small>{item.items.length} 个小点</small><ChevronRight size={17} /></button>)}</div>
     </div> : done && section ? <div className="repair-finished"><h2>这块复习完，拿原题检验一下</h2><p>“不知道／眼熟／熟练”是你的自我判断；系统会以之后的选择题作答继续检验，不会因为点了“熟练”就直接判定掌握。</p>
       <div className="repair-rating-summary">{section.items.map((item) => <span key={item.label}><ChemText>{item.label}</ChemText><b>{ratings[`${section.id}:${item.label}`] === 'unknown' ? '不知道' : ratings[`${section.id}:${item.label}`] === 'familiar' ? '眼熟' : '熟练'}</b></span>)}</div>
-      {onPractice && <div className="repair-practice-topics"><h3>选一个要突破的题库小点</h3><p>这里只列本模块已有审核原题的知识点。请选与你刚才卡住的环节对应的一项；没有合适的，就先回结果页。</p>
+      {onPractice && <div className="repair-practice-topics"><h3>选一个要突破的题库小点</h3><p>{target.pointId ? '只有题库考点与这个细点完全对上时才显示原题，避免拿大章节里的其他题凑数。' : '这里只列本模块已有审核原题的知识点。请选与你刚才卡住的环节对应的一项。'}</p>
         <div>{practiceTopics.map((topic) => <button type="button" key={`${topic.releaseId}:${topic.conceptKey}`} disabled={practiceBusy || topic.freshCount < 1} onClick={() => void onPractice(topic.conceptKey)}>
           <span><ChemText>{topic.title}</ChemText>{topic.conceptKey === target.conceptKey && <small>刚才错题所属</small>}</span><b>{topic.freshCount > 0 ? `${topic.freshCount} 道未做原题` : '暂无未做原题'}</b><ChevronRight size={17} /></button>)}</div>
-        {!practiceTopics.length && <p>这个模块暂时没有可继续做的已审核原题。</p>}</div>}
+        {!practiceTopics.length && <p>{target.pointId ? '这个细点暂未绑定到同点的已审核原题；先复习这一点，题库核对后再补练。' : '这个模块暂时没有可继续做的已审核原题。'}</p>}</div>}
       <div className="repair-actions">
         <button type="button" className="secondary-button" onClick={() => { setSectionIndex(null); setPointIndex(0) }}>再挑一个小点</button><button type="button" className="secondary-button" onClick={onBack}>返回结果页</button></div>
     </div> : <><div className="repair-step-head"><span>{section?.title} · {pointIndex + 1}/{section?.items.length}</span><button type="button" className="text-button" onClick={() => { setSectionIndex(null); setPointIndex(0) }}>换一个小点</button></div>
