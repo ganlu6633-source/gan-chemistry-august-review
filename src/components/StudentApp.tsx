@@ -8,7 +8,7 @@ import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
-import { accessApi, loadFuturePlanPreview, loadLearningRecord, loadQuestionAsset, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, submitAttempt, teacherApi, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
+import { accessApi, loadFuturePlanPreview, loadLearningRecord, loadQuestionAsset, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, saveKnowledgeRating, submitAttempt, teacherApi, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
 import { AbilityMap } from './AbilityMap'
 import { ChemText } from './ChemText'
 import { EquilibriumConstantFormulaVisual } from './EquilibriumConstantFormulaVisual'
@@ -685,12 +685,14 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   const [repairTargetKey, setRepairTargetKey] = useState<string | null>(null)
   const [repairError, setRepairError] = useState('')
   const [ratingsSaveError, setRatingsSaveError] = useState(false)
+  const [submittedAttemptId, setSubmittedAttemptId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [nextDashboard, setNextDashboard] = useState<StudentDashboardData | null>(null)
   const [primaryMediaReady, setPrimaryMediaReady] = useState<Record<string, boolean>>({})
   const primaryActionRef = useRef<HTMLButtonElement>(null)
   const sourceAssetRequests = useRef(new Map<string, Promise<{ asset: LoadedQuestionAsset }>>())
+  const ratingSaveQueue = useRef<Promise<void>>(Promise.resolve())
   const pointsByCard = useMemo(() => payload.cards.map(getKnowledgeReviewPoints), [payload.cards])
   const card = payload.cards[cardIndex]
   const cardPoints = pointsByCard[cardIndex] ?? []
@@ -815,7 +817,16 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       practiceTopics={practiceTopics}
       onBack={() => { setRepairError(''); setPhase('result') }}
       onPractice={onOpenFocusedTopic && !practiceMode ? (conceptKey) => startFocusedPractice(activeRepairTarget.skillId, conceptKey) : undefined}
-      onRating={(point, rating) => setPointRatings((current) => ({ ...current, [`${activeRepairTarget.key}:${point}`]: rating }))}
+      onRating={(point, rating) => {
+        setPointRatings((current) => ({ ...current, [`${activeRepairTarget.key}:${point}`]: rating }))
+        const originalPoint = reviewCard && getKnowledgeReviewPoints(reviewCard).find((item) => `${item.section} · ${item.title}` === point)
+        if (!practiceMode && submittedAttemptId && originalPoint) {
+          ratingSaveQueue.current = ratingSaveQueue.current.catch(() => undefined)
+            .then(() => saveKnowledgeRating(session, payload.plan.id, submittedAttemptId, originalPoint.id, rating))
+            .then(() => undefined)
+            .catch((reason) => { setRepairError(reason instanceof Error ? reason.message : '这次小点自评暂未保存，请稍后重试。') })
+        }
+      }}
       practiceBusy={busy} />{repairError && <p className="inline-alert repair-error" role="alert">{repairError}</p>}</>
   }
 
@@ -948,6 +959,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
           setPhase('result')
         } else {
           const result = await submitAttempt(session, attempt)
+          setSubmittedAttemptId(attempt.id)
           setRatingsSaveError(result.knowledgeRatingsSaved === false)
           if (requiresServerFeedback) {
             const finalFeedback = result.feedback ?? []

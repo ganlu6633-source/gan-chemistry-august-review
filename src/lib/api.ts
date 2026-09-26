@@ -102,6 +102,11 @@ export async function submitAttempt(session: SessionIdentity, attempt: LearningA
   return accessApi<{ dashboard: StudentDashboardData; achievements: string[]; feedback?: QuestionFeedback[]; knowledgeRatingsSaved?: boolean }>(session, 'submit_attempt', attempt)
 }
 
+export async function saveKnowledgeRating(session: SessionIdentity, planDayId: string, attemptId: string,
+  pointId: string, rating: 'unknown' | 'familiar' | 'fluent') {
+  return accessApi<{ ok: true }>(session, 'save_knowledge_rating', { planDayId, attemptId, pointId, rating })
+}
+
 export interface QuestionFeedbackInput {
   studentId?: string
   planId: string

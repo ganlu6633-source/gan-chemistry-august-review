@@ -1,12 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { KnowledgeCard, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
-import { submitAttempt } from '../lib/api'
+import { saveKnowledgeRating, submitAttempt } from '../lib/api'
 import { LearningRound, type PlanPayload } from './StudentApp'
 
 vi.mock('../lib/api', () => ({
   accessApi: vi.fn(), loadLearningRecord: vi.fn(), teacherApi: vi.fn(), loadQuestionAsset: vi.fn(),
-  loadQuestionFeedback: vi.fn(), previewQuestionFeedback: vi.fn(), submitAttempt: vi.fn(),
+  loadQuestionFeedback: vi.fn(), previewQuestionFeedback: vi.fn(), submitAttempt: vi.fn(), saveKnowledgeRating: vi.fn(),
 }))
 
 const session: SessionIdentity = { role: 'student', token: 'test-session', displayName: '学生', expiresAt: '2099-01-01T00:00:00Z' }
@@ -33,6 +33,7 @@ describe('wrong-answer recovery', () => {
 
   it('offers knowledge self-rating, a small-point repair path and a real same-concept question action', async () => {
     vi.mocked(submitAttempt).mockResolvedValue({ dashboard, achievements: [] })
+    vi.mocked(saveKnowledgeRating).mockResolvedValue({ ok: true })
     const openFocused = vi.fn(async () => undefined)
     render(<LearningRound session={session} payload={payload} studyTopics={[{ skillId: 'H3_ELECTRO', skillTitle: '电化学',
       conceptKey: 'H3_ELECTRO__C01', title: '原电池与燃料电池放电原理', sequence: 1, originalCount: 5,
@@ -52,6 +53,8 @@ describe('wrong-answer recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: /电极判断/ }))
     expect(screen.getByText('放电时负极发生氧化反应。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /眼熟/ }))
+    await waitFor(() => expect(saveKnowledgeRating).toHaveBeenCalledWith(session, 'plan', expect.any(String),
+      'card-electro:s0:i0:p0', 'familiar'))
     expect(screen.getByRole('heading', { name: '这块复习完，拿原题检验一下' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /原电池与燃料电池放电原理.*2 道未做原题/ }))
     await waitFor(() => expect(openFocused).toHaveBeenCalledWith('H3_ELECTRO', 'H3_ELECTRO__C01'))

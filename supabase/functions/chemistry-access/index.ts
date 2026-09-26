@@ -3159,7 +3159,7 @@ Deno.serve(async (req: Request) => {
 
     // Enforce the selected program for every formal write/open route, even
     // when an old tab still holds a plan id. Historical record reads remain available.
-    const programActions = new Set(["start_plan", "future_plan_preview", "junior_open_session", "junior_submit_step", "question_feedback", "submit_attempt"]);
+    const programActions = new Set(["start_plan", "future_plan_preview", "junior_open_session", "junior_submit_step", "question_feedback", "submit_attempt", "save_knowledge_rating"]);
     if (identity.role === "student" && identity.studentId && programActions.has(body.action)) {
       const profile = await supabase.from("chem_students_v2").select("metadata").eq("id", identity.studentId).single();
       if (profile.error) throw profile.error;
@@ -3185,6 +3185,25 @@ Deno.serve(async (req: Request) => {
         // received an answer. Future plans remain blocked by start_plan and
         // future_plan_preview rules below.
       }
+    }
+
+    if (body.action === "save_knowledge_rating" && identity.role === "student" && identity.studentId) {
+      const attemptId = String(body.data?.attemptId || "");
+      const planDayId = String(body.data?.planDayId || "");
+      const pointId = String(body.data?.pointId || "");
+      const rating = String(body.data?.rating || "");
+      if (!validUuid(attemptId) || !validUuid(planDayId)
+        || !/^[A-Za-z0-9_-]{1,90}:(?:s\d{1,3}:i\d{1,3}:p\d{1,2}|core)$/.test(pointId)
+        || !["unknown", "familiar", "fluent"].includes(rating)) {
+        return reply(req, { error: "知识小点自评无效。" }, 400);
+      }
+      const result = await supabase.rpc("chem_set_knowledge_rating", {
+        p_attempt_id: attemptId, p_student_id: identity.studentId,
+        p_plan_day_id: planDayId, p_point_id: pointId, p_rating: rating,
+      });
+      if (result.error) throw result.error;
+      if (result.data !== true) return reply(req, { error: "找不到这次已完成的学习记录。" }, 404);
+      return reply(req, { ok: true });
     }
 
     if (body.action === "question_asset") {
