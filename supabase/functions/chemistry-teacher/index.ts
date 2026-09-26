@@ -235,7 +235,8 @@ async function dashboard() {
   const retryPersonalization = await admin.rpc("chem_retry_pending_review_personalization", { p_limit: 5 });
   if (retryPersonalization.error) console.error("REVIEW personalization retry failed", retryPersonalization.error);
   const [students, alerts, report, courseCount, questionCount, guardians, fourWeekPlans, readinessPlans, quizStudents, quizLinks, videoRecommendations, conceptCatalog, personalizationJobs, capacityShortages] = await Promise.all([
-    admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata").order("grade_band").order("display_name"),
+    admin.from("chem_students_v2").select("id,display_name,grade_band,record_status,needs_initial_diagnostic,metadata")
+      .not("metadata", "cs", '{"guestTrial":true}').order("grade_band").order("display_name"),
     admin.from("chem_teacher_alerts").select("id,student_id,severity,title,reason").is("resolved_at", null).order("created_at", { ascending: false }).limit(20),
     admin.from("chem_daily_reports").select("*").order("report_date", { ascending: false }).limit(1).maybeSingle(),
     admin.from("chem_course_nodes").select("id", { count: "exact", head: true }).eq("teacher_approved", false),

@@ -1,10 +1,16 @@
 import { FormEvent, useState } from 'react'
-import { ArrowRight, KeyRound, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
-import type { GuardianDashboardData, SessionIdentity, StudentDashboardData } from '../domain/types'
-import { loginWithAccessCode, loginWithPhone, recoverAccessCode, submitRegistration } from '../lib/api'
+import { ArrowRight, FlaskConical, KeyRound, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
+import type { GradeBand, GuardianDashboardData, SessionIdentity, StudentDashboardData } from '../domain/types'
+import { loginWithAccessCode, loginWithPhone, recoverAccessCode, startGuestTrial, submitRegistration } from '../lib/api'
 import './AccessGate.css'
 
-export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity, dashboard?: StudentDashboardData | GuardianDashboardData) => void }) {
+const GUEST_TRIAL_KEY = 'gan-chemistry-guest-trial-key'
+
+function savedGuestTrialKey() {
+  try { return window.localStorage.getItem(GUEST_TRIAL_KEY) || '' } catch { return '' }
+}
+
+export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (session: SessionIdentity, dashboard?: StudentDashboardData | GuardianDashboardData) => void; initialMode?: 'code' | 'register' }) {
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [showCode, setShowCode] = useState(false)
@@ -17,7 +23,7 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
   const [recoveryError, setRecoveryError] = useState('')
   const [recoveryMessage, setRecoveryMessage] = useState('')
   const [recovering, setRecovering] = useState(false)
-  const [mode, setMode] = useState<'code' | 'phone' | 'register'>('code')
+  const [mode, setMode] = useState<'code' | 'phone' | 'register' | 'guest'>(initialMode)
   const [role, setRole] = useState<'student' | 'guardian'>('student')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -27,6 +33,22 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
   const [childPhone, setChildPhone] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [registrationDone, setRegistrationDone] = useState(false)
+  const [guestGrade, setGuestGrade] = useState<GradeBand>('初三')
+  const [guestTrialKey, setGuestTrialKey] = useState(savedGuestTrialKey)
+
+  async function enterGuestTrial(event: FormEvent) {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      const result = await startGuestTrial(guestGrade, guestTrialKey || undefined)
+      try { window.localStorage.setItem(GUEST_TRIAL_KEY, result.trialKey) } catch { /* Trial continues in this tab if storage is unavailable. */ }
+      setGuestTrialKey(result.trialKey)
+      onSuccess({ ...result.session, trialExpiresAt: result.trialExpiresAt })
+    } catch (reason) {
+      setError(reason instanceof TypeError ? '暂时无法连接试用服务，请检查网络后重试。' : reason instanceof Error ? reason.message : '试用暂时无法开始，请稍后重试。')
+    } finally { setLoading(false) }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -124,13 +146,26 @@ export function AccessGate({ onSuccess }: { onSuccess: (session: SessionIdentity
         </div>
       <div className="login-card">
         <div className="login-icon"><KeyRound size={28} /></div>
+        <button type="button" className={`guest-entry${mode === 'guest' ? ' active' : ''}`} onClick={() => { setMode('guest'); setError('') }}>
+          <span className="guest-entry-icon"><FlaskConical size={23} /></span>
+          <span><b>访客试用 7 天</b><small>先做体验选择题，看看这套学习方式适不适合你</small></span>
+          <ArrowRight size={18} aria-hidden="true" />
+        </button>
         <div className="access-tabs" role="tablist" aria-label="登录或注册">
           <button type="button" role="tab" aria-selected={mode === 'code'} className={mode === 'code' ? 'active' : ''} onClick={() => { setMode('code'); setError('') }}>原登录码</button>
           <button type="button" role="tab" aria-selected={mode === 'phone'} className={mode === 'phone' ? 'active' : ''} onClick={() => { setMode('phone'); setError('') }}>手机号登录</button>
           <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>加微信后注册</button>
         </div>
-        <h2>{mode === 'register' ? '加入甘老师化学' : '欢迎回来'}</h2>
-        <p>{mode === 'code' ? '输入姓名和登录码，系统会自动进入对应页面。' : mode === 'phone' ? '审核通过后，用注册时的手机号和密码进入。' : '先添加甘老师微信，拿到老师发的一次性邀请码，才能填写手机号注册。'}</p>
+        <h2>{mode === 'register' ? '加入甘老师化学' : mode === 'guest' ? '先来体验一下' : '欢迎回来'}</h2>
+        <p>{mode === 'code' ? '输入姓名和登录码，系统会自动进入对应页面。' : mode === 'phone' ? '审核通过后，用注册时的手机号和密码进入。' : mode === 'guest' ? '选择年级，直接开始。体验期从首次进入算起，连续 7 天。' : '先添加甘老师微信，拿到老师发的一次性邀请码，才能填写手机号注册。'}</p>
+        {mode === 'guest' && <form onSubmit={enterGuestTrial} className="phone-access-form guest-access-form">
+          {!guestTrialKey && <><label htmlFor="guest-grade">想体验哪个年级？</label><select id="guest-grade" value={guestGrade} onChange={(event) => setGuestGrade(event.target.value as GradeBand)}>{['初三', '高一', '高二', '高三'].map((grade) => <option key={grade}>{grade}</option>)}</select></>}
+          {guestTrialKey && <p className="guest-resume-note">这台设备上已有试用记录，可以接着上次的进度练。</p>}
+          {error && <div className="form-error" role="alert">{error}</div>}
+          <button className="primary-button" disabled={loading}>{loading ? '正在准备体验题…' : guestTrialKey ? '继续试用' : '开始 7 天试用'} <ArrowRight size={18} /></button>
+          <p className="login-help">每个年级有 6 道独立示例题，不是正式学生原题库。此浏览器会保存试用凭证，方便七天内接着练；正式学习仍需先加甘老师微信并领取邀请码。</p>
+          <button type="button" className="text-button guest-register-link" onClick={() => { setMode('register'); setError('') }}>加甘老师微信，申请正式账号</button>
+        </form>}
         {mode === 'code' && <>
         <form onSubmit={submit}>
           <label htmlFor="login-name">输入姓名</label>

@@ -4,6 +4,7 @@ import type { GuardianDashboardData, SessionIdentity, StudentDashboardData } fro
 import { AppShell } from './components/AppShell'
 import { AccessGate } from './components/AccessGate'
 const StudentApp = lazy(() => import('./components/StudentApp').then((module) => ({ default: module.StudentApp })))
+const GuestTrialApp = lazy(() => import('./components/GuestTrialApp').then((module) => ({ default: module.GuestTrialApp })))
 const GuardianApp = lazy(() => import('./components/GuardianApp').then((module) => ({ default: module.GuardianApp })))
 const TeacherGate = lazy(() => import('./components/TeacherApp').then((module) => ({ default: module.TeacherGate })))
 import { loadGuardianDashboard, loadStudentDashboard, loadStudentPreviewDashboard, loadTeacherDashboard } from './lib/api'
@@ -50,12 +51,14 @@ function AccessExperience() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [loading, setLoading] = useState(Boolean(session))
   const [error, setError] = useState('')
+  const [gateMode, setGateMode] = useState<'code' | 'register'>('code')
   const hydratedByLogin = useRef<string | null>(null)
   const dashboardRequest = useRef<{ token: string; promise: Promise<{ dashboard: Dashboard }> } | null>(null)
 
   useEffect(() => {
     if (!session) return
     if (session.role === 'teacher') { navigate('/teacher', { replace: true }); setLoading(false); return }
+    if (session.role === 'guest') { setLoading(false); return }
     if (hydratedByLogin.current === session.token) { setLoading(false); return }
     if (!dashboardRequest.current || dashboardRequest.current.token !== session.token) {
       const promise = session.role === 'student' ? loadStudentDashboard(session) : session.role === 'guardian' ? loadGuardianDashboard(session) : null
@@ -117,7 +120,8 @@ function AccessExperience() {
 
   if (loading) return <AppShell><div className="center-loading">正在读取属于你的学习档案…</div></AppShell>
   if (session?.role === 'teacher') return <Navigate to="/teacher" replace />
-  if (!session || !dashboard) return <AppShell>{error && <div className="inline-alert">{error}</div>}<AccessGate onSuccess={success} /></AppShell>
+  if (session?.role === 'guest') return <AppShell identity={session.displayName} onLogout={logout}><GuestTrialApp session={session} onLogout={logout} onRegister={() => { setGateMode('register'); logout() }} /></AppShell>
+  if (!session || !dashboard) return <AppShell>{error && <div className="inline-alert">{error}</div>}<AccessGate onSuccess={success} initialMode={gateMode} /></AppShell>
   if (session.role === 'student') return <AppShell identity={session.displayName} onLogout={logout}><StudentApp session={session} initialDashboard={dashboard as StudentDashboardData} onDashboard={setDashboard} /></AppShell>
   if (session.role === 'guardian') return <AppShell identity={session.displayName} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} session={session} /></AppShell>
   return <AppShell><AccessGate onSuccess={success} /></AppShell>

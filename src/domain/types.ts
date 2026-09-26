@@ -1,4 +1,4 @@
-export type AppRole = 'student' | 'guardian' | 'teacher'
+export type AppRole = 'student' | 'guardian' | 'teacher' | 'guest'
 export type LearningMode = 'REVIEW' | 'CLASS_QUIZ' | 'EXAM_SPRINT'
 export type GradeBand = '初三' | '高一' | '高二' | '高三'
 export type RecordStatus = 'active' | 'legacy' | 'pending'
@@ -11,6 +11,7 @@ export interface SessionIdentity {
   token: string
   displayName: string
   expiresAt: string
+  trialExpiresAt?: string
 }
 
 export interface StudentProfile {

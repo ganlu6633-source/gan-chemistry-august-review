@@ -3113,9 +3113,29 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
 async function authenticate(req: Request) {
   const token = req.headers.get("x-app-session");
   if (!token) return null;
+  if (token.startsWith("guest.")) {
+    if (!/^guest\.[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const { data, error } = await supabase.rpc("chem_resolve_guest_session", { p_token_hash: await sha256(token) });
+    if (error || !data?.length) return null;
+    return {
+      studentId: data[0].student_id as string,
+      trialId: data[0].trial_id as string,
+      role: "guest" as const,
+      expiresAt: data[0].session_expires_at as string,
+      trialExpiresAt: data[0].trial_expires_at as string,
+      principalName: "访客体验",
+    };
+  }
   const { data, error } = await supabase.rpc("chem_resolve_app_session", { p_token_hash: await sha256(token) });
   if (error || !data?.length) return null;
   return { studentId: data[0].student_id as string | null, role: data[0].access_role as "student" | "guardian" | "teacher", expiresAt: data[0].expires_at as string, principalName: data[0].principal_name as string };
+}
+
+async function guestPractice(token: string) {
+  const { data, error } = await supabase.rpc("chem_guest_practice", { p_token_hash: await sha256(token) });
+  if (error) throw error;
+  if (!data) throw new RequestError(401, "访客会话已失效，请重新进入试用。");
+  return data;
 }
 
 Deno.serve(async (req: Request) => {
@@ -3162,6 +3182,46 @@ Deno.serve(async (req: Request) => {
       return reply(req, { ok: true, message: "申请已送达甘老师，待老师审核后即可用手机号和密码登录。" });
     }
 
+    if (body.action === "start_guest_trial") {
+      const details = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+      const existingKey = typeof details.trialKey === "string" ? details.trialKey : null;
+      const resume = existingKey !== null;
+      if (resume && !/^[A-Za-z0-9_-]{43}$/.test(existingKey)) {
+        return reply(req, { error: "访客试用凭证无效。" }, 401);
+      }
+      const gradeBand = String(details.gradeBand || "");
+      if (!resume && !["初三", "高一", "高二", "高三"].includes(gradeBand)) {
+        return reply(req, { error: "请选择试用年级。" }, 400);
+      }
+      const trialKey = existingKey || randomToken();
+      const token = `guest.${randomToken()}`;
+      const userAgent = (req.headers.get("user-agent") || "unknown").slice(0, 256);
+      const network = (req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip")
+        || req.headers.get("x-forwarded-for") || `unknown:${userAgent}`)
+        .split(",")[0].trim().slice(0, 128);
+      const { data, error } = await supabase.rpc("chem_start_guest_trial", {
+        p_grade_band: resume ? null : gradeBand,
+        p_trial_key_hash: await sha256(trialKey),
+        p_fingerprint_hash: await sha256(`guest-fingerprint:${network}|${userAgent}`),
+        p_network_hash: await sha256(`guest-network:${network}`),
+        p_session_hash: await sha256(token),
+        p_resume: resume,
+      });
+      if (error) throw error;
+      const result = data?.[0];
+      if (result?.result_code === "rate_limited") {
+        return reply(req, { error: "访客试用开启过于频繁，请稍后再试。" }, 429);
+      }
+      if (result?.result_code === "expired") {
+        return reply(req, { error: "访客试用已到期。" }, 410);
+      }
+      if (result?.result_code !== "ok" || !result.student_id || !result.session_expires_at) {
+        return reply(req, { error: "访客试用凭证无效。" }, 401);
+      }
+      const session = { role: "guest", token, displayName: "访客体验", expiresAt: result.session_expires_at };
+      return reply(req, { session, trialKey, trialExpiresAt: result.trial_expires_at });
+    }
+
     if (body.action === "phone_login") {
       const role = String(body.data?.role || "");
       const phone = String(body.data?.phone || "");
@@ -3198,7 +3258,40 @@ Deno.serve(async (req: Request) => {
     }
 
     const identity = await authenticate(req);
-    if (!identity) return reply(req, { error: "登录已失效，请重新输入访问码。" }, 401);
+    if (!identity) return reply(req, {
+      error: req.headers.get("x-app-session")?.startsWith("guest.")
+        ? "访客会话已失效，请重新进入试用。"
+        : "登录已失效，请重新输入访问码。",
+    }, 401);
+
+    if (identity.role === "guest") {
+      const token = req.headers.get("x-app-session")!;
+      if (body.action === "guest_practice") return reply(req, { practice: await guestPractice(token) });
+      if (body.action === "guest_submit_practice") {
+        const questionId = String(body.data?.questionId || "");
+        const selectedOption = body.data?.selectedOption;
+        if (!/^guest-(?:j3|h1|h2|h3)-\d{2}$/.test(questionId)
+          || !Number.isInteger(selectedOption) || selectedOption < 0 || selectedOption > 3) {
+          return reply(req, { error: "体验题答案格式无效。" }, 400);
+        }
+        const { data, error } = await supabase.rpc("chem_submit_guest_answer", {
+          p_token_hash: await sha256(token), p_question_id: questionId, p_selected_option: selectedOption,
+        });
+        if (error) throw error;
+        if (!data?.length) return reply(req, { error: "题目已变化或访客会话已失效，请刷新试用题。" }, 409);
+        const row = data[0];
+        const feedback = {
+          questionId: row.question_id,
+          selectedOption: row.selected_option,
+          correct: row.correct,
+          correctOption: row.correct_option,
+          explanation: row.explanation,
+        };
+        const practice = await guestPractice(token);
+        return reply(req, { feedback, practice });
+      }
+      return reply(req, { error: "访客试用仅开放基础体验题。" }, 403);
+    }
 
     // Enforce the selected program for every formal write/open route, even
     // when an old tab still holds a plan id. Historical record reads remain available.
