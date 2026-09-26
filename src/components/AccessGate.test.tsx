@@ -54,7 +54,7 @@ describe('phone registration', () => {
     expect(screen.getByRole('heading', { name: '加入甘老师化学' })).toBeInTheDocument()
     expect(screen.getByLabelText('第二步：输入邀请码')).toHaveValue('ABCDEFGH23')
     expect(window.location.hash).toBe('')
-    expect(screen.getByText('企业微信邀请已收到')).toBeInTheDocument()
+    expect(screen.getByText('链接里的邀请码已填入')).toBeInTheDocument()
   })
 })
 
