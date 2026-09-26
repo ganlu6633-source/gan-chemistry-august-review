@@ -50,7 +50,7 @@ async function accessToken(corpId: string, contactSecret: string): Promise<strin
   return tokenCache.value;
 }
 
-async function sendWelcome(token: string, welcomeCode: string, invitation: string): Promise<void> {
+async function sendWelcome(token: string, welcomeCode: string, invitation: string): Promise<boolean> {
   const link = `${SITE_URL}#invite=${invitation}`;
   const response = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/externalcontact/send_welcome_msg?access_token=${encodeURIComponent(token)}`, {
     method: "POST",
@@ -64,9 +64,15 @@ async function sendWelcome(token: string, welcomeCode: string, invitation: strin
   });
   if (!response.ok) throw new Error("WeCom welcome request failed");
   const data = await response.json();
-  // If delivery succeeded but recording it failed, WeCom rejects the replay.
-  // The original one-time link remains valid, so record that as delivered.
-  if (data.errcode !== 0 && data.errcode !== 41051) throw new Error(`WeCom welcome error ${data.errcode}`);
+  if (data.errcode === 0) return true;
+  // Expired welcome codes and conversations that have already started cannot
+  // be repaired by retrying this callback. Leave the invite unsent so a later
+  // valid half/full-contact event can still send the same code.
+  if (data.errcode === 41050 || data.errcode === 41051) {
+    console.error(`WeCom welcome not delivered: ${data.errcode}`);
+    return false;
+  }
+  throw new Error(`WeCom welcome error ${data.errcode}`);
 }
 
 function parameter(url: URL, name: string): string {
@@ -133,7 +139,7 @@ Deno.serve(async (req: Request) => {
     }
     const code = invitationCode(settings.serviceKey, invite.eventHash);
     const token = await accessToken(settings.corpId, settings.contactSecret);
-    await sendWelcome(token, welcomeCode, code);
+    if (!await sendWelcome(token, welcomeCode, code)) return new Response("success");
     const { error: markError } = await admin.rpc("chem_mark_wecom_welcome_sent", { p_invite_id: invite.id });
     if (markError) throw new Error("Could not mark WeCom welcome delivered");
     return new Response("success");
