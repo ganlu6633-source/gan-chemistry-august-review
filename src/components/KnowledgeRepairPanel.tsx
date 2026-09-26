@@ -6,6 +6,7 @@ import type { StudyTopic } from './StudyLibrary'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { ChemText } from './ChemText'
 import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
+import { knowledgeReviewPointExamples } from '../domain/knowledgeReviewPointExamples'
 
 export function KnowledgeConfidencePicker({ value, onChange }: { value?: KnowledgeConfidence; onChange: (value: KnowledgeConfidence) => void }) {
   const choices: Array<{ value: KnowledgeConfidence; label: string; detail: string }> = [
@@ -25,12 +26,12 @@ type RepairSection = { id: string; title: string; items: KnowledgeTreeNode[] }
 function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, explanation?: string): RepairSection[] {
   const exactPoint = target.pointId && card ? getKnowledgeReviewPoints(card).find((point) => point.id === target.pointId) : null
   if (exactPoint) return [{ id: exactPoint.id, title: exactPoint.section, items: [{ label: exactPoint.title, rule: exactPoint.rule,
-    examples: exactPoint.examples, caution: exactPoint.caution }] }]
+    examples: knowledgeReviewPointExamples(card!, exactPoint), caution: exactPoint.caution }] }]
   if (card && isStructuredKnowledgeContent(card.structuredContent) && card.structuredContent.sections.length) {
     const points = getKnowledgeReviewPoints(card)
     const sections = card.structuredContent.sections.map((section, index) => ({ title: section.title,
       id: `${card.id}:${index}`, items: points.filter((point) => point.id.startsWith(`${card.id}:s${index}:`))
-        .map((point) => ({ label: point.title, rule: point.rule, examples: point.examples, caution: point.caution })) }))
+        .map((point) => ({ label: point.title, rule: point.rule, examples: knowledgeReviewPointExamples(card, point), caution: point.caution })) }))
     const route = card.structuredContent.overview?.find((item) => item.includes('电子') && item.includes('外电路'))
     if ((card.skillId === 'H3_ELECTRO' || card.skillId === 'H2_ELECTRO') && route) return [
       ...sections.slice(0, 1),
@@ -41,7 +42,7 @@ function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, ex
   }
   if (card) return [{ id: `${target.key}:core`, title: card.title,
     items: getKnowledgeReviewPoints(card).map((point) => ({ label: point.title, rule: point.rule,
-      examples: point.examples, caution: point.caution })) }]
+      examples: knowledgeReviewPointExamples(card, point), caution: point.caution })) }]
   return [{ id: `${target.key}:core`, title: target.title, items: [{ label: target.title,
     rule: explanation || '请结合刚才的原题解析，先说清判断依据，再做同知识点原题。' }] }]
 }

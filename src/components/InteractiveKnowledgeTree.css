@@ -138,7 +138,18 @@
 .interactive-tree-detail-content ul { margin: 0; padding-left: 21px; }
 .interactive-tree-detail-content li + li { margin-top: 5px; }
 .interactive-tree-detail-content .interactive-tree-caution { margin-top: 10px; padding: 9px 11px; border-radius: 10px; background: #fff4df; color: #7e5b1c; }
+.interactive-tree-detail-content .interactive-tree-inline-example { margin-top: 10px; padding: 9px 11px; border-radius: 10px; background: #edf8f5; color: #24635d; }
+.interactive-tree-inline-example b { margin-right: 5px; }
 .interactive-tree-no-examples { color: #657b87; }
+
+.knowledge-extra-tree,
+.knowledge-quick-chart { margin-top: 14px; border: 1px solid #cfe3e5; border-radius: 14px; background: #f8fcfb; overflow: hidden; }
+.knowledge-extra-tree > summary,
+.knowledge-quick-chart > summary { padding: 13px 16px; color: #185764; font-size: 14px; font-weight: 800; cursor: pointer; }
+.knowledge-extra-tree[open] > summary,
+.knowledge-quick-chart[open] > summary { border-bottom: 1px solid #d7e8e8; }
+.knowledge-extra-tree > .interactive-knowledge-tree,
+.knowledge-quick-chart > :not(summary) { margin: 12px; }
 
 @media (max-width: 700px) {
   .interactive-knowledge-tree { padding: 12px; }

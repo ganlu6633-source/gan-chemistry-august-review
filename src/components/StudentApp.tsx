@@ -5,6 +5,7 @@ import { selectFocusPlan } from '../domain/focusPlan'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildRecoveryTargets, type KnowledgeConfidence } from '../domain/learningRecovery'
 import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
+import { buildKnowledgeCardDrilldown, knowledgeSectionTree } from '../domain/knowledgeDrilldown'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { SKILLS } from '../data/catalog'
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
@@ -201,6 +202,12 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       .finally(() => { if (active) setStudyCatalogLoading(false) })
     return () => { active = false }
   }, [session, dashboard.profile.id, dashboard.profile.isDemo, studyCatalogRevision, view, previewMode])
+
+  const loadKnowledgeTree = useCallback(async (skillId: string) => {
+    const target = previewMode || dashboard.profile.isDemo ? { studentId: dashboard.profile.id, skillId } : { skillId }
+    const result = await accessApi<{ card: KnowledgeCard | null }>(session, 'knowledge_skill_tree', target)
+    return result.card
+  }, [session, previewMode, dashboard.profile.id, dashboard.profile.isDemo])
 
   const ensurePlanRequest = useCallback((plan: LearningPlanDay, previewRound?: number) => {
     const key = planRequestKey(plan, planRequestIdentityKey, previewRound)
@@ -472,7 +479,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           </section>
         </>}
         {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
-        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} onLoadKnowledge={loadKnowledgeTree} busy={busy} />}
         {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || Boolean(dashboard.profile.isDemo)} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
@@ -489,8 +496,8 @@ function KnowledgeCardArticle({ card, position, total, eyebrow = '从零讲清�
     <h1><ChemText>{card.title}</ChemText></h1>
     {!isStructuredKnowledgeContent(card.structuredContent) || !card.structuredContent.visualSummary ? <div className="core-rule"><ChemText>{card.core}</ChemText></div> : null}
     {isStructuredKnowledgeContent(card.structuredContent)
-      ? <StructuredKnowledgeMap content={card.structuredContent} skillId={card.skillId} />
-      : <details open><summary>展开理解</summary><p><ChemText>{card.detail}</ChemText></p><ol>{card.steps.map((step) => <li key={step}><ChemText>{step}</ChemText></li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}><ChemText>{mistake}</ChemText></li>)}</ul></div><p><b>完整例子：</b><ChemText>{card.microExample}</ChemText></p></details>}
+      ? <StructuredKnowledgeMap key={card.id} content={card.structuredContent} skillId={card.skillId} title={card.title} card={card} />
+      : <><InteractiveKnowledgeTree key={card.id} root={buildKnowledgeCardDrilldown(card)} title={`${card.title} · 知识细分`} /><details><summary>展开原有讲解</summary><p><ChemText>{card.detail}</ChemText></p><ol>{card.steps.map((step) => <li key={step}><ChemText>{step}</ChemText></li>)}</ol><div className="mistake-note"><b>容易踩坑</b><ul>{card.commonMistakes.map((mistake) => <li key={mistake}><ChemText>{mistake}</ChemText></li>)}</ul></div><p><b>完整例子：</b><ChemText>{card.microExample}</ChemText></p></details></>}
   </article>
 }
 
@@ -851,7 +858,9 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       {card && currentPoint ? <><article className="knowledge-card knowledge-micro-card" data-testid="learning-skill-card"><span className="eyebrow">{card.title} · 第 {cardIndex + 1}/{payload.cards.length} 张卡</span><p className="knowledge-micro-position">{currentPoint.section} · 小点 {pointIndex + 1}/{cardPoints.length}</p><h1><ChemText>{currentPoint.title}</ChemText></h1><div className="core-rule"><ChemText>{currentPoint.rule}</ChemText></div>
         {currentPoint.examples.length > 0 && <details><summary>看一个例子</summary><ul>{currentPoint.examples.slice(0, 2).map((example) => <li key={example}><ChemText>{example}</ChemText></li>)}</ul></details>}
         {currentPoint.caution && <p className="mistake-note"><b>留意</b><ChemText>{currentPoint.caution}</ChemText></p>}
-        {pointIndex === cardPoints.length - 1 && isStructuredKnowledgeContent(card.structuredContent) && <div className="knowledge-whole-map"><button type="button" className="text-button" onClick={() => setShowWholeMap((value) => !value)}>{showWholeMap ? '收起整张知识图' : '想看这一整张知识图？'}</button>{showWholeMap && <StructuredKnowledgeMap content={card.structuredContent} skillId={card.skillId} />}</div>}
+        <div className="knowledge-whole-map"><button type="button" className="text-button" onClick={() => setShowWholeMap((value) => !value)}>{showWholeMap ? '收起知识树' : '展开这张卡的知识树'}</button>{showWholeMap && (isStructuredKnowledgeContent(card.structuredContent)
+          ? <StructuredKnowledgeMap key={card.id} content={card.structuredContent} skillId={card.skillId} title={card.title} card={card} />
+          : <InteractiveKnowledgeTree key={card.id} root={buildKnowledgeCardDrilldown(card)} title={`${card.title} · 知识细分`} />)}</div>
       </article><KnowledgeConfidencePicker value={pointRatings[currentPoint.id]} onChange={(rating) => { setPointRatings((current) => ({ ...current, [currentPoint.id]: rating })); advancePoint() }} /></> : <EmptyState text="本轮知识卡正在审核，暂不向学生展示。" />}
       <div className="stage-actions">{(cardIndex > 0 || pointIndex > 0) && <button className="secondary-button" onClick={retreatPoint}>上一小点</button>}<button ref={primaryActionRef} className="primary-button" aria-keyshortcuts="Enter" onClick={advancePoint}>{lastPoint ? '开始练习' : '先跳过，下一小点'}<ChevronRight size={18} /></button></div><p className="knowledge-micro-note">每次只给当前小点选一次；跳过不会当作已经掌握，后面的原题仍会检验。</p></section>
   }
@@ -1245,16 +1254,19 @@ function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
   </figure>
 }
 
-export function StructuredKnowledgeMap({ content, skillId }: { content: StructuredKnowledgeContent; skillId?: string }) {
+export function StructuredKnowledgeMap({ content, skillId, title, card }: { content: StructuredKnowledgeContent; skillId?: string; title?: string; card?: KnowledgeCard }) {
   const offset = content.rootTree ? 2 : 1
   const visual = content.visualSummary ?? fallbackVisual(content)
-  const classificationTree = visual.kind === 'tree' && visual.title === '物质分类总树' && content.rootTree?.label === '物质'
+  const root = content.rootTree ?? knowledgeSectionTree(content, title ?? visual.title, card)
+  const classificationTree = visual.title === '物质分类总树' && content.rootTree?.label === '物质'
   return <div className="knowledge-explainer">
-    {skillId && supportsSourceInformedChemVisual(skillId)
-      ? <SourceInformedChemVisual skillId={skillId} />
-      : classificationTree && content.rootTree
-        ? <InteractiveKnowledgeTree root={content.rootTree} />
-        : <QuickVisualSummary visual={visual} />}
+    <InteractiveKnowledgeTree root={root} title={classificationTree ? undefined : content.rootTree ? `${title ?? visual.title} · 知识主树` : title ?? visual.title} />
+    {content.rootTree && <details className="knowledge-extra-tree"><summary>继续拆解：分类依据与易错小点</summary>
+      <InteractiveKnowledgeTree root={knowledgeSectionTree(content, title ?? visual.title, card)} title={`${title ?? visual.title} · 小点与易错`} />
+    </details>}
+    <details className="knowledge-quick-chart"><summary>看原有图解</summary>
+      {skillId && supportsSourceInformedChemVisual(skillId) ? <SourceInformedChemVisual skillId={skillId} /> : <QuickVisualSummary visual={visual} />}
+    </details>
     {skillId === 'H2_K' || skillId === 'H3_EQUILIBRIUM' ? <EquilibriumConstantFormulaVisual /> : null}
     <details className="full-explanation"><summary><span><b>从零学会</b><small>展开完整讲解、例子、易错边界与自查</small></span><i aria-hidden="true">⌄</i></summary><div className="classification-map">
       {content.rootTree ? <section className="knowledge-tree-panel" aria-labelledby="knowledge-tree-title"><div className="map-section-title"><span>01</span><div><h2 id="knowledge-tree-title">知识总树</h2><p>沿着分类依据逐级判断，再看与主树交叉的分类标签。</p></div></div><ul className="knowledge-tree"><KnowledgeBranch node={content.rootTree} /></ul></section> : null}

@@ -34,7 +34,7 @@ describe('StructuredKnowledgeMap disclosure and formula rendering', () => {
   it('keeps the overview visible and lets each tree branch expand independently', () => {
     const { container } = render(<StructuredKnowledgeMap content={content} />)
 
-    expect(screen.getByText('物质的量对象总览')).toBeInTheDocument()
+    expect(screen.getAllByText('物质的量对象总览').length).toBeGreaterThanOrEqual(1)
     const branches = [...container.querySelectorAll('details.knowledge-branch-details')]
     expect(branches).toHaveLength(3)
     expect((branches[0] as HTMLDetailsElement).open).toBe(true)

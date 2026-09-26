@@ -78,8 +78,7 @@ describe('knowledge-card layout regression contract', () => {
   it('preserves long copy, examples, visual steps and every expanded tree level in the DOM', () => {
     const { container } = render(<StructuredKnowledgeMap content={longContent} />)
 
-    fireEvent.click(container.querySelector('.full-explanation > summary')!)
-    for (const detail of container.querySelectorAll<HTMLDetailsElement>('details.knowledge-branch-details, details.classification-item')) {
+    for (const detail of container.querySelectorAll<HTMLDetailsElement>('details')) {
       if (!detail.open) fireEvent.click(detail.querySelector('summary')!)
     }
 

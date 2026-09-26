@@ -52,6 +52,22 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps the junior knowledge tree folded above the question until the student chooses to explore it', () => {
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('question-1', '第一题：质量守恒的微观原因是什么？'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+
+    const disclosure = screen.getByText('拆开看知识点').closest('details')
+    expect(disclosure).not.toHaveAttribute('open')
+    expect(screen.getByRole('heading', { name: '第一题：质量守恒的微观原因是什么？' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('拆开看知识点'))
+    expect(disclosure).toHaveAttribute('open')
+    const root = screen.getByRole('button', { name: '质量守恒定律' })
+    fireEvent.click(root)
+    expect(screen.getByText('化学反应前后原子的种类、数目和质量不变。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '范例' }))
+    expect(screen.getByText('反应前后总质量相等。')).toBeInTheDocument()
+  })
+
   it('submits and advances with Enter while keeping the answered choice immutable after feedback', async () => {
     const nextPayload = payload(question('question-2', '第二题：反应前后哪一项保持不变？'), 1)
     const fetchMock = vi.fn(async () => jsonResponse({ feedback, payload: nextPayload }))

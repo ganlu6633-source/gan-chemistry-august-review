@@ -2064,6 +2064,43 @@ async function studentDashboard(studentId: string) {
   };
 }
 
+async function knowledgeSkillTree(studentId: string, skillId: string) {
+  if (!validUuid(studentId) || !/^[A-Za-z0-9_]{1,80}$/.test(skillId)) {
+    throw new RequestError(400, "请选择有效的学生和知识点。");
+  }
+
+  const profile = await supabase.from("chem_students_v2")
+    .select("grade_band,record_status").eq("id", studentId).maybeSingle();
+  if (profile.error) throw profile.error;
+  const grade = String(profile.data?.grade_band || "");
+  if (!profile.data || profile.data.record_status !== "active"
+    || !["初三", "高一", "高二", "高三"].includes(grade)) {
+    throw new RequestError(403, "当前学生档案没有开放知识点学习。");
+  }
+
+  const skill = await supabase.from("chem_skills")
+    .select("id").eq("id", skillId).eq("grade_band", grade).eq("active", true).maybeSingle();
+  if (skill.error) throw skill.error;
+  if (!skill.data) throw new RequestError(404, "这个知识点当前不可用。");
+
+  const cardResult = await supabase.from("chem_knowledge_cards")
+    .select("id,skill_id,title,core,detail,steps,common_mistakes,micro_example,structured_content,review_status,updated_at")
+    .eq("skill_id", skillId).eq("review_status", "approved")
+    .order("updated_at", { ascending: false }).order("id", { ascending: false })
+    .limit(1).maybeSingle();
+  if (cardResult.error) throw cardResult.error;
+  if (!cardResult.data) throw new RequestError(404, "这个知识点还没有发布可学习的知识卡。");
+  if (!validOptionalStructuredKnowledgeContent(cardResult.data.structured_content)) {
+    throw new RequestError(422, "这个知识点的展开内容尚未通过结构审核。");
+  }
+
+  const card = studentProvenanceFreeCardShape(cardResult.data as Record<string, unknown>);
+  if (!studentInstructionalCardTextIsSafe(card)) {
+    throw new RequestError(422, "这个知识点的展示内容尚未通过审核。");
+  }
+  return card;
+}
+
 async function selfStudyCatalog(studentId: string) {
   const profile = await supabase.from("chem_students_v2").select("grade_band,record_status,metadata").eq("id", studentId).single();
   if (profile.error) throw profile.error;
@@ -3981,6 +4018,20 @@ Deno.serve(async (req: Request) => {
       if (!validUuid(targetId)) return reply(req, { error: "请选择要预览的学生。" }, 400);
       return reply(req, { catalog: await selfStudyCatalog(targetId) });
     }
+
+    if (body.action === "knowledge_skill_tree" && identity.role === "student" && identity.studentId) {
+      const targetId = await resolveDemoTarget(identity.studentId, body.data?.studentId ? String(body.data.studentId) : undefined);
+      if (!targetId) return reply(req, { error: "无权查看这个学生的知识点。" }, 403);
+      return reply(req, { card: await knowledgeSkillTree(targetId, String(body.data?.skillId || "")) });
+    }
+
+    if (body.action === "knowledge_skill_tree" && identity.role === "teacher") {
+      const targetId = String(body.data?.studentId || "");
+      if (!validUuid(targetId)) return reply(req, { error: "请选择要预览的学生。" }, 400);
+      return reply(req, { card: await knowledgeSkillTree(targetId, String(body.data?.skillId || "")) });
+    }
+
+    if (body.action === "knowledge_skill_tree") return reply(req, { error: "无权查看这个知识点。" }, 403);
 
     if (body.action === "preview_self_study" && identity.role === "teacher") {
       const targetId = String(body.data?.studentId || "");

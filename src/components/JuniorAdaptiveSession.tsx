@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, CircleHelp, Clock3, Trophy } from 'lucide-react'
 import type { JuniorAdaptivePayload, JuniorQuestionFeedback, JuniorStepSubmissionResult, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
+import { buildKnowledgeCardDrilldown } from '../domain/knowledgeDrilldown'
 import { accessApi, submitJuniorAdaptiveStep } from '../lib/api'
 import { ChemText } from './ChemText'
+import { InteractiveKnowledgeTree } from './InteractiveKnowledgeTree'
 
 export function JuniorAdaptiveSession({
   session,
@@ -31,6 +33,7 @@ export function JuniorAdaptiveSession({
 
   const question = payload.currentQuestion
   const currentCard = useMemo(() => payload.cards.find((card) => card.skillId === question?.skillId) ?? null, [payload.cards, question?.skillId])
+  const currentKnowledgeTree = useMemo(() => currentCard ? buildKnowledgeCardDrilldown(currentCard) : null, [currentCard])
   const answeredDisplay = Math.min(payload.session.answeredCount + (feedback ? 1 : 0), payload.session.hardQuestionCap)
   const targetText = answeredDisplay <= 12 ? `${answeredDisplay}/12` : `${answeredDisplay}/15`
   const unfinishedPractice = (pendingPayload ?? payload).optionPractice?.filter((branch) => branch.status !== 'consolidated') ?? []
@@ -138,7 +141,10 @@ export function JuniorAdaptiveSession({
     <div className="stage-progress"><i style={{ width: `${Math.min(100, answeredDisplay / 12 * 100)}%` }} /></div>
     <aside className="knowledge-card junior-knowledge-card">
       <span className="eyebrow">当前知识点</span><h2><ChemText>{currentCard?.title ?? '针对性练习'}</ChemText></h2>
-      {currentCard && <><p><ChemText>{currentCard.core}</ChemText></p><ol>{currentCard.steps.slice(0, 3).map((step) => <li key={step}><ChemText>{step}</ChemText></li>)}</ol></>}
+      {currentCard && currentKnowledgeTree && <details key={currentCard.id}>
+        <summary>拆开看知识点</summary>
+        <InteractiveKnowledgeTree root={currentKnowledgeTree} title={currentCard.title} intro="点开大知识点，再逐层找到小细分；点到最小一层，可以看判断依据和已有例子。" />
+      </details>}
     </aside>
     <article className="question-card">
       <span className="difficulty-pill">L{question.level} 练习</span>

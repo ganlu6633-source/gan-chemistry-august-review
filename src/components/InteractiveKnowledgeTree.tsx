@@ -63,7 +63,8 @@ function TreeBranch({
 }
 
 /** One source of truth for both the horizontal tree and its node explanations. */
-export function InteractiveKnowledgeTree({ root }: { root: KnowledgeTreeNode }) {
+export function InteractiveKnowledgeTree({ root, title, intro }: { root: KnowledgeTreeNode; title?: string; intro?: string }) {
+  const treeTitle = title ?? (root.label === '物质' ? '物质分类总树' : `${root.label}知识树`)
   const idPrefix = useId().replace(/:/g, '')
   const scrollRef = useRef<HTMLDivElement>(null)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
@@ -103,9 +104,9 @@ export function InteractiveKnowledgeTree({ root }: { root: KnowledgeTreeNode }) 
     }
   }
 
-  return <section className="interactive-knowledge-tree" aria-label="物质分类交互树">
+  return <section className="interactive-knowledge-tree" aria-label={root.label === '物质' && !title ? '物质分类交互树' : `${treeTitle}交互树`}>
     <div className="interactive-tree-heading">
-      <div><b>物质分类总树</b><p>从起点点开分支；每个节点都能单独查看讲解和范例。</p></div>
+      <div><b><ChemText>{treeTitle}</ChemText></b><p>{intro ?? '从起点点开分支；每个节点都能单独查看讲解和范例。'}</p></div>
       <span>左右、上下滑动看全图 ↔ ↕</span>
     </div>
     <div className="interactive-tree-scroll" ref={scrollRef} role="region" aria-label="知识树，可横向或纵向滚动查看分支" tabIndex={0}>
@@ -125,6 +126,8 @@ export function InteractiveKnowledgeTree({ root }: { root: KnowledgeTreeNode }) 
         {detailView === 'knowledge' ? <>
           <p><ChemText>{selectedNode.rule}</ChemText></p>
           {selectedNode.caution && <p className="interactive-tree-caution"><b>注意：</b><ChemText>{selectedNode.caution}</ChemText></p>}
+          {selectedNode.examples?.[0] && <p className="interactive-tree-inline-example"><b>举个例子：</b><ChemText>{selectedNode.examples[0]}</ChemText></p>}
+          {!selectedNode.examples?.length && !selectedNode.children?.length && <p className="interactive-tree-no-examples">这一小点还没有核对好的专属例子，可以先看上一级的综合示范。</p>}
         </> : selectedNode.examples?.length ? <ul>
           {selectedNode.examples.map((example, index) => <li key={`${selectedPathKey}-${index}`}><ChemText>{example}</ChemText></li>)}
         </ul> : <p className="interactive-tree-no-examples">这个节点暂时没有单列范例，可以先看“知识点”中的判断依据。</p>}

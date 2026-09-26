@@ -228,7 +228,7 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ status: 204, headers: { ...responseHeaders, 'Access-Control-Allow-Headers': 'apikey,content-type,x-app-session' } })
       return
     }
-    const body = route.request().postDataJSON() as { action: string; name?: string; code?: string; data?: { planId?: string; planDayId?: string; gradeBand?: '高一' | '高二' | '高三'; studentId?: string; previewRound?: number } }
+    const body = route.request().postDataJSON() as { action: string; name?: string; code?: string; data?: { planId?: string; planDayId?: string; skillId?: string; gradeBand?: '高一' | '高二' | '高三'; studentId?: string; previewRound?: number } }
     if (body.action === 'recover_access_code') {
       await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ ok: true, message: '登录码已更新，请使用新登录码进入。' }) })
       return
@@ -256,6 +256,15 @@ test.beforeEach(async ({ page }) => {
     }
     if (body.action === 'demo_dashboard') {
       await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ dashboard: demoDashboardFor(body.data?.gradeBand ?? '高一') }) })
+      return
+    }
+    if (body.action === 'self_study_catalog') {
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ catalog: { topics: [] } }) })
+      return
+    }
+    if (body.action === 'knowledge_skill_tree') {
+      expect(body.data?.skillId).toBe('H1_CLASSIFY')
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: responseHeaders, body: JSON.stringify({ card: classificationCard }) })
       return
     }
     if (body.action === 'change_own_code' || body.action === 'set_recovery_secret') {
@@ -307,7 +316,7 @@ test('access page contains name and code inputs with no role selector', async ({
   await page.goto('/gan-chemistry-august-review/')
   await expect(page.getByLabel('输入姓名')).toHaveCount(1)
   await expect(page.getByPlaceholder('请输入姓名')).toHaveCount(1)
-  await expect(page.getByLabel('登录码')).toHaveCount(1)
+  await expect(page.getByLabel('登录码', { exact: true })).toHaveCount(1)
   await expect(page.getByPlaceholder('6—12位数字')).toHaveCount(1)
   await expect(page.locator('.login-card')).not.toContainText('学生姓名')
   await expect(page.locator('.login-card')).not.toContainText('家长姓名')
@@ -320,6 +329,25 @@ test('access page contains name and code inputs with no role selector', async ({
   await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter((key) => key.startsWith('gan-chemistry-shell')).length)).toBe(0)
 })
 
+test('a student opens a large knowledge point into finer branches and a matching example', async ({ page }) => {
+  await page.goto('/gan-chemistry-august-review/')
+  await page.getByLabel('输入姓名').fill('测试学生')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
+  await page.getByRole('button', { name: /进入我的化学世界/ }).click()
+  await page.locator('.side-nav').getByRole('button', { name: '知识点任选' }).click()
+  const group = page.getByRole('button', { name: /物质的分类.*点开大知识点/ })
+  await group.click()
+  const tree = page.locator('.library-knowledge-content > .interactive-knowledge-tree').first()
+  await expect(tree).toBeVisible()
+  const nodes = tree.locator('.interactive-tree-scroll')
+  await nodes.getByRole('button', { name: '物质' }).click()
+  await nodes.getByRole('button', { name: '纯净物' }).click()
+  await nodes.getByRole('button', { name: '化合物' }).click()
+  await nodes.getByRole('button', { name: '无机化合物' }).click()
+  await expect(tree.locator('.interactive-tree-detail-content')).toContainText('NaCl')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((element) => element.clientWidth))
+})
+
 test('a future plan opens only the knowledge preview and never starts formal answering', async ({ page }) => {
   const accessActions: string[] = []
   page.on('request', (request) => {
@@ -330,7 +358,7 @@ test('a future plan opens only the knowledge preview and never starts formal ans
 
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('预习学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
 
   const futurePlanButton = page.getByRole('button', { name: /科粤版·1\.1 身边的化学，可提前预习/ })
@@ -375,7 +403,7 @@ test('public High-3 demo opens the reviewed read-only learning chain without wri
   await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('演示学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.getByRole('button', { name: '高三' }).click()
   await page.locator('.focus-card .primary-button').click()
@@ -391,7 +419,7 @@ test('student code routes to student experience without guardian entry', async (
   await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: /测试学生，今天先把/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /能力地图/ })).toBeVisible()
@@ -451,7 +479,7 @@ test('Enter advances the complete review flow including feedback and the next ro
   await page.clock.setFixedTime(new Date('2026-08-17T08:00:00+08:00'))
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
 
   await page.locator('.focus-card').getByRole('button', { name: '开始第一轮' }).click()
@@ -483,7 +511,7 @@ test('Enter advances the complete review flow including feedback and the next ro
 test('student can change the code and set a private recovery phrase after login', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.getByRole('button', { name: '账户设置' }).click()
   await expect(page.getByRole('heading', { name: '账户与找回' })).toBeVisible()
@@ -513,7 +541,7 @@ test('demo student can switch among all three high-school grades without writing
   })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('演示学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   const switcher = page.getByLabel('切换演示年级')
   await expect(switcher).toContainText('每一天都可以打开完整学习链路')
@@ -547,7 +575,7 @@ test('ability map remains one readable vertical route on a compact phone', async
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.getByRole('button', { name: '能力地图' }).click()
 
@@ -571,7 +599,7 @@ test('a grandfathered legacy review day can finish its existing five-round recor
   })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.locator('.daily-orb')).toContainText('5')
   await page.locator('.focus-card').getByRole('button', { name: '开始第一轮' }).click()
@@ -600,7 +628,7 @@ test('a grandfathered legacy review day can finish its existing five-round recor
 test('guardian code routes directly to the concise guardian explanation', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试家长')
-  await page.getByLabel('登录码').fill('22222222')
+  await page.getByLabel('登录码', { exact: true }).fill('22222222')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: '测试学生的化学成长说明' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '当天定位，连续接稳' })).toBeVisible()
@@ -618,7 +646,7 @@ test('student can replay learned, partly lit and unlit skills with exact answere
   test.setTimeout(90_000)
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.getByRole('button', { name: '我的战绩' }).click()
 
@@ -655,7 +683,7 @@ test('student can replay learned, partly lit and unlit skills with exact answere
 test('guardian sees the same skill facts and exact question evidence without internal notes', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试家长')
-  await page.getByLabel('登录码').fill('22222222')
+  await page.getByLabel('登录码', { exact: true }).fill('22222222')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page.getByRole('heading', { name: '学过什么、点亮多少、下一步在哪里' })).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-testid="learning-record-summary"]')).toContainText('点亮一部分')
@@ -673,7 +701,7 @@ test('expanded learning record stays readable on a compact phone', async ({ page
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.getByRole('button', { name: '我的战绩' }).click()
   const classification = page.locator('[data-testid="learning-skill-card"]', { hasText: '物质的分类' })
@@ -686,7 +714,7 @@ test('expanded learning record stays readable on a compact phone', async ({ page
 test('a full zero-forgetting card pairs every redox point with a demo and visual flow', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.locator('.plan-day').nth(1).click()
   await expect(page.getByRole('heading', { name: '氧化还原：把电子转移的逻辑完整接起来' })).toBeVisible()
@@ -723,7 +751,7 @@ test('a full zero-forgetting card pairs every redox point with a demo and visual
 test('all six quick visual types render without adding student-side text work', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.locator('.plan-day').nth(2).click()
   for (const kind of ['tree', 'flow', 'cycle', 'compare', 'network', 'balance']) {
@@ -739,7 +767,7 @@ test('all six quick visual types render without adding student-side text work', 
 test('periodic law first screen includes compound and hydride trend evidence', async ({ page }) => {
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('测试学生')
-  await page.getByLabel('登录码').fill('11111111')
+  await page.getByLabel('登录码', { exact: true }).fill('11111111')
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await page.locator('.plan-day').nth(3).click()
   const map = page.locator('.periodic-trend-visual')
@@ -765,7 +793,7 @@ test('teacher name and code use the same entry and open the private workspace', 
   })
   await page.goto('/gan-chemistry-august-review/')
   await page.getByLabel('输入姓名').fill('任意检查名称')
-  await page.getByLabel('登录码').fill(TEST_TEACHER_CODE)
+  await page.getByLabel('登录码', { exact: true }).fill(TEST_TEACHER_CODE)
   await page.getByRole('button', { name: /进入我的化学世界/ }).click()
   await expect(page).toHaveURL(/\/teacher$/)
   await expect(page.getByRole('heading', { name: '今天最值得看的事' })).toBeVisible()
