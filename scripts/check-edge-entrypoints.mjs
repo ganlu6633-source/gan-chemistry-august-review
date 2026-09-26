@@ -15,7 +15,7 @@ await build({
   platform: 'neutral',
   format: 'esm',
   target: 'es2022',
-  external: ['https://*', 'jsr:*'],
+  external: ['https://*', 'jsr:*', 'node:*'],
   logLevel: 'error',
 })
 

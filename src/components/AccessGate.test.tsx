@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccessGate } from './AccessGate'
 
-afterEach(() => { cleanup(); window.localStorage.clear(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); window.localStorage.clear(); window.history.replaceState(null, '', '/'); vi.unstubAllGlobals() })
 
 describe('phone registration', () => {
   it('requires a teacher-issued invite before collecting a guardian and child phone', async () => {
@@ -24,7 +24,7 @@ describe('phone registration', () => {
     fireEvent.change(screen.getByLabelText('再输入一次密码'), { target: { value: 'Parent88' } })
     const submit = screen.getByRole('button', { name: /提交注册申请/ })
     expect(submit).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('第二步：输入老师发的邀请码'), { target: { value: 'A1B2C3D4E5' } })
+    fireEvent.change(screen.getByLabelText('第二步：输入邀请码'), { target: { value: 'A1B2C3D4E5' } })
     fireEvent.click(submit)
     await screen.findByRole('heading', { name: '申请已提交' })
     expect(actions).toEqual([{ action: 'register', data: {
@@ -46,6 +46,15 @@ describe('phone registration', () => {
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'Abc12345' } })
     fireEvent.click(screen.getByRole('button', { name: /进入学习/ }))
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+  })
+
+  it('opens registration with an invitation delivered by an enterprise WeChat link', () => {
+    window.history.replaceState(null, '', '/gan-chemistry-august-review/#invite=ABCDEFGH23')
+    render(<AccessGate onSuccess={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: '加入甘老师化学' })).toBeInTheDocument()
+    expect(screen.getByLabelText('第二步：输入邀请码')).toHaveValue('ABCDEFGH23')
+    expect(window.location.hash).toBe('')
+    expect(screen.getByText('企业微信邀请已收到')).toBeInTheDocument()
   })
 })
 

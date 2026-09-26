@@ -25,7 +25,7 @@ export default defineConfig({
   build: { sourcemap: true, rollupOptions: { input: 'app.html' } },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'supabase/functions/**/*.test.ts'],
     setupFiles: './src/test/setup.ts',
     coverage: { reporter: ['text', 'json', 'html'] },
   },

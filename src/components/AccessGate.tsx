@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { ArrowRight, FlaskConical, KeyRound, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import type { GradeBand, GuardianDashboardData, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { loginWithAccessCode, loginWithPhone, recoverAccessCode, startGuestTrial, submitRegistration } from '../lib/api'
@@ -10,7 +10,13 @@ function savedGuestTrialKey() {
   try { return window.localStorage.getItem(GUEST_TRIAL_KEY) || '' } catch { return '' }
 }
 
+function invitationFromLink() {
+  const invite = new URLSearchParams(window.location.hash.slice(1)).get('invite') || ''
+  return /^[A-Z0-9]{10}$/.test(invite) ? invite : ''
+}
+
 export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (session: SessionIdentity, dashboard?: StudentDashboardData | GuardianDashboardData) => void; initialMode?: 'code' | 'register' }) {
+  const [linkedInvite] = useState(invitationFromLink)
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [showCode, setShowCode] = useState(false)
@@ -23,7 +29,7 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
   const [recoveryError, setRecoveryError] = useState('')
   const [recoveryMessage, setRecoveryMessage] = useState('')
   const [recovering, setRecovering] = useState(false)
-  const [mode, setMode] = useState<'code' | 'phone' | 'register' | 'guest'>(initialMode)
+  const [mode, setMode] = useState<'code' | 'phone' | 'register' | 'guest'>(linkedInvite ? 'register' : initialMode)
   const [role, setRole] = useState<'student' | 'guardian'>('student')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -31,10 +37,14 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
   const [gradeBand, setGradeBand] = useState('高一')
   const [childName, setChildName] = useState('')
   const [childPhone, setChildPhone] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  const [inviteCode, setInviteCode] = useState(linkedInvite)
   const [registrationDone, setRegistrationDone] = useState(false)
   const [guestGrade, setGuestGrade] = useState<GradeBand>('初三')
   const [guestTrialKey, setGuestTrialKey] = useState(savedGuestTrialKey)
+
+  useEffect(() => {
+    if (linkedInvite) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+  }, [linkedInvite])
 
   async function enterGuestTrial(event: FormEvent) {
     event.preventDefault()
@@ -206,8 +216,8 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
         </form>}
         {mode === 'register' && (registrationDone ? <div className="registration-done" role="status"><ShieldCheck /><h3>申请已提交</h3><p>甘老师会在后台核对身份、班级或孩子档案；开通后，你就可以用手机号和自定密码登录。</p><button className="secondary-button" onClick={() => { setMode('phone'); setRegistrationDone(false) }}>去手机号登录</button></div> : <form onSubmit={register} className="phone-access-form">
           <div className="access-role-picker" role="group" aria-label="注册身份"><button type="button" className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>学生注册</button><button type="button" className={role === 'guardian' ? 'active' : ''} onClick={() => setRole('guardian')}>家长注册</button></div>
-          <div className="wechat-register"><b>第一步：扫码添加甘老师微信</b><img src={`${import.meta.env.BASE_URL}wechat-add.jpg`} alt="甘老师微信二维码，扫码添加好友" /><small>在微信里告诉老师姓名和注册手机号。老师核对后会发给你一次性邀请码。</small></div>
-          <label htmlFor="register-invite">第二步：输入老师发的邀请码</label><input id="register-invite" value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))} autoComplete="off" inputMode="text" maxLength={10} placeholder="10位一次性邀请码" required />
+          {linkedInvite ? <div className="wechat-register"><b>企业微信邀请已收到</b><small>邀请码已自动填入。请继续填写资料；提交后甘老师会核对身份和学习进度。</small></div> : <div className="wechat-register"><b>第一步：扫码添加甘老师微信</b><img src={`${import.meta.env.BASE_URL}wechat-add.jpg`} alt="甘老师微信二维码，扫码添加好友" /><small>在微信里告诉老师姓名和注册手机号。老师核对后会发给你一次性邀请码。</small></div>}
+          <label htmlFor="register-invite">第二步：输入邀请码</label><input id="register-invite" value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))} autoComplete="off" inputMode="text" maxLength={10} placeholder="10位一次性邀请码" required />
           <label htmlFor="register-name">{role === 'student' ? '学生姓名' : '家长姓名'}</label><input id="register-name" value={name} onChange={(event) => setName(event.target.value.slice(0, 30))} autoComplete="name" placeholder="填写真实姓名" required />
           <label htmlFor="register-phone">注册手机号</label><input id="register-phone" type="tel" inputMode="numeric" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="11位中国大陆手机号" required />
           {role === 'student' ? <><label htmlFor="register-grade">所在年级</label><select id="register-grade" value={gradeBand} onChange={(event) => setGradeBand(event.target.value)}>{['初三', '高一', '高二', '高三'].map((grade) => <option key={grade}>{grade}</option>)}</select></> : <><label htmlFor="child-name">孩子姓名</label><input id="child-name" value={childName} onChange={(event) => setChildName(event.target.value.slice(0, 40))} placeholder="填写孩子在网站上的姓名" required /><label htmlFor="child-phone">孩子手机号</label><input id="child-phone" type="tel" inputMode="numeric" value={childPhone} onChange={(event) => setChildPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="用于核对孩子档案" required /></>}
@@ -215,7 +225,7 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
           <label htmlFor="register-confirm">再输入一次密码</label><input id="register-confirm" type="password" autoComplete="new-password" minLength={6} maxLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
           {error && <div className="form-error" role="alert">{error}</div>}
           <button className="primary-button" disabled={loading || inviteCode.length !== 10}>{loading ? '正在提交…' : '提交注册申请'} <ArrowRight size={18} /></button>
-          <small className="registration-note">不能直接凭手机号注册。邀请码只对老师确认的身份和手机号有效，使用一次即失效；提交后仍须审核开通。</small>
+          <small className="registration-note">不能直接凭手机号注册。邀请码只能用一次；老师手动发的码还须与指定身份和手机号一致。提交后仍须审核开通。</small>
         </form>)}
       </div>
     </section>

@@ -1,0 +1,9 @@
+[functions.chemistry-access]
+verify_jwt = false
+
+[functions.chemistry-teacher]
+verify_jwt = false
+
+# WeCom signs and encrypts callbacks instead of sending a Supabase JWT.
+[functions.chemistry-wecom]
+verify_jwt = false
