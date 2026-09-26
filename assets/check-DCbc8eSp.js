@@ -1,7 +1,7 @@
-import{c}from"./app-CgQ_HigO.js";/**
+import{c}from"./app-DH1fnZUH.js";/**
  * @license lucide-react v0.468.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */const o=c("Check",[["path",{d:"M20 6 9 17l-5-5",key:"1gmf2c"}]]);export{o as C};
-//# sourceMappingURL=check-C1O2LDUH.js.map
+//# sourceMappingURL=check-DCbc8eSp.js.map

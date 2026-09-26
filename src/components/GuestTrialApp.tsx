@@ -156,8 +156,8 @@ export function GuestTrialApp({ session, onLogout, onRegister }: {
     </>}
 
     {!showExpired && <aside className="guest-trial-register">
-      <div><b>想学完整课程？</b><p>扫码添加甘老师，老师确认后发邀请码。手机号不能直接注册。</p></div>
-      <img src={`${import.meta.env.BASE_URL}wechat-add.jpg`} alt="扫码添加甘老师微信，领取正式账号邀请码" loading="lazy" />
+      <div><b>想学完整课程？</b><p>扫码添加甘老师企业微信，领取邀请码后再注册。点二维码可以查看完整名片。</p></div>
+      <a className="wecom-qr-preview" href={`${import.meta.env.BASE_URL}wechat-add.jpg`} target="_blank" rel="noreferrer" aria-label="查看企业微信名片大图"><span role="img" aria-label="扫码添加甘老师企业微信，领取正式账号邀请码" style={{ backgroundImage: `url(${import.meta.env.BASE_URL}wechat-add.jpg)` }} /></a>
       <button type="button" className="secondary-button" onClick={onRegister}>我已加老师，去注册 <ArrowRight size={17} /></button>
     </aside>}
   </main>

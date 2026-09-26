@@ -1,11 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { createHash, createHmac } from "node:crypto";
-import { decryptWecomPayload, verifyWecomSignature, xmlTag } from "./protocol.ts";
+import { decryptWecomPayload, shouldIssueInviteForContact, verifyWecomSignature, xmlTag } from "./protocol.ts";
 
 const SITE_URL = "https://ganlu6633-source.github.io/gan-chemistry-august-review/";
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const expectedState = "chemistry_registration";
 let tokenCache: { value: string; expiresAt: number } | null = null;
 
 function config() {
@@ -13,10 +12,12 @@ function config() {
   const contactSecret = Deno.env.get("WECOM_CONTACT_SECRET") || "";
   const callbackToken = Deno.env.get("WECOM_CALLBACK_TOKEN") || "";
   const callbackAesKey = Deno.env.get("WECOM_CALLBACK_AES_KEY") || "";
+  const memberUserId = Deno.env.get("WECOM_MEMBER_USER_ID") || "";
+  const allowUntagged = Deno.env.get("WECOM_INVITE_UNTAGGED_CONTACTS") === "true";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-  if (!corpId || !contactSecret || !callbackToken || !callbackAesKey || !serviceKey || !supabaseUrl) return null;
-  return { corpId, contactSecret, callbackToken, callbackAesKey, serviceKey, supabaseUrl };
+  if (!corpId || !contactSecret || !callbackToken || !callbackAesKey || !memberUserId || !serviceKey || !supabaseUrl) return null;
+  return { corpId, contactSecret, callbackToken, callbackAesKey, memberUserId, allowUntagged, serviceKey, supabaseUrl };
 }
 
 function eventIdentity(corpId: string, member: string, external: string, created: string): string {
@@ -101,9 +102,10 @@ Deno.serve(async (req: Request) => {
     const changeType = xmlTag(message, "ChangeType");
     if (xmlTag(message, "MsgType") !== "event" || xmlTag(message, "Event") !== "change_external_contact"
       || (changeType !== "add_external_contact" && changeType !== "add_half_external_contact")) return new Response("success");
-    if (xmlTag(message, "State") !== expectedState) return new Response("success");
-
     const member = xmlTag(message, "UserID") || "";
+    if (!shouldIssueInviteForContact(member, settings.memberUserId, xmlTag(message, "State"), settings.allowUntagged)) {
+      return new Response("success");
+    }
     const external = xmlTag(message, "ExternalUserID") || "";
     const created = xmlTag(message, "CreateTime") || "";
     const welcomeCode = xmlTag(message, "WelcomeCode") || "";

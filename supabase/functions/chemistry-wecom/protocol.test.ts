@@ -1,6 +1,6 @@
 import { createCipheriv, createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { decryptWecomPayload, verifyWecomSignature, xmlTag } from './protocol'
+import { decryptWecomPayload, shouldIssueInviteForContact, verifyWecomSignature, xmlTag } from './protocol'
 
 const corpId = 'ww1234567890abcdef'
 const token = 'callback-secret'
@@ -36,5 +36,14 @@ describe('WeCom callback protocol', () => {
     const xml = 'a'.repeat(32 - ((20 + corpId.length) % 32))
     expect(decryptWecomPayload(encrypt(xml), aesKey, corpId)).toBe(xml)
     expect(() => decryptWecomPayload('not-base64', aesKey, corpId)).toThrow()
+  })
+
+  it('limits untagged personal-card additions to the configured teacher and explicit opt-in', () => {
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', 'chemistry_registration', false)).toBe(true)
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', null, false)).toBe(false)
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', null, true)).toBe(true)
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', '', true)).toBe(true)
+    expect(shouldIssueInviteForContact('other-teacher', 'teacher-1', null, true)).toBe(false)
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', 'another-channel', true)).toBe(false)
   })
 })
