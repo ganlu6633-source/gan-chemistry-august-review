@@ -6,10 +6,12 @@
 ## 企业微信管理后台
 
 1. 确认甘老师的成员账号已激活、完成实名认证、可使用「客户联系」，并在用于调用接口的自建应用可见范围内。
-2. 在「客户联系 → 可调用接口的应用」加入该自建应用。使用这个应用可调用客户联系接口的 Secret，不要使用个人微信或名片二维码代替。
-3. 在客户联系的事件回调中设置上面的 URL，生成 Token 和 43 位 EncodingAESKey。订阅新增客户事件。用于欢迎消息的固定欢迎语需要关闭，否则新增事件可能没有 `WelcomeCode`。
-4. 在 Supabase 项目的 Edge Functions Secrets 中设置 `WECOM_CORP_ID`、`WECOM_CONTACT_SECRET`、`WECOM_CALLBACK_TOKEN`、`WECOM_CALLBACK_AES_KEY`、`WECOM_MEMBER_USER_ID`。不要把任何 Secret 填入网页、提交到 Git 或发在聊天里。Supabase 自动提供 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`。
-5. 老师已选择所有新添加她的企业微信客户都收到邀请码，因此服务端默认处理指定成员 `UserID` 的所有新增客户事件，包括个人名片码和其他添加来源；其他成员不会发码。若以后改回只给网站来的学生和家长发码，在 Supabase Secrets 中设置 `WECOM_INVITE_ALL_NEW_CONTACTS=false`，再用企业微信「联系我」接口创建网站专用二维码：`type=1`、`scene=2`、`skip_verify=true`、`state=chemistry_registration`、`user=[甘老师的 UserID]`。本仓库的 `scripts/create-wecom-contact-way.mjs` 可创建并下载此码，随后替换注册页图片。
+2. 在「客户联系 → 可调用接口的应用」加入自建应用，取得可调用客户联系接口的 Secret；同时记下企业 ID 和甘老师的成员 UserID。个人名片二维码本身不包含这些后台凭据。
+3. 在客户联系的事件回调页面填入上面的 URL，生成 Token 和 43 位 EncodingAESKey，并选择新增客户事件。**先不要保存回调**：企业微信保存时会立刻验证 URL，而服务端此时还没有用于验证的密钥。用于欢迎消息的固定欢迎语需要关闭，否则新增事件可能没有 `WelcomeCode`。
+4. 在 Supabase 项目的 Edge Functions Secrets 中设置 `WECOM_CORP_ID`、`WECOM_CONTACT_SECRET`、`WECOM_CALLBACK_TOKEN`、`WECOM_CALLBACK_AES_KEY`、`WECOM_MEMBER_USER_ID`，并等待服务端配置生效。不要把任何 Secret 填入网页、提交到 Git 或发在聊天里。Supabase 自动提供 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`。
+5. 回到企业微信管理后台保存事件回调，确认 URL 验证通过。再用一个尚未添加过甘老师的微信账号扫描网站上的个人名片码，做端到端验收。
+
+老师已选择所有新添加她的企业微信客户都收到邀请码，因此服务端默认处理指定成员 `UserID` 的所有新增客户事件，包括个人名片码和其他添加来源；其他成员不会发码。若以后改回只给网站来的学生和家长发码，在 Supabase Secrets 中设置 `WECOM_INVITE_ALL_NEW_CONTACTS=false`，再用企业微信「联系我」接口创建网站专用二维码：`type=1`、`scene=2`、`skip_verify=true`、`state=chemistry_registration`、`user=[甘老师的 UserID]`。本仓库的 `scripts/create-wecom-contact-way.mjs` 可创建并下载此码，随后替换注册页图片。
 
 ## 行为与验收
 
