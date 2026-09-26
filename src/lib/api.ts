@@ -30,6 +30,27 @@ export async function loginWithAccessCode(name: string, code: string) {
   return parseResponse<{ session: SessionIdentity; dashboard?: StudentDashboardData | GuardianDashboardData }>(response)
 }
 
+export type RegistrationData = {
+  role: 'student' | 'guardian'; displayName: string; phone: string; password: string;
+  gradeBand?: string; childName?: string; childPhone?: string;
+}
+
+export async function submitRegistration(data: RegistrationData) {
+  const response = await fetch(functionUrl(ACCESS_FUNCTION), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ action: 'register', data }),
+  })
+  return parseResponse<{ ok: true; message: string }>(response)
+}
+
+export async function loginWithPhone(role: 'student' | 'guardian', phone: string, password: string) {
+  const response = await fetch(functionUrl(ACCESS_FUNCTION), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ action: 'phone_login', data: { role, phone, password } }),
+  })
+  return parseResponse<{ session: SessionIdentity; dashboard: StudentDashboardData | GuardianDashboardData }>(response)
+}
+
 export async function recoverAccessCode(name: string, recoverySecret: string, newCode: string) {
   const response = await fetch(functionUrl(ACCESS_FUNCTION), {
     method: 'POST',

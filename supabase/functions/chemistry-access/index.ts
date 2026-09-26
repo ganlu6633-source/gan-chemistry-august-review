@@ -3138,6 +3138,36 @@ Deno.serve(async (req: Request) => {
       return reply(req, { session, dashboard });
     }
 
+    if (body.action === "register") {
+      const details = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+      const rawFingerprint = `${req.headers.get("x-forwarded-for") || "unknown"}|${req.headers.get("user-agent") || "unknown"}`;
+      const { data, error } = await supabase.rpc("chem_submit_registration", {
+        p_data: details, p_fingerprint_hash: await sha256(rawFingerprint),
+      });
+      if (error) throw error;
+      if (data !== true) return reply(req, { error: "信息格式不正确，或提交过于频繁，请检查后再试。" }, 400);
+      return reply(req, { ok: true, message: "申请已送达甘老师。请先添加微信，待老师核对后即可用手机号和密码登录。" });
+    }
+
+    if (body.action === "phone_login") {
+      const role = String(body.data?.role || "");
+      const phone = String(body.data?.phone || "");
+      const password = String(body.data?.password || "");
+      const rawFingerprint = `${req.headers.get("x-forwarded-for") || "unknown"}|${req.headers.get("user-agent") || "unknown"}`;
+      const token = randomToken();
+      const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase.rpc("chem_exchange_phone_password", {
+        p_role: role, p_phone: phone, p_password: password,
+        p_fingerprint_hash: await sha256(rawFingerprint), p_token_hash: await sha256(token), p_expires_at: expiresAt,
+      });
+      if (error) throw error;
+      if (!data?.length) return reply(req, { error: "手机号或密码不正确，账号尚未开通，或尝试过于频繁。" }, 401);
+      const identity = data[0];
+      const session = { role: identity.access_role, token, displayName: identity.principal_name, expiresAt };
+      const dashboard = identity.access_role === "guardian" ? await guardianDashboard(identity.student_id) : await studentDashboard(identity.student_id);
+      return reply(req, { session, dashboard });
+    }
+
     if (body.action === "recover_access_code") {
       const name = String(body.data?.name || "").trim();
       const recoverySecret = String(body.data?.recoverySecret || "").trim();

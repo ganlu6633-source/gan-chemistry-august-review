@@ -35,6 +35,7 @@ beforeEach(() => {
   api.mockReset()
   api.mockImplementation(async (action) => {
     if (action === 'teaching_catalog') return structuredClone(catalog)
+    if (action === 'list_registration_requests') return { requests: [] }
     if (action === 'preview_teaching_plan') return structuredClone(preview)
     if (action === 'apply_teaching_plan') return { message: '计划已保存', appliedPlans: 1, affectedStudents: 1 }
     throw new Error(`Unexpected action: ${action}`)
@@ -43,6 +44,24 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('teacher management workflow', () => {
+  it('requires teacher identity confirmation before binding a guardian to the selected child', async () => {
+    const original = api.getMockImplementation()!
+    api.mockImplementation(async (action, data) => {
+      if (action === 'list_registration_requests') return { requests: [{ id: 'request-1', role: 'guardian', displayName: '林家长', phone: '13800138000', gradeBand: null, childName: '林天佑', childPhone: '13900139000', createdAt: '2026-09-26T00:00:00Z' }] }
+      if (action === 'review_registration') return { message: '已开通手机号登录' }
+      return original(action, data)
+    })
+    render(<TeacherManagement mode="students" />)
+    expect(await screen.findByText(/孩子：林天佑/)).toBeInTheDocument()
+    const approve = screen.getByRole('button', { name: '确认并开通' })
+    expect(approve).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox', { name: /我已在微信核对申请人/ }))
+    fireEvent.click(approve)
+    await waitFor(() => expect(api).toHaveBeenCalledWith('review_registration', {
+      requestId: 'request-1', decision: 'approve', studentId: 's1', classId: null, referenceStudentId: null,
+    }))
+  })
+
   it('creates a student from a same-grade reference using progress identity only', async () => {
     const original = api.getMockImplementation()!
     api.mockImplementation(async (action, data) => action === 'manage_student' ? { studentId: 'new', message: '学生已创建', accessCodes: { studentCode: 'new-student-code', guardianCode: 'new-guardian-code' } } : original(action, data))

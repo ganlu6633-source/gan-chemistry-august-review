@@ -639,6 +639,29 @@ Deno.serve(async (req: Request) => {
     const action = typeof body.action === "string" ? body.action : "";
     const bodyData = recordValue(body.data);
 
+    if (action === "list_registration_requests") {
+      const { data, error } = await admin.rpc("chem_list_registration_requests", {
+        p_actor_hash: await sha256(req.headers.get("x-app-session") || ""),
+      });
+      if (error) throw error;
+      return reply(req, { requests: data });
+    }
+    if (action === "review_registration") {
+      const requestId = String(bodyData.requestId || "");
+      const studentId = bodyData.studentId ? String(bodyData.studentId) : null;
+      const classId = bodyData.classId ? String(bodyData.classId) : null;
+      const referenceStudentId = bodyData.referenceStudentId ? String(bodyData.referenceStudentId) : null;
+      if (!validUuid(requestId) || (studentId && !validUuid(studentId)) || (classId && !validUuid(classId))
+        || (referenceStudentId && !validUuid(referenceStudentId))) return reply(req, { error: "申请或学生信息无效。" }, 400);
+      const { data, error } = await admin.rpc("chem_review_registration", {
+        p_request_id: requestId, p_decision: String(bodyData.decision || ""),
+        p_student_id: studentId, p_class_id: classId, p_reference_student_id: referenceStudentId,
+        p_actor_hash: await sha256(req.headers.get("x-app-session") || ""), p_actor_name: user.displayName,
+      });
+      if (error) return reply(req, { error: error.code === "P0001" ? error.message : "审核没有保存，请核对学生档案后重试。" }, 409);
+      return reply(req, data);
+    }
+
     if (["teaching_catalog", "manage_student", "manage_class", "preview_teaching_plan", "apply_teaching_plan", "list_teaching_materials"].includes(action)) {
       const result = await admin.rpc("chem_teacher_management", {
         p_action: action,

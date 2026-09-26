@@ -26,9 +26,58 @@ export function TeacherManagement({ mode, initialDate, onPreview, onChanged }: {
   return <div className="teaching-management">
     {error && <div className="inline-alert" role="alert">{error}<button className="text-button" onClick={() => void reload()}>重新读取</button></div>}
     {!catalog ? loading && <div className="center-loading"><RefreshCw className="spin" />正在读取学生和课程…</div> : mode === 'students'
-      ? <StudentManagement catalog={catalog} loading={loading} onReload={changed} onPreview={onPreview} />
+      ? <><RegistrationRequests catalog={catalog} onChanged={changed} /><StudentManagement catalog={catalog} loading={loading} onReload={changed} onPreview={onPreview} /></>
       : <CourseManagement catalog={catalog} loading={loading} initialDate={initialDate} onReload={changed} />}
   </div>
+}
+
+type RegistrationRequest = { id: string; role: 'student' | 'guardian'; displayName: string; phone: string; gradeBand: string | null; childName: string | null; childPhone: string | null; createdAt: string }
+
+function RegistrationRequests({ catalog, onChanged }: { catalog: TeachingCatalog; onChanged: () => Promise<void> }) {
+  const [requests, setRequests] = useState<RegistrationRequest[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const load = useCallback(async () => {
+    setLoading(true); setError('')
+    try { const result = await teacherApi<{ requests: RegistrationRequest[] }>('list_registration_requests'); setRequests(result.requests) }
+    catch (reason) { setError(messageOf(reason, '注册申请暂时无法读取。')) }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+  async function review(request: RegistrationRequest, decision: 'approve' | 'reject', studentId: string, classId: string, referenceStudentId: string) {
+    setError(''); setMessage('')
+    try {
+      const result = await teacherApi<{ message: string }>('review_registration', { requestId: request.id, decision, studentId: studentId || null, classId: classId || null, referenceStudentId: referenceStudentId || null })
+      setMessage(result.message); await load(); await onChanged()
+    } catch (reason) { setError(messageOf(reason, '审核没有保存，请检查学生身份和手机号。')) }
+  }
+  return <section className="teacher-panel registration-review"><div className="panel-head"><div><h2>手机号注册审核</h2><p className="tm-help">先在微信确认来人身份，再开通账号。家长须核对孩子姓名和手机号；同名学生请逐个核实档案。</p></div><button className="secondary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />刷新申请</button></div>
+    {error && <div className="inline-alert" role="alert">{error}</div>}{message && <div className="success-message" role="status"><CheckCircle2 />{message}</div>}
+    {loading ? <p className="tm-help">正在读取申请…</p> : requests.length === 0 ? <p className="tm-help">目前没有待审核申请。</p> : requests.map((request) => <RegistrationReviewCard key={request.id} request={request} catalog={catalog} onReview={review} />)}
+  </section>
+}
+
+function RegistrationReviewCard({ request, catalog, onReview }: { request: RegistrationRequest; catalog: TeachingCatalog; onReview: (request: RegistrationRequest, decision: 'approve' | 'reject', studentId: string, classId: string, referenceStudentId: string) => Promise<void> }) {
+  const expectedName = request.role === 'student' ? request.displayName : request.childName
+  const candidates = catalog.students.filter((student) => student.status === 'active' && student.displayName === expectedName && (request.role === 'guardian' || student.gradeBand === request.gradeBand))
+  const [studentId, setStudentId] = useState(candidates.length === 1 ? candidates[0].id : '')
+  const [classId, setClassId] = useState('')
+  const [referenceStudentId, setReferenceStudentId] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  async function act(decision: 'approve' | 'reject') {
+    setBusy(true)
+    try { await onReview(request, decision, studentId, classId, referenceStudentId) }
+    finally { setBusy(false) }
+  }
+  return <article className="registration-review-card"><div className="registration-review-head"><b>{request.displayName} · {request.role === 'student' ? '学生' : '家长'}</b><small>{new Date(request.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</small></div>
+    <p>注册手机号：{request.phone}{request.role === 'student' ? ` · ${request.gradeBand}` : ` · 孩子：${request.childName}（${request.childPhone}）`}</p>
+    <label>对应学生档案<select value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">{request.role === 'student' ? '新建学生档案' : '请选择孩子的档案'}</option>{candidates.map((student) => <option key={student.id} value={student.id}>{student.displayName} · {student.gradeBand} · {student.className || '未分班'} · {student.id.slice(0, 8)}</option>)}</select></label>
+    {request.role === 'student' && !studentId && <div className="registration-new-student"><label>加入班级<select value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">暂不分班</option>{catalog.classes.filter((item) => item.gradeBand === request.gradeBand).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>同步起始进度<select value={referenceStudentId} onChange={(event) => setReferenceStudentId(event.target.value)}><option value="">从新档案开始</option>{catalog.students.filter((item) => item.status === 'active' && item.gradeBand === request.gradeBand).map((item) => <option value={item.id} key={item.id}>{item.displayName} · {item.className || '未分班'}</option>)}</select></label></div>}
+    <label className="registration-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />我已在微信核对申请人；家长申请也已核对孩子姓名、手机号和档案</label>
+    <div className="tm-actions"><button className="primary-button" disabled={busy || !confirmed || (request.role === 'guardian' && !studentId)} onClick={() => void act('approve')}>{busy ? '正在保存…' : '确认并开通'}</button><button className="secondary-button" disabled={busy} onClick={() => void act('reject')}>拒绝申请</button></div>
+  </article>
 }
 
 function StudentManagement({ catalog, loading, onReload, onPreview }: { catalog: TeachingCatalog; loading: boolean; onReload: () => Promise<void>; onPreview?: (studentId: string) => void }) {
