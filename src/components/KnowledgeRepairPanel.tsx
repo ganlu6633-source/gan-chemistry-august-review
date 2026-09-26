@@ -39,9 +39,11 @@ function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, ex
     ]
     return sections
   }
-  const rule = card?.core || explanation || '请结合刚才的原题解析，先说清判断依据，再做同知识点原题。'
-  return [{ id: `${target.key}:core`, title: target.title, items: [{ label: target.title, rule,
-    examples: card?.microExample ? [card.microExample] : undefined }] }]
+  if (card) return [{ id: `${target.key}:core`, title: card.title,
+    items: getKnowledgeReviewPoints(card).map((point) => ({ label: point.title, rule: point.rule,
+      examples: point.examples, caution: point.caution })) }]
+  return [{ id: `${target.key}:core`, title: target.title, items: [{ label: target.title,
+    rule: explanation || '请结合刚才的原题解析，先说清判断依据，再做同知识点原题。' }] }]
 }
 
 export function KnowledgeRepairPanel({ target, card, explanation, practiceTopics = [], onBack, onPractice, onRating, practiceBusy }: {

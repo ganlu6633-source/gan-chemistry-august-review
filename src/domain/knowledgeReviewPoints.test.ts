@@ -38,4 +38,12 @@ describe('fine-grained knowledge review', () => {
     expect(points.map((point) => point.title)).toContain('由温度差求热量 q')
     expect(points).toHaveLength(5)
   })
+
+  it('gives older unstructured cards a question for each audited fact', () => {
+    const older: KnowledgeCard = { ...card, id: 'KC_H1_MATERIAL_ATOM', skillId: 'H1_MATERIAL_ATOM', structuredContent: undefined }
+    const points = getKnowledgeReviewPoints(older)
+    expect(points.map((point) => point.title)).toContain('由质量数求中子数')
+    expect(points.map((point) => point.title)).toContain('同位素怎样判断')
+    expect(points).toHaveLength(5)
+  })
 })
