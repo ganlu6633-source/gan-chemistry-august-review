@@ -13,11 +13,13 @@ function config() {
   const callbackToken = Deno.env.get("WECOM_CALLBACK_TOKEN") || "";
   const callbackAesKey = Deno.env.get("WECOM_CALLBACK_AES_KEY") || "";
   const memberUserId = Deno.env.get("WECOM_MEMBER_USER_ID") || "";
-  const allowUntagged = Deno.env.get("WECOM_INVITE_UNTAGGED_CONTACTS") === "true";
+  // The teacher chose to invite every new contact of this member. The optional
+  // switch retains a site-only mode if that policy changes later.
+  const allowAllNewContacts = Deno.env.get("WECOM_INVITE_ALL_NEW_CONTACTS") !== "false";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   if (!corpId || !contactSecret || !callbackToken || !callbackAesKey || !memberUserId || !serviceKey || !supabaseUrl) return null;
-  return { corpId, contactSecret, callbackToken, callbackAesKey, memberUserId, allowUntagged, serviceKey, supabaseUrl };
+  return { corpId, contactSecret, callbackToken, callbackAesKey, memberUserId, allowAllNewContacts, serviceKey, supabaseUrl };
 }
 
 function eventIdentity(corpId: string, member: string, external: string, created: string): string {
@@ -55,7 +57,7 @@ async function sendWelcome(token: string, welcomeCode: string, invitation: strin
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       welcome_code: welcomeCode,
-      text: { content: `欢迎来到甘老师化学！你的专属邀请码：${invitation}\n点击下方卡片申请账号，邀请码会自动填好。24 小时内有效，只能使用一次；提交后老师会核对身份和学习进度。` },
+      text: { content: `欢迎来到甘老师化学！你的专属邀请码：${invitation}\n点击下方卡片申请账号，邀请码会自动填好。72 小时内有效，只能使用一次；提交后老师会核对身份和学习进度。` },
       attachments: [{ msgtype: "link", link: { title: "申请甘老师化学账号", url: link, desc: "邀请码已自动填写，点击继续注册" } }],
     }),
     signal: AbortSignal.timeout(5000),
@@ -103,7 +105,7 @@ Deno.serve(async (req: Request) => {
     if (xmlTag(message, "MsgType") !== "event" || xmlTag(message, "Event") !== "change_external_contact"
       || (changeType !== "add_external_contact" && changeType !== "add_half_external_contact")) return new Response("success");
     const member = xmlTag(message, "UserID") || "";
-    if (!shouldIssueInviteForContact(member, settings.memberUserId, xmlTag(message, "State"), settings.allowUntagged)) {
+    if (!shouldIssueInviteForContact(member, settings.memberUserId, xmlTag(message, "State"), settings.allowAllNewContacts)) {
       return new Response("success");
     }
     const external = xmlTag(message, "ExternalUserID") || "";

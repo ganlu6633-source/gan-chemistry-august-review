@@ -38,12 +38,13 @@ describe('WeCom callback protocol', () => {
     expect(() => decryptWecomPayload('not-base64', aesKey, corpId)).toThrow()
   })
 
-  it('limits untagged personal-card additions to the configured teacher and explicit opt-in', () => {
+  it('invites every new contact of the configured teacher, with a site-only switch', () => {
     expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', 'chemistry_registration', false)).toBe(true)
     expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', null, false)).toBe(false)
     expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', null, true)).toBe(true)
     expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', '', true)).toBe(true)
     expect(shouldIssueInviteForContact('other-teacher', 'teacher-1', null, true)).toBe(false)
-    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', 'another-channel', true)).toBe(false)
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', 'another-channel', true)).toBe(true)
+    expect(shouldIssueInviteForContact('teacher-1', 'teacher-1', 'another-channel', false)).toBe(false)
   })
 })

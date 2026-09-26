@@ -57,9 +57,8 @@ export function shouldIssueInviteForContact(
   member: string,
   expectedMember: string,
   state: string | null,
-  allowUntagged: boolean,
+  allowAllNewContacts: boolean,
 ): boolean {
   if (!member || !expectedMember || member !== expectedMember) return false;
-  if (state === "chemistry_registration") return true;
-  return allowUntagged && (state === null || state === "");
+  return allowAllNewContacts || state === "chemistry_registration";
 }

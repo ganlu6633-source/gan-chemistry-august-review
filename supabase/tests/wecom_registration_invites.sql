@@ -1,4 +1,4 @@
--- Run after 20260926130000_wecom_registration_invites.sql. The transaction
+-- Run after 20260926140000_wecom_invites_72_hours.sql. The transaction
 -- rolls back all test registrations and invitations.
 begin;
 set local lock_timeout='5s';
@@ -37,8 +37,8 @@ begin
   if v_wecom_id is null or (v_result->>'shouldSend')::boolean is not true
     or v_result->>'eventHash' <> repeat('c',64)
     or (v_result->>'expiresAt')::timestamptz not between
-      now()+interval '23 hours 59 minutes' and now()+interval '24 hours 1 minute' then
-    raise exception 'verified contact event did not create a 24-hour invitation';
+      now()+interval '71 hours 59 minutes' and now()+interval '72 hours 1 minute' then
+    raise exception 'verified contact event did not create a 72-hour invitation';
   end if;
   v_result := public.chem_create_wecom_registration_invite(
     repeat('a',64),repeat('b',64),repeat('c',64));
