@@ -51,6 +51,14 @@ export async function loginWithPhone(role: 'student' | 'guardian', phone: string
   return parseResponse<{ session: SessionIdentity; dashboard: StudentDashboardData | GuardianDashboardData }>(response)
 }
 
+export async function claimExistingStudentPhone(name: string, code: string, phone: string, password: string) {
+  const response = await fetch(functionUrl(ACCESS_FUNCTION), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ action: 'claim_existing_student_phone', data: { name, code, phone, password } }),
+  })
+  return parseResponse<{ session: SessionIdentity; dashboard: StudentDashboardData }>(response)
+}
+
 export async function startGuestTrial(gradeBand: string, trialKey?: string) {
   const response = await fetch(functionUrl(ACCESS_FUNCTION), {
     method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },

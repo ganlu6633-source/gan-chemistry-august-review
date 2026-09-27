@@ -3219,6 +3219,40 @@ Deno.serve(async (req: Request) => {
       return reply(req, { ok: true, message: "申请已送达甘老师，待老师审核后即可用手机号和密码登录。" });
     }
 
+    if (body.action === "claim_existing_student_phone") {
+      const details = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+      const name = typeof details.name === "string" ? details.name.trim() : "";
+      const code = typeof details.code === "string" ? details.code.trim() : "";
+      const phone = typeof details.phone === "string" ? details.phone.trim() : "";
+      const password = typeof details.password === "string" ? details.password : "";
+      const network = (req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip")
+        || req.headers.get("x-forwarded-for")?.split(",")[0] || "").trim().slice(0, 128);
+      const rawFingerprint = `student-phone-claim:${network || `unknown:${(req.headers.get("user-agent") || "unknown").slice(0, 256)}`}`;
+      const token = randomToken();
+      const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase.rpc("chem_claim_existing_student_phone", {
+        p_name: name, p_code: code, p_phone: phone, p_password: password,
+        p_fingerprint_hash: await sha256(rawFingerprint),
+        p_token_hash: await sha256(token), p_expires_at: expiresAt,
+      });
+      if (error) throw error;
+      if (data?.resultCode === "rate_limited") {
+        return reply(req, { error: "尝试过于频繁，请一小时后再试或联系甘老师。" }, 429);
+      }
+      if (data?.resultCode !== "ok" || typeof data.studentId !== "string") {
+        // A public caller must not learn whether a name or phone is on the roster.
+        return reply(req, { error: "绑定未成功，请核对姓名、原学生登录码和手机号；如已绑定或手机号变更，请联系甘老师。" }, 401);
+      }
+      const session = { role: "student", token, displayName: data.displayName, expiresAt };
+      try {
+        const dashboard = await studentDashboard(data.studentId);
+        return reply(req, { session, dashboard });
+      } catch (dashboardError) {
+        console.error("student phone claim dashboard failed", dashboardError);
+        return reply(req, { error: "手机号和密码已设置成功，但学习页暂时没打开。请切到手机号登录后重试。" }, 503);
+      }
+    }
+
     if (body.action === "start_guest_trial") {
       const details = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
       const existingKey = typeof details.trialKey === "string" ? details.trialKey : null;

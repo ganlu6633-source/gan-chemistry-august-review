@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { ArrowRight, FlaskConical, KeyRound, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import type { GradeBand, GuardianDashboardData, SessionIdentity, StudentDashboardData } from '../domain/types'
-import { loginWithAccessCode, loginWithPhone, recoverAccessCode, startGuestTrial, submitRegistration } from '../lib/api'
+import { claimExistingStudentPhone, loginWithAccessCode, loginWithPhone, recoverAccessCode, startGuestTrial, submitRegistration } from '../lib/api'
 import './AccessGate.css'
 
 const GUEST_TRIAL_KEY = 'gan-chemistry-guest-trial-key'
@@ -31,6 +31,9 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
   const [recovering, setRecovering] = useState(false)
   const [mode, setMode] = useState<'code' | 'phone' | 'register' | 'guest'>(linkedInvite ? 'register' : initialMode)
   const [role, setRole] = useState<'student' | 'guardian'>('student')
+  const [phoneAction, setPhoneAction] = useState<'login' | 'claim'>('login')
+  const [existingStudentName, setExistingStudentName] = useState('')
+  const [existingStudentCode, setExistingStudentCode] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -124,6 +127,24 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
     } finally { setLoading(false) }
   }
 
+  async function claimExistingStudent(event: FormEvent) {
+    event.preventDefault()
+    const cleanName = existingStudentName.trim()
+    if (!cleanName || cleanName.length > 30) return setError('请填写档案中的学生姓名。')
+    if (!/^\d{6,12}$/.test(existingStudentCode)) return setError('请输入原来的6—12位数字学生登录码。')
+    if (!/^1[3-9]\d{9}$/.test(phone)) return setError('请输入11位中国大陆手机号。')
+    if (password.length < 6 || password.length > 12 || password.trim() !== password) return setError('新密码需为6—12位，首尾不要留空格。')
+    if (password !== confirmPassword) return setError('两次输入的新密码不一致。')
+    setLoading(true); setError('')
+    try {
+      const result = await claimExistingStudentPhone(cleanName, existingStudentCode, phone, password)
+      setExistingStudentCode(''); setPassword(''); setConfirmPassword('')
+      onSuccess(result.session, result.dashboard)
+    } catch (reason) {
+      setError(reason instanceof TypeError ? '暂时无法连接登录服务，请检查网络后重试。' : reason instanceof Error ? reason.message : '开通暂时未成功，请稍后重试。')
+    } finally { setLoading(false) }
+  }
+
   async function register(event: FormEvent) {
     event.preventDefault()
     if (!/^[A-Z0-9]{10}$/.test(inviteCode.trim())) return setError('请先添加甘老师微信，向老师领取10位邀请码。')
@@ -166,8 +187,8 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
           <button type="button" role="tab" aria-selected={mode === 'phone'} className={mode === 'phone' ? 'active' : ''} onClick={() => { setMode('phone'); setError('') }}>手机号登录</button>
           <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>加微信后注册</button>
         </div>
-        <h2>{mode === 'register' ? '加入甘老师化学' : mode === 'guest' ? '先来体验一下' : '欢迎回来'}</h2>
-        <p>{mode === 'code' ? '输入姓名和登录码，系统会自动进入对应页面。' : mode === 'phone' ? '审核通过后，用注册时的手机号和密码进入。' : mode === 'guest' ? '选择年级，直接开始。体验期从首次进入算起，连续 7 天。' : '先添加甘老师微信，拿到老师发的一次性邀请码，才能填写手机号注册。'}</p>
+        <h2>{mode === 'register' ? '加入甘老师化学' : mode === 'guest' ? '先来体验一下' : mode === 'phone' && phoneAction === 'claim' ? '已有学生开通手机号登录' : '欢迎回来'}</h2>
+        <p>{mode === 'code' ? '输入姓名和登录码，系统会自动进入对应页面。' : mode === 'phone' ? phoneAction === 'claim' ? '核对原学生登录码，绑定手机号和自设密码后，马上进入原来的学习档案。' : '已开通手机号登录？用手机号和自设密码进入。' : mode === 'guest' ? '选择年级，直接开始。体验期从首次进入算起，连续 7 天。' : '先添加甘老师微信，拿到老师发的一次性邀请码，才能填写手机号注册。'}</p>
         {mode === 'guest' && <form onSubmit={enterGuestTrial} className="phone-access-form guest-access-form">
           {!guestTrialKey && <><label htmlFor="guest-grade">想体验哪个年级？</label><select id="guest-grade" value={guestGrade} onChange={(event) => setGuestGrade(event.target.value as GradeBand)}>{['初三', '高一', '高二', '高三'].map((grade) => <option key={grade}>{grade}</option>)}</select></>}
           {guestTrialKey && <p className="guest-resume-note">这台设备上已有试用记录，可以接着上次的进度练。</p>}
@@ -206,14 +227,30 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
         </details>
         <div className="security-note"><ShieldCheck size={16} />姓名和登录码仅用于安全核验。</div>
         </>}
-        {mode === 'phone' && <form onSubmit={phoneSubmit} className="phone-access-form">
-          <div className="access-role-picker" role="group" aria-label="选择身份"><button type="button" className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>我是学生</button><button type="button" className={role === 'guardian' ? 'active' : ''} onClick={() => setRole('guardian')}>我是家长</button></div>
-          <label htmlFor="phone-login">手机号</label><input id="phone-login" type="tel" inputMode="numeric" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="11位手机号" required />
-          <label htmlFor="phone-password">密码</label><input id="phone-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value.slice(0, 12))} placeholder="注册时设置的6—12位密码" required />
-          {error && <div className="form-error" role="alert">{error}</div>}
-          <button className="primary-button" disabled={loading}>{loading ? '正在登录…' : '进入学习'} <ArrowRight size={18} /></button>
-          <p className="login-help">还没注册？先加甘老师微信，再点上方“加微信后注册”。已有数字登录码也可以照常使用。</p>
-        </form>}
+        {mode === 'phone' && <>
+          <div className="phone-action-picker" role="group" aria-label="手机号入口">
+            <button type="button" className={phoneAction === 'login' ? 'active' : ''} aria-pressed={phoneAction === 'login'} onClick={() => { setPhoneAction('login'); setError('') }}>手机号密码登录</button>
+            <button type="button" className={phoneAction === 'claim' ? 'active' : ''} aria-pressed={phoneAction === 'claim'} onClick={() => { setPhoneAction('claim'); setError('') }}>已有学生首次开通</button>
+          </div>
+          {phoneAction === 'login' ? <form onSubmit={phoneSubmit} className="phone-access-form">
+            <div className="access-role-picker" role="group" aria-label="选择身份"><button type="button" className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>我是学生</button><button type="button" className={role === 'guardian' ? 'active' : ''} onClick={() => setRole('guardian')}>我是家长</button></div>
+            <label htmlFor="phone-login">手机号</label><input id="phone-login" type="tel" inputMode="numeric" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="11位手机号" required />
+            <label htmlFor="phone-password">密码</label><input id="phone-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value.slice(0, 12))} placeholder="注册时设置的6—12位密码" required />
+            {error && <div className="form-error" role="alert">{error}</div>}
+            <button className="primary-button" disabled={loading}>{loading ? '正在登录…' : '进入学习'} <ArrowRight size={18} /></button>
+            <p className="login-help">老师已录入档案、有学生登录码？点上方“已有学生首次开通”。其他新同学请先加微信领取邀请码。</p>
+          </form> : <form onSubmit={claimExistingStudent} className="phone-access-form">
+            <p className="existing-student-note">只开通老师已录入的学生档案。原来的做题记录和学习进度会保留；姓名相同还不够，需用原学生登录码确认身份。</p>
+            <label htmlFor="existing-student-name">档案中的学生姓名</label><input id="existing-student-name" autoComplete="name" value={existingStudentName} onChange={(event) => setExistingStudentName(event.target.value.slice(0, 30))} placeholder="填写老师录入的姓名" required />
+            <label htmlFor="existing-student-code">原学生登录码</label><input id="existing-student-code" type="password" inputMode="numeric" autoComplete="off" value={existingStudentCode} onChange={(event) => setExistingStudentCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="6—12位数字登录码" required />
+            <label htmlFor="existing-student-phone">绑定手机号</label><input id="existing-student-phone" type="tel" inputMode="numeric" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="以后用这个手机号登录" required />
+            <label htmlFor="existing-student-password">设置手机号登录密码（6—12位）</label><input id="existing-student-password" type="password" autoComplete="new-password" minLength={6} maxLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required />
+            <label htmlFor="existing-student-confirm">再次输入新密码</label><input id="existing-student-confirm" type="password" autoComplete="new-password" minLength={6} maxLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            {error && <div className="form-error" role="alert">{error}</div>}
+            <button className="primary-button" disabled={loading}>{loading ? '正在核对并开通…' : '开通并进入学习'} <ArrowRight size={18} /></button>
+            <p className="login-help">没有原学生登录码？请联系甘老师核对档案。新学生请使用上方“加微信后注册”。</p>
+          </form>}
+        </>}
         {mode === 'register' && (registrationDone ? <div className="registration-done" role="status"><ShieldCheck /><h3>申请已提交</h3><p>甘老师会在后台核对身份、班级或孩子档案；开通后，你就可以用手机号和自定密码登录。</p><button className="secondary-button" onClick={() => { setMode('phone'); setRegistrationDone(false) }}>去手机号登录</button></div> : <form onSubmit={register} className="phone-access-form">
           <div className="access-role-picker" role="group" aria-label="注册身份"><button type="button" className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>学生注册</button><button type="button" className={role === 'guardian' ? 'active' : ''} onClick={() => setRole('guardian')}>家长注册</button></div>
           {linkedInvite ? <div className="wechat-register"><b>链接里的邀请码已填入</b><small>提交时系统会核验邀请码。请继续填写资料；提交后甘老师会核对身份和学习进度。</small></div> : <div className="wechat-register"><b>第一步：扫码添加甘老师企业微信</b><a className="wecom-qr-preview" href={`${import.meta.env.BASE_URL}wechat-add.jpg`} target="_blank" rel="noreferrer" aria-label="查看企业微信名片大图"><span role="img" aria-label="甘老师企业微信二维码，扫码添加好友" style={{ backgroundImage: `url(${import.meta.env.BASE_URL}wechat-add.jpg)` }} /></a><small>点二维码可查看完整名片。添加后留意欢迎消息；如果没收到邀请码，请告诉老师姓名和注册手机号。</small></div>}

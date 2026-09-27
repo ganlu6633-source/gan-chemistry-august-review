@@ -49,6 +49,31 @@ describe('phone registration', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
   })
 
+  it('lets an existing student prove ownership with the original login code and enter the same learning record immediately', async () => {
+    const actions: Array<Record<string, unknown>> = []
+    const onSuccess = vi.fn()
+    const session = { role: 'student', token: 'claimed-session', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }
+    const dashboard = { profile: { id: 'existing-student-id', displayName: '测试学生', gradeBand: '高一' }, plans: [], skillStates: [], skillDefinitions: [], todayQuestionCount: 0, achievements: [] }
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      actions.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return new Response(JSON.stringify({ session, dashboard }), { status: 200 })
+    }))
+    render(<AccessGate onSuccess={onSuccess} />)
+    fireEvent.click(screen.getByRole('tab', { name: '手机号登录' }))
+    fireEvent.click(screen.getByRole('button', { name: '已有学生首次开通' }))
+    expect(screen.queryByLabelText('第二步：输入邀请码')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('档案中的学生姓名'), { target: { value: '测试学生' } })
+    fireEvent.change(screen.getByLabelText('原学生登录码'), { target: { value: '12345678' } })
+    fireEvent.change(screen.getByLabelText('绑定手机号'), { target: { value: '13800138000' } })
+    fireEvent.change(screen.getByLabelText('设置手机号登录密码（6—12位）'), { target: { value: 'Student88' } })
+    fireEvent.change(screen.getByLabelText('再次输入新密码'), { target: { value: 'Student88' } })
+    fireEvent.click(screen.getByRole('button', { name: /开通并进入学习/ }))
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(session, dashboard))
+    expect(actions).toEqual([{ action: 'claim_existing_student_phone', data: {
+      name: '测试学生', code: '12345678', phone: '13800138000', password: 'Student88',
+    } }])
+  })
+
   it('opens registration with an invitation delivered by an enterprise WeChat link', () => {
     window.history.replaceState(null, '', '/gan-chemistry-august-review/#invite=ABCDEFGH23')
     render(<AccessGate onSuccess={vi.fn()} />)
