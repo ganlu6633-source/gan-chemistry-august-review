@@ -173,8 +173,9 @@ begin
   join public.chem_students_v2 s on s.id = p.student_id
   join lateral (
     select q.*
-    -- Finalization now rejects any question without current item-level review.
-    -- Use the same delivery gate as the student path for this fixture.
+    -- This fixture tests database finalization atomicity. The Edge Function
+    -- separately validates plan/question skill alignment; use a same-grade
+    -- delivery-ready question so this transaction tests the current gate.
     from app_private.chem_teaching_ready_questions q
     where q.grade_band = s.grade_band
     order by q.id
