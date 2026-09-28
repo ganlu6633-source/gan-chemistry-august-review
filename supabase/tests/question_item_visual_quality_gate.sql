@@ -107,7 +107,7 @@ begin
     update app_private.chem_question_source_releases
     set status='active' where id=v_unreviewed_release;
   exception when others then
-    v_expected_gate_error := position('逐题原图、公式、选项和答案解析未核验' in sqlerrm)>0;
+    v_expected_gate_error := position('逐题原图核验或严格历史继承未满足' in sqlerrm)>0;
     if not v_expected_gate_error then raise; end if;
   end;
   if not v_expected_gate_error then

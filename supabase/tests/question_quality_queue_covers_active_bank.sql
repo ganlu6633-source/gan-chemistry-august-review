@@ -37,6 +37,16 @@ begin
   ) then
     raise exception 'Unreviewed question escaped into student delivery';
   end if;
+
+  if exists (
+    select 1
+    from app_private.chem_teaching_ready_questions ready
+    join app_private.chem_question_quality_audit_queue audit
+      on audit.question_id = ready.id
+    where audit.suspected_formula_gap
+  ) then
+    raise exception 'Question with a known formula-gap signature escaped into student delivery';
+  end if;
 end
 $test$;
 

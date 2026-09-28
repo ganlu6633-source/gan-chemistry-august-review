@@ -17,34 +17,36 @@ begin
   into v_constraint_validated
   from pg_constraint c
   where c.conrelid = 'app_private.chem_question_source_releases'::regclass
-    and c.conname = 'chem_question_source_releases_expected_question_count_check'
+    and c.conname = 'chem_release_count_by_purpose'
     and c.contype = 'c';
 
   if v_constraint_validated is distinct from true then
     raise exception 'expected-question-count contract is missing or not validated';
   end if;
 
-  -- The High-1 contract remains exact, while High-2 and High-3 accept the
-  -- inclusive expansion endpoints and representative in-range values.
+  -- Primary releases keep their grade-specific bounds. Smaller teaching
+  -- material revisions use a separate release_kind contract.
   insert into app_private.chem_question_source_releases (
-    id, manifest_sha256, grade_band, status, expected_question_count
+    id, manifest_sha256, grade_band, status, expected_question_count, release_kind
   ) values
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高一', 'staged', 125),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高一', 'staged', 175),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高二', 'staged', 200),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高二', 'staged', 201),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高二', 'staged', 2000),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高三', 'staged', 275),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高三', 'staged', 299),
-    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高三', 'staged', 2000);
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高一', 'staged', 125, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高一', 'staged', 175, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高一', 'staged', 211, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高一', 'staged', 275, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高二', 'staged', 200, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高二', 'staged', 201, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高二', 'staged', 2000, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高三', 'staged', 275, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高三', 'staged', 299, 'primary'),
+    (gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'), '高三', 'staged', 2000, 'primary');
 
   v_failed_as_expected := false;
   begin
     insert into app_private.chem_question_source_releases (
-      id, manifest_sha256, grade_band, status, expected_question_count
+      id, manifest_sha256, grade_band, status, expected_question_count, release_kind
     ) values (
       gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'),
-      '高一', 'staged', 150
+      '高一', 'staged', 150, 'primary'
     );
   exception when check_violation then
     v_failed_as_expected := true;
@@ -57,10 +59,10 @@ begin
     v_failed_as_expected := false;
     begin
       insert into app_private.chem_question_source_releases (
-        id, manifest_sha256, grade_band, status, expected_question_count
+        id, manifest_sha256, grade_band, status, expected_question_count, release_kind
       ) values (
         gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'),
-        '高二', 'staged', v_marker::integer
+        '高二', 'staged', v_marker::integer, 'primary'
       );
     exception when check_violation then
       v_failed_as_expected := true;
@@ -74,10 +76,10 @@ begin
     v_failed_as_expected := false;
     begin
       insert into app_private.chem_question_source_releases (
-        id, manifest_sha256, grade_band, status, expected_question_count
+        id, manifest_sha256, grade_band, status, expected_question_count, release_kind
       ) values (
         gen_random_uuid(), encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'),
-        '高三', 'staged', v_marker::integer
+        '高三', 'staged', v_marker::integer, 'primary'
       );
     exception when check_violation then
       v_failed_as_expected := true;
@@ -119,7 +121,7 @@ begin
 
   v_compact_body := regexp_replace(v_body, '[[:space:]]+', '', 'g');
 
-  if position('(v_grade_band=''高一''andv_release_expectednotin(125,175))' in v_compact_body) = 0
+  if position('(v_grade_band=''高一''andv_release_expectednotin(125,175)andv_release_expectednotbetween211and275)' in v_compact_body) = 0
      or position('(v_grade_band=''高二''andv_release_expectednotbetween200and2000)' in v_compact_body) = 0
      or position('(v_grade_band=''高三''andv_release_expectednotbetween275and2000)' in v_compact_body) = 0 then
     raise exception 'activation RPC count gates do not match the grade contracts';
@@ -139,10 +141,12 @@ begin
     raise exception 'High-3 activation must require the exact eleven REVIEW skills';
   end if;
 
-  if position('(v_grade_band=''高一''andcount(*)<>25)' in v_compact_body) = 0
+  if position('(v_grade_band=''高一''andv_release_expectedin(125,175)andcount(*)<>25)' in v_compact_body) = 0
+     or position('(v_grade_band=''高一''andv_release_expectedbetween211and275andcount(*)<25)' in v_compact_body) = 0
      or position('(v_grade_bandin(''高二'',''高三'')andcount(*)<25)' in v_compact_body) = 0
      or position('count(distinctq.concept_key)<>5' in v_compact_body) = 0
-     or position('(v_grade_band=''高一''andcount(*)=5)' in v_compact_body) = 0
+     or position('(v_grade_band=''高一''andv_release_expectedin(125,175)andcount(*)=5)' in v_compact_body) = 0
+     or position('(v_grade_band=''高一''andv_release_expectedbetween211and275andcount(*)>=5)' in v_compact_body) = 0
      or position('(v_grade_bandin(''高二'',''高三'')andcount(*)>=5)' in v_compact_body) = 0 then
     raise exception 'activation RPC skill/concept distribution gates are incomplete';
   end if;
