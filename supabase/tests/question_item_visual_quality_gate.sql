@@ -36,6 +36,15 @@ begin
       and t.tgname='chem_require_item_visual_reviews_before_activation' and t.tgenabled='O'
   ) then raise exception 'future imports or activations lack the per-item gate'; end if;
 
+  if not exists (
+    select 1 from pg_proc p
+    where p.oid='app_private.chem_require_item_visual_reviews_before_activation()'::regprocedure
+      and position('chem_question_formula_gap_flags' in p.prosrc)>0
+      and position('chem_question_source_release_lineage' in p.prosrc)>0
+      and position('parent_source_item_key' in p.prosrc)>0
+      and position('canonical_source_id' in p.prosrc)>0
+  ) then raise exception 'release activation lost formula or exact-lineage gate'; end if;
+
   select q.id,q.question_revision_token,q.source_info->>'locator'
     into v_question,v_revision,v_locator
   from app_private.chem_teaching_ready_questions q
