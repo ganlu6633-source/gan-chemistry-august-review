@@ -16,6 +16,14 @@ _TERMINAL_REACTION = re.compile(r"(?:=|→|⇌|⇄)\s*$")
 _TERMINAL_COLON = re.compile(r"[：:]\s*$")
 _LEADING_SEPARATOR = re.compile(r"^[，,；;]\s*\S")
 _UNFINISHED_CONCLUSION = re.compile(r"(?:，?则|该条件下|反应为|方程式为)\s*$")
+_LOST_CHEMICAL_TERMS = {
+    "known_species_missing": re.compile(r"已知[：:]\s*为"),
+    "preparation_reaction_missing": re.compile(r"可利用反应\s*制备"),
+    "removed_species_missing": re.compile(r"(?:反应[ⅰⅱⅲIVX\d]+中|因)\s*脱去步骤"),
+    "generated_species_missing": re.compile(r"生成(?:并消耗|和)\s*(?:[，。；]|$)"),
+    "transformed_species_missing": re.compile(r"转化为\s*[，。；]"),
+    "comparison_quantity_missing": re.compile(r"说明[：:]\s*[①②③④]\s*[>＞<＜]"),
+}
 
 
 def candidate_flags(stem: str, options: list[str], explanation: str = "") -> list[str]:
@@ -71,4 +79,11 @@ def candidate_flags(stem: str, options: list[str], explanation: str = "") -> lis
     for line in explanation.splitlines():
         if _TERMINAL_REACTION.search(line.strip()):
             flags.add("explanation_reaction_missing_product")
+    # OCR of Word equations can remove the *entire* object, leaving plausible
+    # Chinese prose around the gap.  These shapes were observed against local
+    # original/teacher pages, including missing GaN, H₂O and Fe complexes.
+    # A match is only a candidate: it must be checked against the source.
+    for code, pattern in _LOST_CHEMICAL_TERMS.items():
+        if any(pattern.search(value) for value in (stem, *options, explanation)):
+            flags.add(code)
     return sorted(flags)

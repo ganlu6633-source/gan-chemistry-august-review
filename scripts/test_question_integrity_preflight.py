@@ -57,6 +57,39 @@ class QuestionIntegrityPreflightTests(unittest.TestCase):
             [],
         )
 
+    def test_flags_species_erased_from_original_chemistry_prose(self):
+        flags = candidate_flags(
+            "已知：为浅黄色粉末，可利用反应制备。",
+            ["反应ⅱ中脱去步骤的活化能为2.69 eV", "由①到②，生成并消耗，故变红", "说明：②>③", "甲"],
+            "中间体生成和，此时能量上升；随后转化为，溶液褪色。",
+        )
+        self.assertEqual(
+            flags,
+            [
+                "comparison_quantity_missing",
+                "generated_species_missing",
+                "known_species_missing",
+                "preparation_reaction_missing",
+                "removed_species_missing",
+                "transformed_species_missing",
+            ],
+        )
+
+    def test_keeps_complete_species_and_reaction_descriptions(self):
+        self.assertEqual(
+            candidate_flags(
+                "已知：[FeCl₄]⁻为黄色，可利用反应Ga₂O₃+2NH₃⇌2GaN+3H₂O制备GaN。",
+                [
+                    "反应ⅱ中H₂O(g)脱去步骤的活化能为2.69 eV",
+                    "由①到②，生成[Fe(SCN)]²⁺并消耗[FeCl₄]⁻",
+                    "说明c(Fe³⁺)：②>③",
+                    "Ga₂O₃(s)+2NH₃(g)⇌2GaN(s)+3H₂O(g)",
+                ],
+                "Ga₂O₂NH生成Ga₂ON₂H₂和H₂O；之后转化为GaN，溶液中[Fe(SCN)]²⁺褪色。",
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
