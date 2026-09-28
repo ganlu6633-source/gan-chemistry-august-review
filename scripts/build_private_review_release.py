@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from PIL import Image
+from question_integrity_preflight import candidate_flags
 
 
 SCHEMA_VERSION = "gan.private-review-release.v1"
@@ -588,6 +589,12 @@ def normalize_row(
     explanation = str(first(row, "explanation", "analysis_text", "parsed_explanation", default="")).strip()
     if not explanation:
         raise BuildError(f"{label}: explanation is blank")
+    integrity_candidates = candidate_flags(stem, options, explanation)
+    if integrity_candidates:
+        raise BuildError(
+            f"{label}: possible missing formula in transcript "
+            f"({', '.join(integrity_candidates)}); compare the original crop and repair the text"
+        )
 
     raw_level = first(row, "difficulty_1_5", "difficulty_level", "level")
     try:
