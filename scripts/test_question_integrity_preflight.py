@@ -40,6 +40,23 @@ class QuestionIntegrityPreflightTests(unittest.TestCase):
             candidate_flags("下列反应正确的是", ["H₂ + O₂ →", "H₂O", "H+", "Cl-"]),
         )
 
+    def test_flags_disappeared_formula_before_or_after_option_text(self):
+        flags = candidate_flags(
+            "下列说法正确的是\nA．，升高温度，平衡逆移\nB．，则",
+            ["，升高温度，平衡逆移", "，则", "该条件下", "电解质溶液"],
+        )
+        self.assertIn("option_starts_after_lost_formula", flags)
+        self.assertIn("option_ends_before_missing_formula", flags)
+
+    def test_does_not_flag_complete_chemistry_sentence_with_then(self):
+        self.assertEqual(
+            candidate_flags(
+                "根据题图判断正确的是",
+                ["若升高温度，则平衡向左移动", "该条件下反应能自发进行", "C项", "D项"],
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,8 @@ _BARE_STEP = re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩]\s*$")
 _MISSING_VALUE = re.compile(r"(?:为时[，。；]|为[，。；])")
 _TERMINAL_REACTION = re.compile(r"(?:=|→|⇌|⇄)\s*$")
 _TERMINAL_COLON = re.compile(r"[：:]\s*$")
+_LEADING_SEPARATOR = re.compile(r"^[，,；;]\s*\S")
+_UNFINISHED_CONCLUSION = re.compile(r"(?:，?则|该条件下|反应为|方程式为)\s*$")
 
 
 def candidate_flags(stem: str, options: list[str], explanation: str = "") -> list[str]:
@@ -44,6 +46,12 @@ def candidate_flags(stem: str, options: list[str], explanation: str = "") -> lis
             flags.add("option_reaction_missing_product")
         if _MISSING_VALUE.search(stripped):
             flags.add("missing_value_after_wei")
+        if _OPTION_LABEL.match(stripped):
+            option_text = _OPTION_LABEL.sub("", stripped)
+            if _LEADING_SEPARATOR.search(option_text):
+                flags.add("option_starts_after_lost_formula")
+            if _UNFINISHED_CONCLUSION.search(option_text) and not has_following_formula_line:
+                flags.add("option_ends_before_missing_formula")
 
     for option in options:
         stripped = option.strip()
@@ -53,6 +61,10 @@ def candidate_flags(stem: str, options: list[str], explanation: str = "") -> lis
             flags.add("option_reaction_missing_product")
         if _MISSING_VALUE.search(stripped):
             flags.add("missing_value_after_wei")
+        if _LEADING_SEPARATOR.search(stripped):
+            flags.add("option_starts_after_lost_formula")
+        if _UNFINISHED_CONCLUSION.search(stripped):
+            flags.add("option_ends_before_missing_formula")
 
     # Explanation text is inspected only for a hanging reaction arrow/equality.
     # A paragraph ending in a colon can legitimately introduce a figure.
