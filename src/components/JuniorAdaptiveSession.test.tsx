@@ -52,6 +52,17 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps coefficient/formula spans inside the option text so they cannot become letter badges or separate flex columns', () => {
+    const current = question('formula', '选择配平正确的制氧方程式')
+    current.options = ['2H₂O₂ = 2H₂O＋O₂↑（条件：MnO₂）', 'H₂O₂ = H₂O＋O₂↑', '2KMnO₄ = K₂MnO₄＋MnO₂＋O₂↑（条件：加热）', '2H']
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(current)} onExit={vi.fn()} onComplete={vi.fn()} />)
+    const option = screen.getByRole('button', { name: `A. ${current.options[0]}` })
+    expect(option.querySelector(':scope > .chem-symbol')).toBeNull()
+    expect(option.querySelector('.junior-option-copy')).toHaveTextContent(current.options[0])
+    expect(option.querySelector('.junior-option-copy .chem-symbol')).not.toBeNull()
+    expect(option.querySelectorAll(':scope > span')).toHaveLength(1)
+  })
+
   it('reviews the actual weak knowledge before each new recovery round without changing answers', () => {
     const current = question('repair-1', '用另一道原题检验质量守恒')
     current.optionPractice = { anchorStepId: 'first-error', optionIndex: 1, knowledgePoint: '原子数守恒', position: 1, total: 3, recoveryRound: 1 }
@@ -96,6 +107,23 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     fireEvent.click(screen.getByRole('button', { name: '下一题' }))
     expect(screen.getByTestId('junior-micro-review')).toHaveTextContent('原子种类守恒')
     expect(screen.queryByRole('heading', { name: second.stem })).not.toBeInTheDocument()
+  })
+
+  it('opens the exact micro review and its tree from another course card', () => {
+    const current = question('cross-skill', '催化剂实验中的文字表达式')
+    current.optionPractice = { anchorStepId: 'cross-error', optionIndex: 1, knowledgePoint: '过氧化氢的文字表达式', position: 1, total: 3, recoveryRound: 1 }
+    const initial = payload(current, 8)
+    initial.session = { ...initial.session, initialQuestionTarget: 8, hardQuestionCap: 30, recoveryRoundLimit: 3 }
+    initial.cards.push({ ...card, id: 'symbols-card', skillId: 'J_KY_OXY_SYMBOLS', title: '制氧文字表达式',
+      structuredContent: { version: 1, intro: '符号表达', sections: [{ title: '文字表达式', items: [
+        { label: '过氧化氢的文字表达式', rule: '过氧化氢生成水和氧气。', examples: ['二氧化锰写在条件位置。'] },
+      ] }] } })
+    render(<JuniorAdaptiveSession session={session} initialPayload={initial} onExit={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.getByTestId('junior-micro-review')).toHaveTextContent('过氧化氢生成水和氧气。')
+    expect(screen.getByTestId('junior-micro-review')).toHaveTextContent('二氧化锰写在条件位置。')
+    fireEvent.click(screen.getByText('还想看相关知识？展开完整知识树'))
+    expect(screen.getByRole('button', { name: '制氧文字表达式' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '质量守恒定律' })).not.toBeInTheDocument()
   })
 
   it('shows unresolved practice on the result at the cap instead of claiming mastery', () => {

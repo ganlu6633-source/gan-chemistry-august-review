@@ -20,4 +20,15 @@ describe('exact junior recovery micro-point', () => {
     expect(juniorReviewPoint(card, '导管')).toBeNull()
     expect(juniorReviewPoint(null, '停止时先移导管')).toBeNull()
   })
+  it('finds the exact leaf across course cards even when its skill differs from the question', () => {
+    const symbols = { ...card, id: 'symbols', skillId: 'J_KY_OXY_SYMBOLS', structuredContent: {
+      version: 1 as const, intro: '表达式', sections: [{ title: '文字表达式', items: [
+        { label: '过氧化氢的文字表达式', rule: '过氧化氢生成水和氧气。', examples: ['二氧化锰写在条件位置。'] },
+      ] }],
+    } }
+    expect(juniorReviewPoint([card, symbols], '过氧化氢的文字表达式')).toMatchObject({
+      cardId: 'symbols', skillId: 'J_KY_OXY_SYMBOLS', rule: '过氧化氢生成水和氧气。',
+    })
+    expect(juniorReviewPoint([symbols, { ...symbols, id: 'ambiguous' }], '过氧化氢的文字表达式')).toBeNull()
+  })
 })

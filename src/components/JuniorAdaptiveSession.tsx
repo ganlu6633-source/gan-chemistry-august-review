@@ -143,7 +143,9 @@ export function JuniorAdaptiveSession({
 
   if (needsRoundReview) {
     const pointName = question.optionPractice!.knowledgePoint
-    const point = juniorReviewPoint(currentCard, pointName)
+    const point = juniorReviewPoint(payload.cards, pointName)
+    const reviewCard = payload.cards.find((card) => card.id === point?.cardId) ?? currentCard
+    const reviewTree = reviewCard ? buildKnowledgeCardDrilldown(reviewCard) : null
     const anchorFeedback = answeredFeedback.current.get(question.optionPractice!.anchorStepId)
     const anchorOption = String.fromCharCode(65 + question.optionPractice!.optionIndex)
     const exactOptionExplanation = anchorFeedback ? splitAnswerExplanation(anchorFeedback.explanation)
@@ -159,9 +161,9 @@ export function JuniorAdaptiveSession({
         </> : exactOptionExplanation.length ? exactOptionExplanation.map((paragraph) => <p key={paragraph}><ChemText>{paragraph}</ChemText></p>)
           : <p>先想一想这个选项的判断依据。还拿不准时，点开下方知识树，找到同名的小节点再看。</p>}
       </article>
-      {currentCard && currentKnowledgeTree && <details>
+      {reviewCard && reviewTree && <details>
         <summary>还想看相关知识？展开完整知识树</summary>
-        <InteractiveKnowledgeTree root={currentKnowledgeTree} title={currentCard.title} intro="点击需要的小节点，逐个看规则和例子。" />
+        <InteractiveKnowledgeTree root={reviewTree} title={reviewCard.title} intro="点击需要的小节点，逐个看规则和例子。" />
       </details>}
       <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后继续 / 返回计划</button><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { setReviewedBranches((branches) => [...branches, reviewKey]); setStartedAt(Date.now()) }}>开始第 {recoveryRound} 轮补练<ChevronRight size={18} /></button></div>
     </section>
@@ -189,7 +191,7 @@ export function JuniorAdaptiveSession({
       <h1><ChemText>{question.stem}</ChemText></h1>
       <div className="option-list">{question.options.map((option, index) => {
         const letter = String.fromCharCode(65 + index)
-        return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><ChemText>{option}</ChemText></button>
+        return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><div className="junior-option-copy" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}><ChemText>{option}</ChemText></div></button>
       })}</div>
       {feedback && <div className={`answer-feedback ${answeredCorrectly ? 'good' : 'needs-work'}`}><b>{answeredCorrectly ? '回答正确' : `回答错误，正确选项是 ${String.fromCharCode(65 + feedback.correctOption)}`}</b><div className="answer-explanation">{explanation.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option ? <b className="answer-option-label">{item.option}</b> : null}<span className="answer-explanation-text"><ChemText>{item.text}</ChemText></span></p>)}</div>{!answeredCorrectly && feedback.scaffold ? <p><CircleHelp size={16} />提示：<ChemText>{feedback.scaffold}</ChemText></p> : null}</div>}
     </article>
