@@ -22,6 +22,24 @@ class QuestionImageGapPreflightTest(unittest.TestCase):
             draw.rectangle((50, top, 800, top + 18), fill="black")
         self.assertIsNone(suspicious_inner_gap(image))
 
+    def test_flags_short_cross_page_question_gap(self):
+        # Real source crops often compress to ~300–450 px in height; a
+        # 200 px gap between option A and B must still be caught.
+        image = Image.new("RGB", (1000, 440), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((45, 20, 900, 100), fill="black")
+        draw.rectangle((45, 330, 900, 420), fill="black")
+        gap = suspicious_inner_gap(image)
+        self.assertIsNotNone(gap)
+        self.assertGreater(gap[0], 200)
+
+    def test_short_compact_question_passes(self):
+        image = Image.new("RGB", (1000, 320), "white")
+        draw = ImageDraw.Draw(image)
+        for top in (15, 80, 145, 210, 275):
+            draw.rectangle((45, top, 900, top + 18), fill="black")
+        self.assertIsNone(suspicious_inner_gap(image))
+
     def test_ignores_outer_margin(self):
         image = Image.new("RGB", (900, 720), "white")
         draw = ImageDraw.Draw(image)

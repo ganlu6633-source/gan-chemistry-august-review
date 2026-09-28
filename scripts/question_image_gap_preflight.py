@@ -18,7 +18,10 @@ def suspicious_inner_gap(image: Image.Image) -> tuple[int, float] | None:
     """
 
     width, height = image.size
-    if width < 160 or height < 480:
+    # A scanned question assembled from two half-page crops may be only
+    # 300–450 px tall after downsampling.  The old 480 px floor let those
+    # releases through even when a blank band split the choices.
+    if width < 160 or height < 220:
         return None
     left = int(width * 0.04)
     right = max(left + 1, int(width * 0.96))
@@ -39,6 +42,6 @@ def suspicious_inner_gap(image: Image.Image) -> tuple[int, float] | None:
         current = 0 if value else current + 1
         longest = max(longest, current)
     share = longest / content_height
-    if longest >= 240 and share >= 0.34:
+    if longest >= max(120, int(content_height * 0.25)) and share >= 0.34:
         return longest, round(share, 3)
     return None
