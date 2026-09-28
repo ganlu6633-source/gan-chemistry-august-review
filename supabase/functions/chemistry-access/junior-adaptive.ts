@@ -32,6 +32,7 @@ export type JuniorAdaptiveHistory = {
   uncertain?: boolean | null;
   answered_at?: string | null;
   route_kind?: JuniorRouteKind | null;
+  practice_round?: number;
 };
 
 export type JuniorRouteKind = 'new_learning' | 'advance' | 'stability_validation' | 'foundation_repair' | 'prior_error_recovery';

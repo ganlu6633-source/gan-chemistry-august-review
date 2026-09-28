@@ -52,6 +52,88 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     vi.restoreAllMocks()
   })
 
+  it('reviews the actual weak knowledge before each new recovery round without changing answers', () => {
+    const current = question('repair-1', '用另一道原题检验质量守恒')
+    current.optionPractice = { anchorStepId: 'first-error', optionIndex: 1, knowledgePoint: '原子数守恒', position: 1, total: 3, recoveryRound: 1 }
+    const initial = payload(current, 8)
+    initial.session = { ...initial.session, initialQuestionTarget: 8, hardQuestionCap: 30, recoveryRoundLimit: 3 }
+    initial.cards = [{ ...card, structuredContent: { version: 1, intro: '分清每一个小点', sections: [{ title: '守恒', items: [
+      { label: '原子数守恒', rule: '每种原子的数目守恒。', examples: ['左边4个氢原子，右边也有4个。'] },
+      { label: '物质种类', rule: '反应后物质种类改变。', examples: ['新物质有新的性质。'] },
+    ] }] } }]
+    initial.optionPractice = [{ anchorStepId: 'first-error', optionIndex: 1, knowledgePoint: '原子数守恒', skillId: card.skillId,
+      status: 'practicing', answered: 0, correct: 0, total: 3, pendingReason: '', recoveryRound: 1 }]
+    render(<JuniorAdaptiveSession session={session} initialPayload={initial} onExit={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.getByText('第 1 轮补练前，先把错点理一理')).toBeVisible()
+    expect(screen.getByText('每种原子的数目守恒。')).toBeVisible()
+    expect(screen.getByText('左边4个氢原子，右边也有4个。')).toBeVisible()
+    expect(screen.getByTestId('junior-micro-review')).not.toHaveTextContent('物质种类改变')
+    expect(screen.getByTestId('junior-micro-review')).not.toHaveTextContent(card.microExample)
+    expect(screen.getByText('还想看相关知识？展开完整知识树').closest('details')).not.toHaveAttribute('open')
+    expect(screen.queryByRole('heading', { name: '用另一道原题检验质量守恒' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始第 1 轮补练' }))
+    expect(screen.getByRole('heading', { name: '用另一道原题检验质量守恒' })).toBeVisible()
+    expect(screen.getByText('第 1 轮错点补练')).toBeVisible()
+    expect(screen.getByText(/每天合计不超过 30 题/)).toBeVisible()
+  })
+
+  it('reviews another weak option separately when the branch changes within the same round', async () => {
+    const first = question('one', '第一小点的补练题')
+    first.optionPractice = { anchorStepId: 'first-error', optionIndex: 1, knowledgePoint: '原子数守恒', position: 1, total: 3, recoveryRound: 1 }
+    const second = question('two', '第二小点的补练题')
+    second.optionPractice = { anchorStepId: 'second-error', optionIndex: 2, knowledgePoint: '原子种类守恒', position: 1, total: 3, recoveryRound: 1 }
+    const prepare = (q: IssuedJuniorQuestion, n: number) => {
+      const result = payload(q, n)
+      result.session = { ...result.session, initialQuestionTarget: 8, hardQuestionCap: 30, recoveryRoundLimit: 3 }
+      return result
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ feedback, payload: prepare(second, 11) })))
+    render(<JuniorAdaptiveSession session={session} initialPayload={prepare(first, 8)} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '开始第 1 轮补练' }))
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    await screen.findByText('回答正确')
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }))
+    expect(screen.getByTestId('junior-micro-review')).toHaveTextContent('原子种类守恒')
+    expect(screen.queryByRole('heading', { name: second.stem })).not.toBeInTheDocument()
+  })
+
+  it('shows unresolved practice on the result at the cap instead of claiming mastery', () => {
+    const initial = payload(null, 30)
+    initial.session = { ...initial.session, correctCount: 12, initialQuestionTarget: 8, hardQuestionCap: 30, recoveryRoundLimit: 3 }
+    initial.optionPractice = [{ anchorStepId: 'unresolved', optionIndex: 1, knowledgePoint: '原子数守恒', status: 'pending',
+      answered: 1, correct: 0, total: 3, pendingReason: 'daily_limit_carry_forward', recoveryRound: 3 }]
+    render(<JuniorAdaptiveSession session={session} initialPayload={initial} onExit={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.getByText('还有 1 个错项考点待继续练习，进度已经保留。')).toBeVisible()
+    expect(screen.getByText(/还没练稳的考点会留在后续复习中/)).toBeVisible()
+    expect(screen.queryByText(/已掌握/)).not.toBeInTheDocument()
+  })
+
+  it('shows fresh review entrances for rounds two and three using the same choice interaction', async () => {
+    const roundPayload = (round: number) => {
+      const current = question(`repair-${round}`, `第${round}轮原题`)
+      current.optionPractice = { anchorStepId: `error-${round}`, optionIndex: 1, knowledgePoint: '原子数守恒', position: 1, total: 3, recoveryRound: round }
+      const result = payload(current, 8 + (round - 1) * 3)
+      result.session = { ...result.session, initialQuestionTarget: 8, hardQuestionCap: 30, recoveryRoundLimit: 3 }
+      return result
+    }
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: roundPayload(2) }))
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: roundPayload(3) })))
+    render(<JuniorAdaptiveSession session={session} initialPayload={roundPayload(1)} onExit={vi.fn()} onComplete={vi.fn()} />)
+    for (const round of [1, 2]) {
+      fireEvent.click(screen.getByRole('button', { name: `开始第 ${round} 轮补练` }))
+      fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+      fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+      await screen.findByText('回答正确')
+      fireEvent.click(screen.getByRole('button', { name: '下一题' }))
+      expect(screen.getByRole('button', { name: `开始第 ${round + 1} 轮补练` })).toBeVisible()
+      expect(screen.queryByRole('heading', { name: `第${round + 1}轮原题` })).not.toBeInTheDocument()
+    }
+    fireEvent.click(screen.getByRole('button', { name: '开始第 3 轮补练' }))
+    expect(screen.getByRole('heading', { name: '第3轮原题' })).toBeVisible()
+  })
+
   it('keeps the junior knowledge tree folded above the question until the student chooses to explore it', () => {
     render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('question-1', '第一题：质量守恒的微观原因是什么？'))} onExit={vi.fn()} onComplete={vi.fn()} />)
 

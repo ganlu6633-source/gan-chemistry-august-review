@@ -7,7 +7,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { selectAdaptiveQuestions, selectAssignedQuestions } from "./adaptive.ts";
 import { effectiveReviewRoundLimit, FORMAL_REVIEW_DAILY_QUESTION_CAP, isFormalHighSchoolReview, validFormalReviewQuestionCount, validFormalReviewRoundLimit } from "./review-daily-policy.ts";
 import { selectJuniorNextQuestion, type JuniorAdaptiveCandidate, type JuniorAdaptiveHistory, type JuniorRouteKind } from "./junior-adaptive.ts";
-import { juniorPublicOptionProgress, juniorOptionContext, selectJuniorScheduledQuestion, nextJuniorOptionBranch, type JuniorOptionState } from "./junior-option-practice.ts";
+import { juniorPublicOptionProgress, juniorOptionContext, selectJuniorScheduledQuestion, nextJuniorOptionBranch, juniorDailyBudgetEnabled, juniorDailyBudgetReached, juniorReserveAllocationDeferred, type JuniorOptionState } from "./junior-option-practice.ts";
+import { juniorDailyPolicy, juniorRecoveryRound, LEGACY_JUNIOR_POLICY, JUNIOR_THREE_ROUND_POLICY, type JuniorDailyPolicy } from "./junior-daily-policy.ts";
 import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
 import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
 import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
@@ -72,6 +73,7 @@ function planRoundLimit(row: Record<string, unknown>) {
 type ReviewProfileContext = { gradeBand: string; isDemo: boolean };
 
 function effectivePlanRoundLimit(row: Record<string, unknown>, profile?: ReviewProfileContext) {
+  if (row.delivery_mode === "junior_adaptive") return planRoundLimit(row);
   if (row.teaching_managed === true) return 1;
   const storedRoundLimit = planRoundLimit(row);
   if (!profile) return storedRoundLimit;
@@ -184,7 +186,7 @@ const planShape = (
     selfStudyReleaseId: row.self_study_release_id || null,
     teachingManaged: row.teaching_managed === true, teachingSourceGrade: row.teaching_source_grade || null,
     juniorSessionStatus: deliveryMode === "junior_adaptive" ? String(juniorSession?.status || "not_started") : null,
-    hardQuestionCap: deliveryMode === "junior_adaptive" ? 15 : null,
+    hardQuestionCap: deliveryMode === "junior_adaptive" ? juniorDailyPolicy(row, juniorSession).hardCap : null,
     attemptCount: attempts.length || (juniorCompleted ? 1 : 0),
     firstScore: first?.first_score ?? (juniorCompleted ? juniorFallbackScore : null),
     latestScore: latest?.first_score ?? (juniorCompleted ? juniorFallbackScore : null),
@@ -1102,8 +1104,10 @@ function juniorPlanMatchesSessionContract(
     && juniorExactStringArray(session.knowledge_skill_ids, curriculum.knowledge_skill_ids)
     && String(plan.mode || "") === "REVIEW"
     && Number(plan.question_count) === Number(session.initial_question_target)
-    && Number(session.initial_question_target) === 12
-    && Number(plan.round_limit) === 1
+    && ((Number(session.initial_question_target) === 12 && Number(session.hard_question_cap) === 15
+      && Number(session.recovery_round_limit ?? 0) === 0 && Number(plan.round_limit) === 1)
+      || (Number(session.initial_question_target) === 8 && Number(session.hard_question_cap) === 30
+        && Number(session.recovery_round_limit) === 3 && Number(plan.round_limit) === 4))
     && textbookVersion === JUNIOR_TEXTBOOK_VERSION
     && String(session.textbook_version || "") === JUNIOR_TEXTBOOK_VERSION
     && String(curriculum.textbook_version || "") === JUNIOR_TEXTBOOK_VERSION
@@ -1355,6 +1359,7 @@ function juniorStepHistory(row: Record<string, unknown>): JuniorAdaptiveHistory 
     level: Number(row.level) || 1, correct: row.correct === true,
     uncertain: row.uncertain === true, answered_at: row.answered_at ? String(row.answered_at) : null,
     route_kind: row.route_kind as JuniorRouteKind | null,
+    practice_round: juniorRecoveryRound(row.practice_round),
   };
 }
 
@@ -1453,7 +1458,7 @@ async function juniorIndividuallyVerifiedProvenanceIds(skillIds: string[], textb
   return readyIds;
 }
 
-async function juniorDayReadiness(curriculum: Record<string, unknown>) {
+async function juniorDayReadiness(curriculum: Record<string, unknown>, policy: JuniorDailyPolicy = LEGACY_JUNIOR_POLICY) {
   const skillIds = Array.isArray(curriculum.knowledge_skill_ids) ? curriculum.knowledge_skill_ids.map(String) : [];
   if (skillIds.length !== 3 || new Set(skillIds).size !== 3) {
     return { ready: false, reason: "当天没有配置三个互不重复的知识点。", questions: [] as Array<Record<string, unknown>> };
@@ -1486,8 +1491,11 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
   try {
     const candidatePool = usable.map(juniorCandidate);
     const simulated: JuniorAdaptiveHistory[] = [];
-    for (let sequence = 1; sequence <= 12; sequence += 1) {
-      const selection = selectJuniorNextQuestion({
+    for (let sequence = 1; sequence <= policy.initialTarget; sequence += 1) {
+      const selection = policy.recoveryRoundLimit > 0 ? selectJuniorScheduledQuestion({
+        candidates: candidatePool, knowledgeSkillIds: skillIds, history: simulated, issued: simulated,
+        optionState: { branches: [], stepContexts: [] }, policy,
+      }) : selectJuniorNextQuestion({
         candidates: candidatePool,
         knowledgeSkillIds: skillIds,
         answered: simulated,
@@ -1497,7 +1505,7 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>) {
         initialTarget: 12,
         hardCap: 15,
       });
-      if (!selection) return { ready: false, reason: "正式题池无法按三个知识点完成首日12道不同原题的稳定路径。", questions: usable };
+      if (!selection) return { ready: false, reason: `正式题池无法按三个知识点完成首轮${policy.initialTarget}道不同原题。`, questions: usable };
       simulated.push({
         question_id: selection.question.id,
         mother_id: selection.question.mother_id,
@@ -1563,6 +1571,8 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
     return false;
   }
   const today = shanghaiDate();
+  const policy = (profile.metadata as Record<string, unknown> | null)?.juniorDailyPolicy === "eight_plus_three"
+    ? JUNIOR_THREE_ROUND_POLICY : LEGACY_JUNIOR_POLICY;
   const [existingDay, existingCurriculum] = await Promise.all([
     supabase.from("chem_learning_plans").select("id")
       .eq("student_id", studentId).eq("plan_date", today).eq("mode", "REVIEW").limit(1).maybeSingle(),
@@ -1571,7 +1581,7 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
   ]);
   if (existingDay.error || existingCurriculum.error) throw existingDay.error || existingCurriculum.error;
   if (existingDay.data || existingCurriculum.data) return false;
-  const readiness = await juniorDayReadiness(next);
+  const readiness = await juniorDayReadiness(next, policy);
   if (!readiness.ready) {
     await ensureJuniorTeacherAlert(
       studentId,
@@ -1584,7 +1594,7 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
     student_id: studentId, plan_date: today, mode: "REVIEW", title: String(next.title),
     skill_ids: next.knowledge_skill_ids, knowledge_summaries: next.knowledge_summaries,
     estimated_minutes: Number(next.estimated_minutes) || 30, source: "course", is_scheduled: true,
-    question_count: 12, round_limit: 1, max_question_level: null,
+    question_count: policy.initialTarget, round_limit: policy.recoveryRoundLimit + 1, max_question_level: null,
     delivery_mode: "junior_adaptive", junior_curriculum_day_id: String(next.id),
   });
   if (insert.error && insert.error.code !== "23505") throw insert.error;
@@ -1631,6 +1641,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   }
   const skillIds = Array.isArray(curriculum.knowledge_skill_ids) ? curriculum.knowledge_skill_ids.map(String) : [];
   if (skillIds.length !== 3 || new Set(skillIds).size !== 3) throw new RequestError(422, "当天课程没有配置三个互不重复的知识点。");
+  const planPolicy = juniorDailyPolicy(plan);
 
   let sessionResult = await supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).maybeSingle();
   if (sessionResult.error) throw sessionResult.error;
@@ -1645,6 +1656,8 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     const created = await supabase.from("chem_junior_daily_sessions").insert({
       student_id: studentId, plan_day_id: planId, curriculum_day_id: curriculumId, study_date: String(plan.plan_date),
       textbook_version: textbookVersion, knowledge_skill_ids: skillIds,
+      initial_question_target: planPolicy.initialTarget, hard_question_cap: planPolicy.hardCap,
+      recovery_round_limit: planPolicy.recoveryRoundLimit,
     }).select("*").maybeSingle();
     if (created.error && created.error.code !== "23505") throw created.error;
     if (created.data) {
@@ -1662,6 +1675,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     if (sessionResult.error) throw sessionResult.error;
   }
   const session = sessionResult.data as Record<string, unknown>;
+  const policy = juniorDailyPolicy(plan, session);
   if (!juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, textbookVersion)) {
     const detail = `计划“${planId}”与课程日“${curriculumId}”或既有会话的学生、日期、教材、知识点、题量合同不再完全一致。`;
     if (session.status === "active") {
@@ -1710,7 +1724,9 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   const steps = (stepsResult.data || []) as Array<Record<string, unknown>>;
   const unanswered = steps.find((step) => !step.answered_at);
   const sessionSummary = () => ({
-    id: session.id, status: session.status, initialQuestionTarget: 12, hardQuestionCap: 15,
+    id: session.id, status: session.status, initialQuestionTarget: policy.initialTarget, hardQuestionCap: policy.hardCap,
+    recoveryRoundLimit: policy.recoveryRoundLimit,
+    dailyIssuedCount: optionState.dailyIssuedCount,
     issuedCount: steps.length, answeredCount: steps.filter((step) => step.answered_at).length,
     correctCount: steps.filter((step) => step.correct === true).length,
   });
@@ -1749,6 +1765,11 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     const validatedRow = Array.isArray(validated.data)
       ? validated.data[0] as Record<string, unknown> | undefined
       : undefined;
+    if (validated.error?.message.includes("junior_daily_question_limit")) return {
+      deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: sessionSummary(),
+      currentQuestion: null, completed: false, optionPractice,
+      pendingMessage: "今天的题量已到上限，这道题和原有进度都已保留，明天可以继续。",
+    };
     if (validated.error
       || !validatedRow
       || String(validatedRow.step_id || "") !== String(unanswered.id)
@@ -1773,6 +1794,10 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
       );
       throw new RequestError(409, "当前原题已更新，系统不会替换正在答的题；请联系甘老师处理。");
     }
+    if (juniorDailyBudgetEnabled(optionState, policy) && !optionState.pendingStepCountedToday) {
+      optionState.dailyIssuedCount = (optionState.dailyIssuedCount ?? 0) + 1;
+      optionState.pendingStepCountedToday = true;
+    }
     return { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: sessionSummary(), currentStepId: unanswered.id,
       currentQuestion: { ...juniorQuestionShape(currentQuestion.data), optionPractice: juniorOptionContext(optionState, String(unanswered.id)) }, completed: false, optionPractice };
   }
@@ -1794,25 +1819,28 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
   const candidates = eligiblePoolRows.map(juniorCandidate);
   const answeredHistory = allSteps.map(juniorStepHistory);
-  const branch = nextJuniorOptionBranch(optionState, steps.length);
+  const branch = nextJuniorOptionBranch(optionState, steps.length, policy);
   const branchQuestion = branch && candidates.find((row) => row.id === branch.nextQuestionId);
   if (branch && !branchQuestion) throw new RequestError(422, "该错项对应的补练题暂时无法打开，已保留原答案和补练进度。");
   const selection = branch && branchQuestion ? {
     question: branchQuestion, routeKind: "foundation_repair" as const,
     routeReason: `针对该选项考点的已审核原题补练：${branch.knowledgePoint}`,
   } : selectJuniorScheduledQuestion({ candidates, knowledgeSkillIds: skillIds, history: answeredHistory,
-    issued: steps.map(juniorStepHistory), optionState });
+    issued: steps.map(juniorStepHistory), optionState, policy });
   const gaps = optionState.branches.filter((row) => row.status === "reserve_gap" || row.status === "needs_practice");
   if (gaps.length) await ensureJuniorTeacherAlert(studentId, "初三具体错项补练库存不足", `有 ${gaps.length} 个具体错项尚缺合格原题或补练仍未连续答对，未使用泛知识点题替代，也未记为掌握。`);
   if (!selection) {
-    if (steps.length >= 12) {
+    if (steps.length >= policy.initialTarget) {
       const finalized = await supabase.rpc("chem_junior_finalize_session", { p_session_id: session.id, p_student_id: studentId });
       if (finalized.error) throw finalized.error;
       return { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: { ...sessionSummary(), status: "completed" }, currentQuestion: null, completed: true, optionPractice };
     }
-    await ensureJuniorTeacherAlert(studentId, "初三后续练习待补真实题源", "当前可用且未做过的原题不足，已经保留所有答案和具体错项待续队列；本日尚未达到完成条件。");
+    const dailyLimitReached = juniorDailyBudgetReached(optionState, policy);
+    if (!dailyLimitReached) await ensureJuniorTeacherAlert(studentId, "初三后续练习待补真实题源", "当前可用且未做过的原题不足，已经保留所有答案和具体错项待续队列；本日尚未达到完成条件。");
     return { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: sessionSummary(), currentQuestion: null,
-      completed: false, optionPractice, pendingMessage: "已保留你的答题和补练进度，后续题目正在准备，请稍后继续或联系甘老师。" };
+      completed: false, optionPractice, pendingMessage: dailyLimitReached
+        ? "今天的题量已到上限，先让知识消化一下。已保留当前进度，明天可以接着练。"
+        : "已保留你的答题和补练进度，后续题目正在准备，请稍后继续或联系甘老师。" };
   }
   const selected = eligiblePoolRows.find((row) => String(row.id) === selection.question.id);
   if (!selected) throw new RequestError(500, "初中题库选择结果异常。");
@@ -1832,6 +1860,11 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     // the validated-resume path; never fall back to a direct step insert.
     return juniorSessionPayload(studentId, planId);
   }
+  if (issued.error?.message.includes("junior_daily_question_limit")) return {
+    deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: sessionSummary(),
+    currentQuestion: null, completed: false, optionPractice,
+    pendingMessage: "今天的题量已到上限，已保留当前进度，明天可以接着练。",
+  };
   const issuedRow = Array.isArray(issued.data)
     ? issued.data[0] as Record<string, unknown> | undefined
     : undefined;
@@ -1852,7 +1885,9 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     sequence: issuedRow.sequence,
     question_id: issuedRow.question_id,
     answered_at: null,
+    practice_round: branch?.recoveryRound ?? 0,
   });
+  if (juniorDailyBudgetEnabled(optionState, policy)) optionState.dailyIssuedCount = (optionState.dailyIssuedCount ?? 0) + 1;
   return {
     deliveryMode: "junior_adaptive",
     plan: studentPlan,
@@ -1861,7 +1896,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     currentStepId: issuedRow.step_id,
     currentQuestion: { ...juniorQuestionShape(selected), optionPractice: branch ? {
       anchorStepId: branch.anchorStepId, optionIndex: branch.optionIndex, knowledgePoint: branch.knowledgePoint,
-      position: branch.answered + 1, total: branch.total,
+      position: branch.answered + 1, total: branch.total, recoveryRound: branch.recoveryRound,
     } : undefined },
     completed: false,
     optionPractice,
@@ -1974,7 +2009,7 @@ function studentDashboardPlanShape(
   return { ...withoutSource, title: "未来学习计划（内容清理中）", knowledgeSummaries: [] };
 }
 
-async function studentDashboard(studentId: string) {
+async function studentDashboard(studentId: string, readOnly = false) {
   // The profile used to be awaited before every other dashboard request,
   // adding a full network round trip to every login and refresh. Only the
   // grade-scoped skill catalogue depends on it; all other reads can start at
@@ -2004,7 +2039,7 @@ async function studentDashboard(studentId: string) {
   if (String(profileResult.data.grade_band) === "初三") {
     // Teacher scheduling, including an intentionally empty future list, owns
     // the timetable once enabled. Existing junior adaptive plans still open.
-    if (profileResult.data.metadata?.teacherSchedulingManaged !== true
+    if (!readOnly && profileResult.data.metadata?.teacherSchedulingManaged !== true
       && !plans.some((plan) => plan.teaching_managed === true)) {
       await ensureJuniorDailyPlan(studentId, profileResult.data as Record<string, unknown>);
     }
@@ -2013,7 +2048,7 @@ async function studentDashboard(studentId: string) {
         .select("id,student_id,plan_date,mode,title,skill_ids,target_concept_keys,knowledge_summaries,estimated_minutes,source,is_scheduled,question_count,round_limit,max_question_level,delivery_mode,junior_curriculum_day_id,teaching_managed,teaching_source_grade")
         .eq("student_id", studentId).order("plan_date"),
       supabase.from("chem_junior_daily_sessions")
-        .select("plan_day_id,status,completed_at,blocked_reason_code,blocked_reason_detail")
+        .select("plan_day_id,status,completed_at,blocked_reason_code,blocked_reason_detail,initial_question_target,hard_question_cap,recovery_round_limit")
         .eq("student_id", studentId),
     ]);
     if (refreshedPlans.error || juniorSessions.error) throw refreshedPlans.error || juniorSessions.error;
@@ -2939,7 +2974,7 @@ type JuniorPreviewAnswer = { stepId: string; selectedOption: number; revisionTok
 /** Replays teacher choices against the student's real starting evidence, without
  * creating a daily session, issuing a step, locking an answer or changing mastery. */
 async function juniorPreviewPayload(studentId: string, planId: string, previewAnswers: JuniorPreviewAnswer[] = []) {
-  if (!validUuid(studentId) || !validUuid(planId) || previewAnswers.length > 15
+  if (!validUuid(studentId) || !validUuid(planId) || previewAnswers.length > 30
     || previewAnswers.some((answer) => !answer || !validUuid(String(answer.stepId || ""))
       || !Number.isInteger(answer.selectedOption) || answer.selectedOption < 0 || answer.selectedOption > 3)
     || new Set(previewAnswers.map((answer) => answer.stepId)).size !== previewAnswers.length) {
@@ -2985,8 +3020,13 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
     throw new RequestError(409, "已有另一天的初三学习会话正在进行；请先完成该会话。");
   }
   const session = sessionResult.data as Record<string, unknown> | null;
+  const policy = juniorDailyPolicy(plan, session);
+  if (previewAnswers.length > policy.hardCap) throw new RequestError(400, "模拟答题已超过当天题量上限。");
   if (session && !juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, JUNIOR_TEXTBOOK_VERSION)) {
     throw new RequestError(409, "初三计划与既有会话的课程合同不一致。");
+  }
+  if (session && !["active", "completed"].includes(String(session.status))) {
+    throw new RequestError(422, `${String(session.blocked_reason_detail || "这一天的初三学习会话已被暂停。")} 请联系甘老师处理后再继续。`);
   }
   if (!provenance.ready) throw new RequestError(422, provenance.reason);
   const cards = (cardsResult.data || []) as Array<Record<string, unknown>>;
@@ -3002,22 +3042,29 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   const [stepsResult, allStepsResult, optionStateResult] = await Promise.all([
     session ? supabase.from("chem_junior_session_steps").select("*").eq("session_id", String(session.id)).order("sequence") : Promise.resolve({ data: [], error: null }),
     sessionIds.length ? supabase.from("chem_junior_session_steps").select("*").in("session_id", sessionIds).order("created_at") : Promise.resolve({ data: [], error: null }),
-    session && (session.status === "active" || session.status === "completed")
-      ? supabase.rpc("chem_junior_option_state", { p_student_id: studentId, p_session_id: String(session.id) })
-      : Promise.resolve({ data: { branches: [], stepContexts: [] }, error: null }),
+    supabase.rpc("chem_junior_option_state_readonly", {
+      p_student_id: studentId, p_session_id: session ? String(session.id) : null, p_plan_id: planId,
+    }),
   ]);
   for (const result of [stepsResult, allStepsResult, optionStateResult]) if (result.error) throw result.error;
   const realSteps = (stepsResult.data || []) as Array<Record<string, unknown>>;
   const realHistory = (allStepsResult.data || []) as Array<Record<string, unknown>>;
   const optionState = structuredClone(optionStateResult.data || { branches: [], stepContexts: [] }) as JuniorOptionState;
   if (!Array.isArray(optionState.branches) || !Array.isArray(optionState.stepContexts)) throw new RequestError(503, "错项补练进度暂时无法读取。");
-  const realStepById = new Map(realSteps.map((step) => [String(step.id), step]));
+  if (juniorDailyBudgetEnabled(optionState, policy) && !Number.isInteger(optionState.dailyIssuedCount)) {
+    throw new RequestError(503, "今日题量暂时无法核验，请稍后重试。");
+  }
+  const realStepById = new Map(realHistory.map((step) => [String(step.id), step]));
   const branchAnswers = new Map(optionState.branches.map((branch) => [branch.branchId,
-    optionState.stepContexts.filter((context) => context.branchId === branch.branchId)
+    optionState.branchAnswerHistory
+      ? optionState.branchAnswerHistory.filter((answer) => answer.branchId === branch.branchId)
+        .sort((a, b) => a.position - b.position)
+        .map((answer) => answer.correct === true && (policy.recoveryRoundLimit === 0 || answer.uncertain !== true))
+      : optionState.stepContexts.filter((context) => context.branchId === branch.branchId)
       .sort((a, b) => a.position - b.position)
       .flatMap((context) => {
         const step = realStepById.get(context.stepId);
-        return step?.answered_at ? [step.correct === true] : [];
+        return step?.answered_at ? [step.correct === true && (policy.recoveryRoundLimit === 0 || step.uncertain !== true)] : [];
       })]));
   const eligiblePool = (await excludeHeldQuestions((poolResult.data || []) as Array<Record<string, unknown>>))
     .filter((row) => juniorNativeQuestionIsSafe(row)
@@ -3035,27 +3082,100 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   let currentStepId: string | null = null;
   let currentContext: ReturnType<typeof juniorOptionContext>;
   const unanswered = realSteps.find((step) => !step.answered_at);
-  if (unanswered) {
+  const blockedByDailyBudget = Boolean(unanswered && !optionState.pendingStepCountedToday && juniorDailyBudgetReached(optionState, policy));
+  if (unanswered && !blockedByDailyBudget) {
     const row = questionById.get(String(unanswered.question_id));
     if (!row || !juniorIssuedQuestionMatchesContract(row, unanswered.question_snapshot,
       JUNIOR_TEXTBOOK_VERSION, provenance.releaseByKnowledge)) throw new RequestError(409, "当前在答原题的来源或版本已变化。");
     currentQuestion = row;
     currentStepId = String(unanswered.id);
     currentContext = juniorOptionContext(optionState, currentStepId);
+    if (juniorDailyBudgetEnabled(optionState, policy) && !optionState.pendingStepCountedToday) {
+      optionState.dailyIssuedCount = (optionState.dailyIssuedCount ?? 0) + 1;
+    }
   }
   const sameSource = (a: Record<string, unknown>, b: Record<string, unknown>) =>
     ["id", "mother_id", "source_item_key", "parent_source_item_key", "content_fingerprint"]
       .some((field) => Boolean(a[field]) && String(a[field]) === String(field === "id" ? b.id ?? b.question_id : b[field]));
-  const answerHistory = (row: Record<string, unknown>, correct: boolean, stepId: string, selectedOption: number) => ({
-    ...juniorStepHistory({ ...row, question_id: row.id, correct, uncertain: false, answered_at: new Date().toISOString() }),
+  const answerHistory = (row: Record<string, unknown>, correct: boolean, stepId: string, selectedOption: number, uncertain: boolean, practiceRound: number) => ({
+    ...juniorStepHistory({ ...row, question_id: row.id, correct, uncertain, practice_round: practiceRound, answered_at: new Date().toISOString() }),
     question_id: String(row.id), correct, answered_at: new Date().toISOString(), selected_option: selectedOption, id: stepId,
   });
+  const enqueuePreviewBranch = async (row: Record<string, unknown>, stepId: string, selectedOption: number,
+    practiceRound: number, anchorSessionId = String(session?.id || planId)) => {
+    const existingBranch = optionState.branches.find((branch) => branch.anchorStepId === stepId);
+    if ((existingBranch && existingBranch.candidates.length > 0)
+      || (policy.recoveryRoundLimit > 0 && practiceRound >= policy.recoveryRoundLimit)) return;
+    // Keep the first eight diagnostic questions available. Freezing several
+    // reserves for every early error can otherwise consume that same pool.
+    if (juniorReserveAllocationDeferred(policy, issued.filter((step) => step.answered_at && (step.practice_round ?? 0) === 0).length)) {
+      const placeholder = { branchId: existingBranch?.branchId ?? stepId, anchorStepId: stepId, anchorSessionId,
+        anchorQuestionId: String(row.id), anchorRevisionToken: String(row.question_revision_token || ""),
+        knowledgeId: String(row.knowledge_id), knowledgePoint: existingBranch?.knowledgePoint || "", optionIndex: selectedOption,
+        status: "pending" as const, reason: "initial_round_in_progress", answered: 0, correct: 0, total: 3,
+        candidates: [], nextQuestionId: null, nextRevisionToken: null, recoveryRound: practiceRound + 1 };
+      if (existingBranch) Object.assign(existingBranch, placeholder);
+      else optionState.branches.push(placeholder);
+      branchAnswers.set(placeholder.branchId, []);
+      return;
+    }
+    const bindings = await supabase.rpc("chem_option_practice_bindings", { p_question_ids: [String(row.id)] });
+    if (bindings.error) throw bindings.error;
+    const configuration = ((bindings.data || []) as Array<Record<string, unknown>>)[0]?.configuration as Record<string, unknown> | undefined;
+    const binding = Array.isArray(configuration?.bindings)
+      ? (configuration.bindings as Array<Record<string, unknown>>).find((item) => Number(item.optionIndex) === selectedOption) : undefined;
+    const fresh: Array<{ questionId: string; revisionToken: string }> = [];
+    for (const candidate of Array.isArray(binding?.candidates) ? binding.candidates as Array<Record<string, unknown>> : []) {
+      const reserve = questionById.get(String(candidate.questionId));
+      if (!reserve || String(reserve.question_revision_token || "") !== String(candidate.revisionToken || "")
+        || [...history, ...issued].some((used) => sameSource(reserve, used as unknown as Record<string, unknown>))
+        || optionState.branches.some((branch) => ["practicing", "pending", "reserve_gap"].includes(branch.status)
+          && branch.candidates.some((held) => {
+            const heldQuestion = questionById.get(held.questionId);
+            return heldQuestion && sameSource(reserve, heldQuestion);
+          }))
+        || fresh.some((used) => sameSource(reserve, questionById.get(used.questionId)!))) continue;
+      fresh.push({ questionId: String(reserve.id), revisionToken: String(reserve.question_revision_token) });
+    }
+    const snapshot = { branchId: existingBranch?.branchId ?? stepId, anchorStepId: stepId, anchorSessionId,
+      anchorQuestionId: String(row.id), anchorRevisionToken: String(row.question_revision_token || ""),
+      knowledgeId: String(row.knowledge_id), knowledgePoint: String(binding?.knowledgePoint || ""), optionIndex: selectedOption,
+      status: fresh.length >= 3 ? "practicing" as const : "reserve_gap" as const, reason: fresh.length >= 3 ? "" : "fewer_than_three_verified_fresh_originals",
+      answered: 0, correct: 0, total: 3, candidates: fresh.length >= 3 ? fresh : [],
+      nextQuestionId: fresh.length >= 3 ? fresh[0].questionId : null,
+      nextRevisionToken: fresh.length >= 3 ? fresh[0].revisionToken : null,
+      ...(policy.recoveryRoundLimit > 0 ? { recoveryRound: practiceRound + 1 } : {}) };
+    if (existingBranch) Object.assign(existingBranch, snapshot);
+    else optionState.branches.push(snapshot);
+    branchAnswers.set(snapshot.branchId, []);
+  };
+  // The teacher path consumes only read-only snapshots. Missing queue rows are
+  // reconstructed in this replay and never inserted into the student file.
+  for (const branch of optionState.branches.filter((item) => item.candidates.length === 0 && item.anchorQuestionId)) {
+    const row = questionById.get(String(branch.anchorQuestionId));
+    if (row) await enqueuePreviewBranch(row, branch.anchorStepId, branch.optionIndex,
+      Math.max(0, (branch.recoveryRound ?? 1) - 1), branch.anchorSessionId);
+  }
+  for (const anchor of optionState.unbranchedAnchors ?? []) {
+    const row = questionById.get(String(anchor.questionId ?? anchor.question_id));
+    if (!row) continue;
+    await enqueuePreviewBranch(row, String(anchor.stepId ?? anchor.id), Number(anchor.selectedOption ?? anchor.selected_option),
+      juniorRecoveryRound(anchor.practiceRound ?? anchor.practice_round), String(anchor.session_id ?? session?.id ?? planId));
+  }
   const prepareNext = async () => {
-    const branch = nextJuniorOptionBranch(optionState, stepCount);
+    if (!juniorReserveAllocationDeferred(policy, issued.filter((step) => step.answered_at && (step.practice_round ?? 0) === 0).length)) {
+      for (const branch of optionState.branches.filter((item) => item.candidates.length === 0 && item.anchorQuestionId
+        && item.reason === "initial_round_in_progress")) {
+        const row = questionById.get(String(branch.anchorQuestionId));
+        if (row) await enqueuePreviewBranch(row, branch.anchorStepId, branch.optionIndex,
+          Math.max(0, (branch.recoveryRound ?? 1) - 1), branch.anchorSessionId);
+      }
+    }
+    const branch = nextJuniorOptionBranch(optionState, stepCount, policy);
     const branchQuestion = branch?.nextQuestionId ? questionById.get(branch.nextQuestionId) : undefined;
     if (branch && !branchQuestion) throw new RequestError(422, "错项对应的补练原题暂时无法打开。");
     const selection = branch && branchQuestion ? { question: juniorCandidate(branchQuestion), routeKind: "foundation_repair" as const }
-      : selectJuniorScheduledQuestion({ candidates, knowledgeSkillIds: skillIds, history, issued, optionState });
+      : selectJuniorScheduledQuestion({ candidates, knowledgeSkillIds: skillIds, history, issued, optionState, policy });
     if (!selection) return false;
     const row = questionById.get(selection.question.id);
     if (!row) throw new RequestError(500, "初三题库选择结果异常。");
@@ -3063,13 +3183,16 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
     currentStepId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
     currentQuestion = row;
     currentContext = branch ? { anchorStepId: branch.anchorStepId, optionIndex: branch.optionIndex,
-      knowledgePoint: branch.knowledgePoint, position: branch.answered + 1, total: branch.total } : undefined;
+      knowledgePoint: branch.knowledgePoint, position: branch.answered + 1, total: branch.total,
+      recoveryRound: branch.recoveryRound } : undefined;
+    if (branch) branch.status = "practicing";
     issued.push(juniorStepHistory({ ...row, question_id: row.id, correct: false, answered_at: null,
-      route_kind: selection.routeKind }));
+      route_kind: selection.routeKind, practice_round: branch?.recoveryRound ?? 0 }));
     stepCount += 1;
+    if (juniorDailyBudgetEnabled(optionState, policy)) optionState.dailyIssuedCount = (optionState.dailyIssuedCount ?? 0) + 1;
     return true;
   };
-  if (!currentQuestion && session?.status !== "completed") await prepareNext();
+  if (!currentQuestion && !blockedByDailyBudget && session?.status !== "completed") await prepareNext();
   for (const answer of previewAnswers) {
     if (!currentQuestion || !currentStepId || answer.stepId !== currentStepId
       || (answer.revisionToken ?? null) !== (currentQuestion.question_revision_token ?? null)) {
@@ -3078,10 +3201,11 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
     const row = currentQuestion;
     const stepId = currentStepId;
     const correct = answer.selectedOption === Number(row.correct_option);
+    const practiceRound = currentContext?.recoveryRound ?? 0;
     lastFeedback = juniorQuestionFeedbackShape(row, stepId, answer.selectedOption, answer) as Record<string, unknown>;
     answeredCount += 1;
     if (correct) correctCount += 1;
-    const virtual = answerHistory(row, correct, stepId, answer.selectedOption);
+    const virtual = answerHistory(row, correct, stepId, answer.selectedOption, answer.uncertain === true, practiceRound);
     const issuedIndex = issued.findIndex((step) => step.question_id === String(row.id));
     if (issuedIndex >= 0) issued[issuedIndex] = virtual;
     const historyIndex = history.findIndex((step) => step.question_id === String(row.id) && !step.answered_at);
@@ -3091,8 +3215,8 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
       && branch.nextQuestionId === String(row.id));
     if (activeBranch) {
       activeBranch.answered += 1;
-      if (correct) activeBranch.correct += 1;
-      const branchHistory = [...(branchAnswers.get(activeBranch.branchId) || []), correct];
+      if (correct && (policy.recoveryRoundLimit === 0 || answer.uncertain !== true)) activeBranch.correct += 1;
+      const branchHistory = [...(branchAnswers.get(activeBranch.branchId) || []), correct && (policy.recoveryRoundLimit === 0 || answer.uncertain !== true)];
       branchAnswers.set(activeBranch.branchId, branchHistory);
       const target = branchHistory.slice(0, 3).some((item) => !item)
         ? Math.max(3, Math.min(5, activeBranch.candidates.length)) : 3;
@@ -3103,47 +3227,28 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
         activeBranch.nextQuestionId = null;
       }
       else activeBranch.nextQuestionId = activeBranch.candidates[activeBranch.answered]?.questionId ?? null;
-    } else if (!correct) {
-      const bindings = await supabase.rpc("chem_option_practice_bindings", { p_question_ids: [String(row.id)] });
-      if (bindings.error) throw bindings.error;
-      const configuration = ((bindings.data || []) as Array<Record<string, unknown>>)[0]?.configuration as Record<string, unknown> | undefined;
-      const binding = Array.isArray(configuration?.bindings)
-        ? (configuration.bindings as Array<Record<string, unknown>>).find((item) => Number(item.optionIndex) === answer.selectedOption) : undefined;
-      const fresh: Array<{ questionId: string; revisionToken: string }> = [];
-      for (const candidate of Array.isArray(binding?.candidates) ? binding.candidates as Array<Record<string, unknown>> : []) {
-        const reserve = questionById.get(String(candidate.questionId));
-        if (!reserve || String(reserve.question_revision_token || "") !== String(candidate.revisionToken || "")
-          || [...history, ...issued].some((used) => sameSource(reserve, used as unknown as Record<string, unknown>))
-          || optionState.branches.some((branch) => ["practicing", "pending", "reserve_gap"].includes(branch.status)
-            && branch.candidates.some((held) => {
-              const heldQuestion = questionById.get(held.questionId);
-              return heldQuestion && sameSource(reserve, heldQuestion);
-            }))
-          || fresh.some((used) => sameSource(reserve, questionById.get(used.questionId)!))) continue;
-        fresh.push({ questionId: String(reserve.id), revisionToken: String(reserve.question_revision_token) });
-      }
-      optionState.branches.push({ branchId: stepId, anchorStepId: stepId, anchorSessionId: String(session?.id || planId),
-        knowledgeId: String(row.knowledge_id), knowledgePoint: String(binding?.knowledgePoint || ""), optionIndex: answer.selectedOption,
-        status: fresh.length >= 3 ? "practicing" : "reserve_gap", reason: fresh.length >= 3 ? "" : "fewer_than_three_verified_fresh_originals",
-        answered: 0, correct: 0, total: 3, candidates: fresh,
-        nextQuestionId: fresh.length >= 3 ? fresh[0].questionId : null,
-        nextRevisionToken: fresh.length >= 3 ? fresh[0].revisionToken : null });
-      branchAnswers.set(stepId, []);
+    }
+    if ((!correct || (policy.recoveryRoundLimit > 0 && answer.uncertain === true))
+      && (!activeBranch || (policy.recoveryRoundLimit > 0 && practiceRound < policy.recoveryRoundLimit))) {
+      await enqueuePreviewBranch(row, stepId, answer.selectedOption, practiceRound);
     }
     currentQuestion = null;
     currentStepId = null;
     currentContext = undefined;
     await prepareNext();
   }
-  const completed = session?.status === "completed" || (!currentQuestion && answeredCount >= 12);
-  const summary = { id: session?.id || planId, status: completed ? "completed" : "active", initialQuestionTarget: 12,
-    hardQuestionCap: 15, issuedCount: stepCount, answeredCount, correctCount };
+  const completed = session?.status === "completed" || (!blockedByDailyBudget && !currentQuestion && answeredCount >= policy.initialTarget);
+  const summary = { id: session?.id || planId, status: completed ? "completed" : "active", initialQuestionTarget: policy.initialTarget,
+    hardQuestionCap: policy.hardCap, recoveryRoundLimit: policy.recoveryRoundLimit,
+    dailyIssuedCount: optionState.dailyIssuedCount, issuedCount: stepCount, answeredCount, correctCount };
   const payload = { deliveryMode: "junior_adaptive", plan: studentPlan, cards: studentCards, session: summary,
     currentStepId, currentQuestion: currentQuestion ? { ...juniorQuestionShape(currentQuestion), ...(currentContext ? { optionPractice: currentContext } : {}) } : null,
     completed, optionPractice: juniorPublicOptionProgress(optionState),
-    ...(!currentQuestion && !completed ? { pendingMessage: "后续原题正在准备，请稍后继续或联系甘老师。" } : {}),
+    ...(!currentQuestion && !completed ? { pendingMessage: juniorDailyBudgetReached(optionState, policy)
+      ? "今天的题量已到上限，先让知识消化一下。已保留当前进度，明天可以接着练。"
+      : "后续原题正在准备，请稍后继续或联系甘老师。" } : {}),
   };
-  const dashboard = completed && previewAnswers.length ? await studentDashboard(studentId) : null;
+  const dashboard = completed && previewAnswers.length ? await studentDashboard(studentId, true) : null;
   return { payload, feedback: lastFeedback, ...(dashboard ? { dashboard } : {}) };
 }
 
@@ -3923,7 +4028,7 @@ Deno.serve(async (req: Request) => {
       if (issued.completed || String(issued.currentStepId || "") !== stepId || !issued.currentQuestion) {
         const concurrentReplay = await replayLockedStep(await readOwnedStep());
         if (concurrentReplay) return concurrentReplay;
-        return reply(req, { error: "这道题不是当前等待作答的原题；系统不会替换或重复保存答案。" }, 409);
+        return reply(req, { error: issued.pendingMessage || "这道题不是当前等待作答的原题；系统不会替换或重复保存答案。" }, 409);
       }
       const currentQuestion = issued.currentQuestion as Record<string, unknown>;
       const options = Array.isArray(currentQuestion.options) ? currentQuestion.options : [];
@@ -3959,6 +4064,7 @@ Deno.serve(async (req: Request) => {
       if (recorded.error) {
         const concurrentReplay = await replayLockedStep(await readOwnedStep());
         if (concurrentReplay) return concurrentReplay;
+        if (recorded.error.message.includes("junior_daily_question_limit")) return reply(req, { error: "今天的题量已到上限，这道题尚未计入成绩。原有进度已保留，明天可以继续。" }, 409);
         if (recorded.error.message.includes("already locked")) return reply(req, { error: "这道题已经按第一次选择锁定，不能更换答案。" }, 409);
         throw recorded.error;
       }
@@ -4032,7 +4138,7 @@ Deno.serve(async (req: Request) => {
     if (body.action === "student_preview_dashboard" && identity.role === "teacher") {
       const targetId = String(body.data?.studentId || "");
       if (!targetId) return reply(req, { error: "请选择要预览的学生。" }, 400);
-      return reply(req, { dashboard: await studentDashboard(targetId) });
+      return reply(req, { dashboard: await studentDashboard(targetId, true) });
     }
 
     if (body.action === "student_learning_record" && identity.role === "teacher") {
@@ -4639,6 +4745,9 @@ Deno.serve(async (req: Request) => {
     return reply(req, { error: "无权执行该操作。" }, 403);
   } catch (error) {
     if (error instanceof RequestError) return reply(req, { error: error.message }, error.status);
+    if (isPlainRecord(error) && String(error.message || "").includes("junior_daily_question_limit")) {
+      return reply(req, { error: "今天已达到30道题的上限，已提交的答案和学习进度都已保留。剩下的题明天接着练。" }, 409);
+    }
     console.error(error);
     return reply(req, { error: "服务暂时不可用，请稍后重试。" }, 500);
   }

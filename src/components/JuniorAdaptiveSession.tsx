@@ -3,6 +3,7 @@ import { Check, ChevronRight, CircleHelp, Clock3, Trophy } from 'lucide-react'
 import type { JuniorAdaptivePayload, JuniorQuestionFeedback, JuniorStepSubmissionResult, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildKnowledgeCardDrilldown } from '../domain/knowledgeDrilldown'
+import { juniorReviewPoint } from '../domain/juniorReviewPoint'
 import { accessApi, submitJuniorAdaptiveStep } from '../lib/api'
 import { ChemText } from './ChemText'
 import { InteractiveKnowledgeTree } from './InteractiveKnowledgeTree'
@@ -28,6 +29,8 @@ export function JuniorAdaptiveSession({
   const [startedAt, setStartedAt] = useState(Date.now())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [reviewedBranches, setReviewedBranches] = useState<string[]>([])
+  const answeredFeedback = useRef(new Map<string, JuniorQuestionFeedback>())
   const primaryAction = useRef<HTMLButtonElement>(null)
   const previewAnswers = useRef<Array<{ stepId: string; selectedOption: number; revisionToken?: string | null; uncertain: boolean; durationSec: number }>>([])
 
@@ -35,7 +38,12 @@ export function JuniorAdaptiveSession({
   const currentCard = useMemo(() => payload.cards.find((card) => card.skillId === question?.skillId) ?? null, [payload.cards, question?.skillId])
   const currentKnowledgeTree = useMemo(() => currentCard ? buildKnowledgeCardDrilldown(currentCard) : null, [currentCard])
   const answeredDisplay = Math.min(payload.session.answeredCount + (feedback ? 1 : 0), payload.session.hardQuestionCap)
-  const targetText = answeredDisplay <= 12 ? `${answeredDisplay}/12` : `${answeredDisplay}/15`
+  const initialTarget = payload.session.initialQuestionTarget
+  const recoveryRound = question?.optionPractice?.recoveryRound ?? 0
+  const threeRoundPolicy = payload.session.recoveryRoundLimit === 3
+  const reviewKey = `${recoveryRound}:${question?.optionPractice?.anchorStepId ?? ''}:${question?.optionPractice?.optionIndex ?? ''}`
+  const needsRoundReview = threeRoundPolicy && recoveryRound > 0 && !reviewedBranches.includes(reviewKey)
+  const targetText = answeredDisplay <= initialTarget ? `${answeredDisplay}/${initialTarget}` : `${answeredDisplay}/${payload.session.hardQuestionCap}`
   const unfinishedPractice = (pendingPayload ?? payload).optionPractice?.filter((branch) => branch.status !== 'consolidated') ?? []
   const pendingPractice = unfinishedPractice.filter((branch) => branch.status !== 'practicing')
 
@@ -60,6 +68,7 @@ export function JuniorAdaptiveSession({
         })
         : await submitJuniorAdaptiveStep(session, submitted)
       if (previewStudentId) previewAnswers.current = nextPreviewAnswers
+      answeredFeedback.current.set(submitted.stepId, result.feedback)
       setFeedback(result.feedback)
       setSelected(result.feedback.selectedOption)
       setPendingPayload(result.payload)
@@ -82,8 +91,9 @@ export function JuniorAdaptiveSession({
   function next() {
     if (!pendingPayload) return
     if (pendingPayload.completed) {
-      if (completedDashboard) onComplete(completedDashboard)
-      else onExit()
+      setPayload(pendingPayload)
+      setPendingPayload(null)
+      setFeedback(null)
       return
     }
     if (!pendingPayload.currentQuestion) { onExit(); return }
@@ -122,6 +132,7 @@ export function JuniorAdaptiveSession({
       <span className="eyebrow">初三化学</span>
       <h1>今天的练习已完成</h1>
       <p>答对 {payload.session.correctCount} 道，共完成 {payload.session.answeredCount} 道。</p>
+      {threeRoundPolicy && <p>首轮 8 题，错点最多补练 3 轮；每天合计最多 30 题。还没练稳的考点会留在后续复习中。</p>}
       {unfinishedPractice.length > 0 && <p>还有 {unfinishedPractice.length} 个错项考点待继续练习，进度已经保留。</p>}
       <div className="result-stats"><div><b>{payload.session.answeredCount}</b><span>完成题数</span></div><div><b>{payload.session.correctCount}</b><span>答对题数</span></div></div>
       <div className="result-actions"><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => completedDashboard ? onComplete(completedDashboard) : onExit()}>查看今日成果<Trophy size={18} /></button></div>
@@ -130,15 +141,41 @@ export function JuniorAdaptiveSession({
 
   if (!question) return <section className="learning-stage"><div className="inline-alert" role="alert">{payload.pendingMessage ?? '当前题目暂时无法打开，请返回学习计划或联系甘老师。'}</div><button className="secondary-button" onClick={onExit}>返回学习计划</button></section>
 
+  if (needsRoundReview) {
+    const pointName = question.optionPractice!.knowledgePoint
+    const point = juniorReviewPoint(currentCard, pointName)
+    const anchorFeedback = answeredFeedback.current.get(question.optionPractice!.anchorStepId)
+    const anchorOption = String.fromCharCode(65 + question.optionPractice!.optionIndex)
+    const exactOptionExplanation = anchorFeedback ? splitAnswerExplanation(anchorFeedback.explanation)
+      .filter((paragraph) => paragraph.option === anchorOption).map((paragraph) => paragraph.text) : []
+    return <section className="learning-stage junior-adaptive-stage">
+      <div className="round-guidance"><CircleHelp /><div><b>第 {recoveryRound} 轮补练前，先把错点理一理</b><p>一次只补一个小点。先看这一条判断方法，再用同类型原题试一次。</p></div></div>
+      <article className="knowledge-card junior-knowledge-card" data-testid="junior-micro-review">
+        <h2><ChemText>{point?.title ?? pointName}</ChemText></h2>
+        {point ? <>
+          <p><ChemText>{point.rule}</ChemText></p>
+          {point.examples.map((example) => <p key={example}><b>看个小例子：</b><ChemText>{example}</ChemText></p>)}
+          {point.caution && <p><b>容易踩的坑：</b><ChemText>{point.caution}</ChemText></p>}
+        </> : exactOptionExplanation.length ? exactOptionExplanation.map((paragraph) => <p key={paragraph}><ChemText>{paragraph}</ChemText></p>)
+          : <p>先想一想这个选项的判断依据。还拿不准时，点开下方知识树，找到同名的小节点再看。</p>}
+      </article>
+      {currentCard && currentKnowledgeTree && <details>
+        <summary>还想看相关知识？展开完整知识树</summary>
+        <InteractiveKnowledgeTree root={currentKnowledgeTree} title={currentCard.title} intro="点击需要的小节点，逐个看规则和例子。" />
+      </details>}
+      <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后继续 / 返回计划</button><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { setReviewedBranches((branches) => [...branches, reviewKey]); setStartedAt(Date.now()) }}>开始第 {recoveryRound} 轮补练<ChevronRight size={18} /></button></div>
+    </section>
+  }
+
   const explanation = feedback ? splitAnswerExplanation(feedback.explanation) : []
   const answeredCorrectly = feedback?.correct === true
-  const willExtend = pendingPayload && !pendingPayload.completed && pendingPayload.session.issuedCount > 12
+  const willExtend = pendingPayload && !pendingPayload.completed && pendingPayload.session.issuedCount > initialTarget
   return <section className="learning-stage junior-adaptive-stage">
-    <div className="round-guidance"><Clock3 /><div><b>今日练习 12—15 题</b><p>看题，在纸上计算或思考，选择 A—D，提交后查看解析。</p></div></div>
+    <div className="round-guidance"><Clock3 /><div><b>{threeRoundPolicy ? recoveryRound ? `第 ${recoveryRound} 轮错点补练` : '首轮 8 道原题' : '今日练习 12—15 题'}</b><p>{threeRoundPolicy ? '先做 8 题，错点先复习再补练；最多补练 3 轮，每天合计不超过 30 题。' : '看题，在纸上计算或思考，选择 A—D，提交后查看解析。'}</p></div></div>
     {pendingPractice.length > 0 && <p>有 {pendingPractice.length} 个错项考点的后续补练待准备或待续，进度已经保留。</p>}
     {error && <div className="inline-alert" role="alert">{error}</div>}
     <div className="quiz-head"><span>今日进度 {targetText}{willExtend ? ' · 正在做针对性补稳' : ''}</span><span>{currentCard ? <ChemText>{currentCard.title}</ChemText> : <ChemText>针对性练习</ChemText>}</span></div>
-    <div className="stage-progress"><i style={{ width: `${Math.min(100, answeredDisplay / 12 * 100)}%` }} /></div>
+    <div className="stage-progress"><i style={{ width: `${Math.min(100, answeredDisplay / (recoveryRound ? payload.session.hardQuestionCap : initialTarget) * 100)}%` }} /></div>
     <aside className="knowledge-card junior-knowledge-card">
       <span className="eyebrow">当前知识点</span><h2><ChemText>{currentCard?.title ?? '针对性练习'}</ChemText></h2>
       {currentCard && currentKnowledgeTree && <details key={currentCard.id}>

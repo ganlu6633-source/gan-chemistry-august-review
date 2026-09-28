@@ -1,4 +1,7 @@
 import type { JuniorAdaptiveCandidate, JuniorAdaptiveHistory, JuniorNextSelection } from './junior-adaptive.ts';
+import type { JuniorDailyPolicy } from './junior-daily-policy.ts';
+
+const LEGACY_POLICY: JuniorDailyPolicy = { initialTarget: 12, hardCap: 15, recoveryRoundLimit: 0 };
 
 export type JuniorOptionBranch = {
   branchId: string; anchorStepId: string; anchorSessionId: string; knowledgeId: string;
@@ -7,16 +10,32 @@ export type JuniorOptionBranch = {
   reason: string; answered: number; correct: number; total: number;
   candidates: Array<{ questionId: string; revisionToken: string }>;
   nextQuestionId: string | null; nextRevisionToken: string | null;
+  recoveryRound?: number;
+  anchorQuestionId?: string; anchorRevisionToken?: string;
 };
-export type JuniorOptionState = { branches: JuniorOptionBranch[]; stepContexts: Array<{ stepId: string; branchId: string; position: number }> };
+export type JuniorOptionState = { branches: JuniorOptionBranch[]; stepContexts: Array<{ stepId: string; branchId: string; position: number; recoveryRound?: number }>; dailyIssuedCount?: number; dailyBudgetEnabled?: boolean; pendingStepCountedToday?: boolean; unbranchedAnchors?: Array<Record<string, unknown>>;
+  branchAnswerHistory?: Array<{ branchId: string; position: number; correct: boolean; uncertain: boolean }> };
+
+export function juniorDailyBudgetEnabled(state: JuniorOptionState, policy: JuniorDailyPolicy) {
+  return state.dailyBudgetEnabled === true || policy.recoveryRoundLimit > 0;
+}
+
+export function juniorDailyBudgetReached(state: JuniorOptionState, policy: JuniorDailyPolicy) {
+  return juniorDailyBudgetEnabled(state, policy) && (state.dailyIssuedCount ?? 0) >= 30;
+}
+
+export function juniorReserveAllocationDeferred(policy: JuniorDailyPolicy, ordinaryAnsweredCount: number) {
+  return policy.recoveryRoundLimit > 0 && ordinaryAnsweredCount < policy.initialTarget;
+}
 
 /** Only opaque student-owned step identifiers and instructional words leave Edge. */
 export function juniorPublicOptionProgress(state: JuniorOptionState) {
   return state.branches.map((branch) => ({
     anchorStepId: branch.anchorStepId, optionIndex: branch.optionIndex,
-    knowledgePoint: branch.knowledgePoint, status: branch.status,
+    knowledgePoint: branch.knowledgePoint, skillId: branch.knowledgeId, status: branch.status,
     answered: branch.answered, correct: branch.correct, total: branch.total,
     pendingReason: branch.reason,
+    ...(branch.recoveryRound !== undefined ? { recoveryRound: branch.recoveryRound } : {}),
   }));
 }
 
@@ -24,7 +43,8 @@ export function juniorOptionContext(state: JuniorOptionState, stepId: string) {
   const context = state.stepContexts.find((row) => row.stepId === stepId);
   const branch = context && state.branches.find((row) => row.branchId === context.branchId);
   return branch && context ? { anchorStepId: branch.anchorStepId, optionIndex: branch.optionIndex,
-    knowledgePoint: branch.knowledgePoint, position: context.position, total: branch.total } : undefined;
+    knowledgePoint: branch.knowledgePoint, position: context.position, total: branch.total,
+    ...(branch.recoveryRound !== undefined ? { recoveryRound: branch.recoveryRound } : {}) } : undefined;
 }
 
 function distinct(candidate: JuniorAdaptiveCandidate, row: JuniorAdaptiveCandidate | JuniorAdaptiveHistory) {
@@ -37,9 +57,11 @@ function distinct(candidate: JuniorAdaptiveCandidate, row: JuniorAdaptiveCandida
  * calls a broad-knowledge error repair or spends a frozen option reserve. */
 export function selectJuniorScheduledQuestion<T extends JuniorAdaptiveCandidate>(input: {
   candidates: T[]; knowledgeSkillIds: string[]; history: JuniorAdaptiveHistory[];
-  issued: JuniorAdaptiveHistory[]; optionState: JuniorOptionState;
+  issued: JuniorAdaptiveHistory[]; optionState: JuniorOptionState; policy?: JuniorDailyPolicy;
 }): JuniorNextSelection<T> {
-  if (input.issued.length >= 12) return null;
+  const policy = input.policy ?? LEGACY_POLICY;
+  if (input.issued.length >= policy.initialTarget
+    || juniorDailyBudgetReached(input.optionState, policy)) return null;
   const reserveIds = new Set(input.optionState.branches.filter((b) => ['practicing','pending','reserve_gap'].includes(b.status))
     .flatMap((branch) => branch.candidates.map((candidate) => candidate.questionId)));
   const reserved = input.candidates.filter((candidate) => reserveIds.has(candidate.id));
@@ -59,7 +81,18 @@ export function selectJuniorScheduledQuestion<T extends JuniorAdaptiveCandidate>
 
 /** Queue ordering/status is computed under database locks. An exhausted daily
  * budget never closes a branch or discards its remaining original versions. */
-export function nextJuniorOptionBranch(state: JuniorOptionState, issuedCount: number) {
-  if (issuedCount >= 15) return null;
-  return state.branches.find((branch) => branch.status === 'practicing') ?? null;
+export function nextJuniorOptionBranch(state: JuniorOptionState, issuedCount: number, policy: JuniorDailyPolicy = LEGACY_POLICY) {
+  if (issuedCount >= policy.hardCap
+    || juniorDailyBudgetReached(state, policy)) return null;
+  if (policy.recoveryRoundLimit === 0) return state.branches.find((branch) => branch.status === 'practicing') ?? null;
+  if (issuedCount < policy.initialTarget) return null;
+  // Read-only teacher replay uses the same phase gates as the transactional
+  // queue; those two pending reasons are phase waits, never missing reserves.
+  const eligible = state.branches.filter((branch) => {
+    const round = branch.recoveryRound ?? 1;
+    return round >= 1 && round <= policy.recoveryRoundLimit
+      && (branch.status === 'practicing' || (branch.status === 'pending'
+        && ['initial_round_in_progress', 'waiting_for_previous_recovery_round'].includes(branch.reason)));
+  });
+  return eligible.sort((a, b) => (a.recoveryRound ?? 1) - (b.recoveryRound ?? 1))[0] ?? null;
 }

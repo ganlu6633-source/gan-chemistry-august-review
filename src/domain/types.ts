@@ -301,8 +301,10 @@ export interface LearningPlanDay {
 export interface JuniorAdaptiveSessionSummary {
   id: string
   status: 'active' | 'completed' | 'blocked' | 'abandoned'
-  initialQuestionTarget: 12
-  hardQuestionCap: 15
+  initialQuestionTarget: 8 | 12
+  hardQuestionCap: 30 | 15
+  recoveryRoundLimit?: 0 | 3
+  dailyIssuedCount?: number
   issuedCount: number
   answeredCount: number
   correctCount: number
@@ -316,7 +318,7 @@ export interface IssuedJuniorQuestion {
   stem: string
   options: string[]
   revisionToken?: string | null
-  optionPractice?: { anchorStepId: string; optionIndex: number; knowledgePoint: string; position: number; total: number }
+  optionPractice?: { anchorStepId: string; optionIndex: number; knowledgePoint: string; position: number; total: number; recoveryRound?: number }
 }
 
 /** Feedback for one opaque junior session step; it never exposes a library question id. */
@@ -341,9 +343,9 @@ export interface JuniorAdaptivePayload {
   currentStepId?: string
   currentQuestion: IssuedJuniorQuestion | null
   completed: boolean
-  optionPractice?: Array<{ anchorStepId: string; optionIndex: number; knowledgePoint: string;
+  optionPractice?: Array<{ anchorStepId: string; optionIndex: number; knowledgePoint: string; skillId?: string;
     status: 'practicing' | 'pending' | 'consolidated' | 'needs_practice' | 'reserve_gap';
-    answered: number; correct: number; total: number; pendingReason: string }>
+    answered: number; correct: number; total: number; pendingReason: string; recoveryRound?: number }>
   pendingMessage?: string
 }
 

@@ -95,7 +95,9 @@ function PlanOpenNotice({ state, onRetry, retryLabel = '重新打开题组', sho
 const isSingleDailyReviewPlan = (plan: LearningPlanDay | undefined) => Boolean(plan && plan.mode === 'REVIEW' && plan.roundLimit === 1 && plan.deliveryMode !== 'junior_adaptive')
 
 const planRhythmLabel = (plan: LearningPlanDay) => {
-  if (plan.deliveryMode === 'junior_adaptive') return '今日 12 道原题起步 · 基础未稳最多 15 道 · 每题作答后动态选下一题'
+  if (plan.deliveryMode === 'junior_adaptive') return plan.hardQuestionCap === 30
+    ? '先做 8 题 · 错点先复习，再补练，最多 3 轮 · 每天合计不超过 30 题'
+    : '今日 12 道原题起步 · 基础未稳最多 15 道 · 每题作答后动态选下一题'
   if (isSingleDailyReviewPlan(plan)) return `今日 ${plan.questionCount} 道原题 · 1 个题组 · 错题次日换原题`
   return `每轮 ${plan.questionCount} 题 · 共 ${plan.roundLimit} 轮 · 当天把问题接稳`
 }
