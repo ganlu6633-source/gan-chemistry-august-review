@@ -33,6 +33,7 @@ from typing import Any, Iterable
 
 from PIL import Image
 from question_integrity_preflight import candidate_flags
+from question_image_gap_preflight import suspicious_inner_gap
 
 
 SCHEMA_VERSION = "gan.private-review-release.v1"
@@ -520,6 +521,14 @@ def prepare_asset(item: InputRow, role: str, *, validate_only: bool) -> tuple[As
                 raise BuildError(f"{role} width mismatch for {path}: {width} != {expected_width}")
             if expected_height is not None and height != expected_height:
                 raise BuildError(f"{role} height mismatch for {path}: {height} != {expected_height}")
+            layout_gap = suspicious_inner_gap(image)
+            if layout_gap is not None:
+                pixels, share = layout_gap
+                raise BuildError(
+                    f"{item.input_path}:{item.row_number}: {role} contains a large internal blank band "
+                    f"({pixels}px, {share:.0%} of content height) in {path}; "
+                    "compare the original pages and re-crop the complete question"
+                )
             if validate_only:
                 payload = None
                 output_sha = source_sha

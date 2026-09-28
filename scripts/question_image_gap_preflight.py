@@ -1,0 +1,44 @@
+"""Find large blank bands inside a question or explanation image.
+
+This is a conservative layout preflight, not a proof that the chemistry is
+correct. Original-page and teacher-answer review are still required.
+"""
+
+from __future__ import annotations
+
+from PIL import Image
+
+
+def suspicious_inner_gap(image: Image.Image) -> tuple[int, float] | None:
+    """Return (gap pixels, share of occupied height) for a large internal band.
+
+    Scan a downsampled central strip so thin page borders and compression noise
+    do not turn a nearly empty row into apparent question content. Outer margins
+    are ignored: they can be trimmed safely without joining unrelated text.
+    """
+
+    width, height = image.size
+    if width < 160 or height < 480:
+        return None
+    left = int(width * 0.04)
+    right = max(left + 1, int(width * 0.96))
+    scan_width = min(128, right - left)
+    gray = image.convert("L").crop((left, 0, right, height))
+    sampled = gray.resize((scan_width, height), Image.Resampling.BOX).tobytes()
+    occupied = [
+        sum(value < 245 for value in sampled[y * scan_width : (y + 1) * scan_width]) >= 2
+        for y in range(height)
+    ]
+    first = next((index for index, value in enumerate(occupied) if value), None)
+    if first is None:
+        return None
+    last = next(index for index in range(height - 1, -1, -1) if occupied[index])
+    content_height = last - first + 1
+    longest = current = 0
+    for value in occupied[first : last + 1]:
+        current = 0 if value else current + 1
+        longest = max(longest, current)
+    share = longest / content_height
+    if longest >= 240 and share >= 0.34:
+        return longest, round(share, 3)
+    return None
