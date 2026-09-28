@@ -4620,7 +4620,7 @@ Deno.serve(async (req: Request) => {
       ) {
         let maximumQuery = supabase
           .from("chem_questions")
-          .select("concept_key,level,asset_refs")
+          .select("id,grade_band,concept_key,level,asset_refs")
           .eq("grade_band", targetProfile.data.grade_band)
           .in("skill_id", planSkillIds)
           .in("concept_key", canonicalAnswers.map((answer) => answer.concept_key!))
@@ -4634,7 +4634,13 @@ Deno.serve(async (req: Request) => {
         const maximumResult = await maximumQuery;
         if (maximumResult.error) throw maximumResult.error;
         const maximumLevelByConcept = new Map<string, number>();
-        for (const row of (maximumResult.data || []).filter((question) =>
+        // The mastery ceiling must come from the same source-reviewed pool
+        // that can actually be issued to a student. Legacy OCR candidates may
+        // have higher levels but are intentionally unavailable until repaired.
+        const maximumReady = await excludeHeldQuestions(
+          (maximumResult.data || []) as Array<Record<string, unknown>>,
+        );
+        for (const row of maximumReady.filter((question) =>
           hasRequiredReviewSourceAssets(question.asset_refs)
         )) {
           const conceptKey = String(row.concept_key || "");
