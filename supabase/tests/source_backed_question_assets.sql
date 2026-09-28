@@ -173,10 +173,10 @@ begin
   join public.chem_students_v2 s on s.id = p.student_id
   join lateral (
     select q.*
-    from public.chem_questions q
+    -- Finalization now rejects any question without current item-level review.
+    -- Use the same delivery gate as the student path for this fixture.
+    from app_private.chem_teaching_ready_questions q
     where q.grade_band = s.grade_band
-      and q.skill_id = any(p.skill_ids)
-      and q.source_kind <> 'licensed_local'
     order by q.id
     limit 1
   ) q on true
