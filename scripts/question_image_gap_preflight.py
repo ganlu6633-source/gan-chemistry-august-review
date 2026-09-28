@@ -42,6 +42,9 @@ def suspicious_inner_gap(image: Image.Image) -> tuple[int, float] | None:
         current = 0 if value else current + 1
         longest = max(longest, current)
     share = longest / content_height
-    if longest >= max(120, int(content_height * 0.25)) and share >= 0.34:
+    # A split at a page boundary can leave a 20–30% hole while the remaining
+    # diagram and four choices keep the overall image quite tall.  This only
+    # sends the crop for human review; it does not reject legitimate figures.
+    if longest >= max(140, int(content_height * 0.20)) and share >= 0.20:
         return longest, round(share, 3)
     return None

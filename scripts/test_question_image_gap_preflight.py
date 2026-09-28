@@ -33,6 +33,17 @@ class QuestionImageGapPreflightTest(unittest.TestCase):
         self.assertIsNotNone(gap)
         self.assertGreater(gap[0], 200)
 
+    def test_flags_tall_page_split_even_below_one_third_height(self):
+        image = Image.new("RGB", (1200, 1100), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((40, 15, 1100, 55), fill="black")
+        draw.rectangle((40, 330, 1100, 360), fill="black")
+        for top in range(430, 1080, 75):
+            draw.rectangle((40, top, 1100, top + 20), fill="black")
+        gap = suspicious_inner_gap(image)
+        self.assertIsNotNone(gap)
+        self.assertGreater(gap[0], 250)
+
     def test_short_compact_question_passes(self):
         image = Image.new("RGB", (1000, 320), "white")
         draw = ImageDraw.Draw(image)

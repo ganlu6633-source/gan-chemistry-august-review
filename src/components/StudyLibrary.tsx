@@ -99,14 +99,14 @@ export function StudyLibrary({ axis, dashboard, topics, loading, error, onStart,
     <label className="library-search"><Search size={18} aria-hidden="true" /><span className="sr-only">搜索知识点或题型</span><input type="search" placeholder="搜索知识点或题型" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
     {loading && <p className="empty-state">正在把题库搬过来…</p>}
     {error && <p className="inline-alert" role="alert">{error}</p>}
-    {!loading && !error && groups.size === 0 && <p className="empty-state">没找到对应的已审核选择题，换个词试试。</p>}
+    {!loading && !error && groups.size === 0 && <p className="empty-state">{search.trim() ? '没找到对应的已审核选择题，换个词试试。' : '这部分原题正在逐题核对题面、公式、选项和解析；核对完成后会在这里开放。日期计划里已审核的题组仍可照常学习。'}</p>}
     {[...groups].map(([groupKey, items]) => {
       const label = axis === 'knowledge' ? groupKey.split('\u0000')[1] : groupKey
       return <section className="library-group" key={groupKey}>
       {axis === 'knowledge' && onLoadKnowledge
         ? <KnowledgeTreeDisclosure label={label} skillId={groupKey.split('\u0000')[0]} onLoad={onLoadKnowledge} />
         : <div className="library-group-head"><h2>{label}</h2><span>{items.length} 个知识点</span></div>}
-      {items.length === 0 && <p className="library-no-questions">这块目前没有已审核的四选一原题；知识树仍可点开学习。</p>}
+      {items.length === 0 && <p className="library-no-questions">这块原题正在逐题校对，核准后就能开练；知识树可以先点开学习。</p>}
       <div className="library-grid">{items.map((topic) => {
       const lecture = lectureBySkill.get(topic.skillId)
       const ready = topic.freshCount >= 1

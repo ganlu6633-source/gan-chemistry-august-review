@@ -16,6 +16,9 @@ _TERMINAL_REACTION = re.compile(r"(?:=|→|⇌|⇄)\s*$")
 _TERMINAL_COLON = re.compile(r"[：:]\s*$")
 _LEADING_SEPARATOR = re.compile(r"^[，,；;]\s*\S")
 _UNFINISHED_CONCLUSION = re.compile(r"(?:，?则|该条件下|反应为|方程式为)\s*$")
+_REACTION_TABLE_LABEL = re.compile(r"反应[ⅠⅡⅢⅣIVX\d]+[：:]")
+_REACTION_ARROW_OR_EQUALITY = re.compile(r"(?:→|⟶|⇌|⇄|↔|=|＝)")
+_FLATTENED_AVOGADRO_EXPONENT = re.compile(r"(?:6[.]02|1[.]505)\s*[×xX]\s*10(?:23|22|24)(?!\d)")
 _LOST_CHEMICAL_TERMS = {
     "known_species_missing": re.compile(r"已知[：:]\s*为"),
     "preparation_reaction_missing": re.compile(r"可利用反应\s*制备"),
@@ -43,10 +46,20 @@ def candidate_flags(stem: str, options: list[str], explanation: str = "") -> lis
     """
 
     flags: set[str] = set()
+    if any('\ufffd' in value for value in (stem, *options, explanation)):
+        flags.add('replacement_character_in_question')
+    if any(_FLATTENED_AVOGADRO_EXPONENT.search(value) for value in (stem, *options, explanation)):
+        flags.add('flattened_scientific_exponent')
     question_lines = stem.splitlines()
     bare_steps = sum(bool(_BARE_STEP.fullmatch(line)) for line in question_lines)
     if bare_steps >= 2:
         flags.add("bare_reaction_steps")
+
+    # Word/PDF table conversion can drop all arrows while keeping reactants and
+    # products in separate rows.  Multiple named reactions without a single
+    # equality/arrow are a strong candidate, not a proof of corruption.
+    if len(_REACTION_TABLE_LABEL.findall(stem)) >= 2 and not _REACTION_ARROW_OR_EQUALITY.search(stem):
+        flags.add("reaction_table_arrows_missing")
 
     for index, line in enumerate(question_lines):
         stripped = line.strip()

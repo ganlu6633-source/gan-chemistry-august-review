@@ -119,6 +119,39 @@ class QuestionIntegrityPreflightTests(unittest.TestCase):
             [],
         )
 
+    def test_flags_reaction_table_with_all_arrows_lost(self):
+        flags = candidate_flags(
+            "反应Ⅰ：\n反应Ⅱ：\n反应Ⅲ：\n4NH₃＋5O₂\n4NO＋6H₂O\n2NO＋O₂\n2NO₂\n500 K：1.1×10²⁶",
+            ["促进反应Ⅰ", "促进反应Ⅱ", "增大压强", "降低温度"],
+        )
+        self.assertIn("reaction_table_arrows_missing", flags)
+
+    def test_keeps_complete_reaction_table(self):
+        flags = candidate_flags(
+            "反应Ⅰ：4NH₃＋5O₂⇌4NO＋6H₂O\n反应Ⅱ：2NO＋O₂⇌2NO₂",
+            ["促进反应Ⅰ", "促进反应Ⅱ", "增大压强", "降低温度"],
+        )
+        self.assertNotIn("reaction_table_arrows_missing", flags)
+
+    def test_flags_damaged_source_character_without_guessing_repair(self):
+        flags = candidate_flags(
+            "求下列反应的焓变",
+            ["甲", "乙", "丙", "丁"],
+            "原卷解析含不可识别符号：反应�的热效应。",
+        )
+        self.assertEqual(flags, ["replacement_character_in_question"])
+
+    def test_flags_flattened_particle_count_exponent(self):
+        flags = candidate_flags(
+            "1.505 × 1023个气体分子质量为8 g",
+            ["16 g", "32 g", "64 g/mol", "32 g/mol"],
+        )
+        self.assertEqual(flags, ["flattened_scientific_exponent"])
+        self.assertEqual(
+            candidate_flags("1.505×10²³个气体分子质量为8 g", ["甲", "乙", "丙", "丁"]),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
