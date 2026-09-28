@@ -90,6 +90,35 @@ class QuestionIntegrityPreflightTests(unittest.TestCase):
             [],
         )
 
+    def test_flags_disappeared_cobalt_and_chromium_formula_objects(self):
+        cobalt = candidate_flags(
+            "探究催化剂能否催化的分解。①可催化的分解。",
+            ["不能催化的分解", "可能是与发生氧化还原反应", "丙", "丁"],
+            "实验可证明易转化为：+4=+2+8H₂O。",
+        )
+        self.assertIn("catalyzed_species_missing", cobalt)
+        self.assertIn("reacting_species_missing", cobalt)
+        self.assertIn("reaction_species_missing_before_coefficient", cobalt)
+
+        chromium = candidate_flags(
+            "是两性氢氧化物。某溶液中与的总和为c。",
+            ["由M点可以计算", "乙", "丙", "丁"],
+            "发生反应：2+10+H₂O₂=2+4+18H₂O。",
+        )
+        self.assertIn("amphoteric_subject_missing", chromium)
+        self.assertIn("summed_species_missing", chromium)
+        self.assertIn("reaction_species_missing_before_coefficient", chromium)
+
+    def test_keeps_complete_catalyst_species_and_balance(self):
+        self.assertEqual(
+            candidate_flags(
+                "Co²⁺可催化H₂O₂的分解，Cr(OH)₃是两性氢氧化物。",
+                ["H₂O₂与Co²⁺发生氧化还原反应", "甲", "乙", "丙"],
+                "反应：2Cr(OH)₃+4OH⁻=2[Cr(OH)₄]⁻+2H₂O。",
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,15 @@ _LOST_CHEMICAL_TERMS = {
     "generated_species_missing": re.compile(r"生成(?:并消耗|和)\s*(?:[，。；]|$)"),
     "transformed_species_missing": re.compile(r"转化为\s*[，。；]"),
     "comparison_quantity_missing": re.compile(r"说明[：:]\s*[①②③④]\s*[>＞<＜]"),
+    # Observed in two local-original comparisons: equation objects for
+    # H₂O₂/Co complexes and Cr(OH)₃ disappeared completely from the OCR text.
+    "catalyzed_species_missing": re.compile(r"(?:能否|可|不能)催化的分解"),
+    "reacting_species_missing": re.compile(r"与发生(?:氧化还原)?反应"),
+    "summed_species_missing": re.compile(r"与的总和"),
+    "amphoteric_subject_missing": re.compile(r"^\s*是两性氢氧化物"),
+    "reaction_species_missing_before_coefficient": re.compile(
+        r"(?:反应|转化为|证明)[：:]\s*[+＋]?\d+\s*[+＋=＝]"
+    ),
 }
 
 
