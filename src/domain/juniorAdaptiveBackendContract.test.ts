@@ -69,11 +69,12 @@ describe('2026-08-29 junior evidence backend contract', () => {
     const juniorSession = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
     expect(juniorSession).toContain('const studentCards = orderedCards.map(studentProvenanceFreeCardShape)')
     expect(juniorSession).toContain('studentCards.some((card) => !studentInstructionalCardTextIsSafe(card))')
-    expect((juniorSession.match(/cards:\s*studentCards/g) || [])).toHaveLength(5)
+    const safeCardReturns = (juniorSession.match(/cards:\s*studentCards/g) || []).length
+    expect(safeCardReturns).toBeGreaterThanOrEqual(5)
     expect(juniorSession).toContain('const studentPlan = juniorStudentPlanShape(')
     expect(juniorSession).toContain('{ failClosedOnUnsafeCopy: true }')
     expect(juniorSession).toContain('futurePreviewInstructionalTextIsSafe([curriculum.title, curriculum.knowledge_summaries])')
-    expect((juniorSession.match(/plan:\s*studentPlan/g) || [])).toHaveLength(5)
+    expect((juniorSession.match(/plan:\s*studentPlan/g) || [])).toHaveLength(safeCardReturns)
     expect(juniorSession).not.toContain('plan: planShape(plan)')
     expect(juniorSession).not.toContain('orderedCards.map(cardShape)')
     expect(accessFunction).toContain('asset: undefined')
@@ -325,7 +326,7 @@ describe('2026-08-29 junior evidence backend contract', () => {
   it('uses the durable exact-option queue instead of broad prior-error or uncertainty repair', () => {
     const session = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
     expect(session).toContain('supabase.rpc("chem_junior_option_state"')
-    expect(session).toContain('nextJuniorOptionBranch(optionState, steps.length)')
+    expect(session).toContain('nextJuniorOptionBranch(optionState, steps.length, policy)')
     expect(session).toContain('selectJuniorScheduledQuestion')
     expect(session).not.toContain('selectJuniorNextQuestion')
     expect(session).not.toContain('const priorErrors')

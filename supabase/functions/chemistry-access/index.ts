@@ -271,10 +271,32 @@ function hasRequiredReviewSourceAssets(value: unknown) {
 }
 
 async function excludeHeldQuestions<T extends Record<string, unknown>>(rows: T[]): Promise<T[]> {
-  const result = await supabase.rpc("chem_question_delivery_holds");
-  if (result.error) throw result.error;
-  const held = new Set(((result.data || []) as Array<Record<string, unknown>>).map((row) => String(row.question_id)));
-  return rows.filter((row) => !held.has(String(row.id)));
+  if (!rows.length) return rows;
+  // The ready view includes both explicit holds and per-item visual reviews.
+  // Checking only the hold list allowed a newly pending revision to surface.
+  const byGrade = new Map<string, string[]>();
+  for (const row of rows) {
+    const grade = String(row.grade_band || "");
+    const ids = byGrade.get(grade) || [];
+    ids.push(String(row.id || ""));
+    byGrade.set(grade, ids);
+  }
+  const batches: Array<{ grade: string; ids: string[] }> = [];
+  for (const [grade, questionIds] of byGrade) {
+    const uniqueIds = [...new Set(questionIds)];
+    for (let index = 0; index < uniqueIds.length; index += 800) {
+      batches.push({ grade, ids: uniqueIds.slice(index, index + 800) });
+    }
+  }
+  const results = await Promise.all(batches.map(({ grade, ids }) => supabase.rpc(
+    "chem_teaching_ready_question_ids", { p_grade: grade, p_question_ids: ids },
+  )));
+  const ready = new Set<string>();
+  for (const result of results) {
+    if (result.error) throw result.error;
+    for (const row of (result.data || []) as Array<Record<string, unknown>>) ready.add(String(row.question_id));
+  }
+  return rows.filter((row) => ready.has(String(row.id)));
 }
 
 function verifiedSourceReleaseId(rows: Array<Record<string, unknown>>, gradeBand: string) {
