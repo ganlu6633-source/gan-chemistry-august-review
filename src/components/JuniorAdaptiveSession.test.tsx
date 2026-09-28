@@ -63,6 +63,14 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     expect(option.querySelectorAll(':scope > span')).toHaveLength(1)
   })
 
+  it('preserves separate experiment rows in a multiline question at a readable text size', () => {
+    const current = question('table-rows', '比较下列实验记录。\n5%溶液：50 ℃无明显气泡；70 ℃极少量气泡。\n15%溶液：50 ℃无明显气泡；70 ℃较多气泡。\n分析正确的是')
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(current)} onExit={vi.fn()} onComplete={vi.fn()} />)
+    const heading = screen.getByRole('heading', { name: /比较下列实验记录/ })
+    expect(heading.textContent).toBe(current.stem)
+    expect(heading).toHaveStyle({ whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: '1.65' })
+  })
+
   it('reviews the actual weak knowledge before each new recovery round without changing answers', () => {
     const current = question('repair-1', '用另一道原题检验质量守恒')
     current.optionPractice = { anchorStepId: 'first-error', optionIndex: 1, knowledgePoint: '原子数守恒', position: 1, total: 3, recoveryRound: 1 }

@@ -188,7 +188,7 @@ export function JuniorAdaptiveSession({
     <article className="question-card">
       <span className="difficulty-pill">L{question.level} 练习</span>
       {question.optionPractice && <p>{question.optionPractice.knowledgePoint} · 第 {question.optionPractice.position}/{question.optionPractice.total} 题</p>}
-      <h1><ChemText>{question.stem}</ChemText></h1>
+      <h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{question.stem}</ChemText></h1>
       <div className="option-list">{question.options.map((option, index) => {
         const letter = String.fromCharCode(65 + index)
         return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><div className="junior-option-copy" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}><ChemText>{option}</ChemText></div></button>
