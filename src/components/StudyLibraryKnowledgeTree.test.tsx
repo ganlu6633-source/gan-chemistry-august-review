@@ -61,7 +61,7 @@ describe('knowledge directory drill-down', () => {
     }] }
     render(<StudyLibrary axis="knowledge" dashboard={withUnreleasedSkill} topics={[]} loading={false} error=""
       onStart={vi.fn().mockResolvedValue(undefined)} onLoadKnowledge={onLoadKnowledge} busy={false} />)
-    expect(screen.getByText('这块目前没有已审核的四选一原题；知识树仍可点开学习。')).toBeInTheDocument()
+    expect(screen.getByText('这块原题正在逐题校对，核准后就能开练；知识树可以先点开学习。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /电化学.*点开大知识点/ }))
     await waitFor(() => expect(onLoadKnowledge).toHaveBeenCalledWith('H2_ELECTRO'))
   })

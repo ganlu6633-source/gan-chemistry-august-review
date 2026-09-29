@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, MoreHorizontal, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy, X } from 'lucide-react'
 import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { selectFocusPlan } from '../domain/focusPlan'
 import { calendarPlanStatus, isKnowledgeOnlyFuturePlan, splitCalendarWeeks } from '../domain/learningCalendar'
@@ -450,7 +450,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         <button type="button" className="text-button" onClick={() => setPlanOpenState(null)}>先返回，稍后再试</button>
       </section></div>}
       <div className="role-layout student-theme">
-      <aside className="side-nav" aria-label="学生导航">
+      <aside className="side-nav desktop-student-nav" aria-label="学生导航">
         <button className={view === 'choose' ? 'active' : ''} onClick={() => setView('choose')}><BookOpen />学习大厅</button>
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />学习日历</button>
         <button className={view === 'stage' ? 'active' : ''} onClick={() => setView('stage')}><Layers3 />跟着进度走</button>
@@ -461,7 +461,8 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         <button className={view === 'growth' ? 'active' : ''} onClick={() => setView('growth')}><Trophy />我的战绩</button>
         {!previewMode && !dashboard.profile.isDemo && <button className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}><Settings />账户设置</button>}
       </aside>
-      <div className="role-content">
+      <MobileStudentNavigation view={view} onNavigate={setView} showAccount={!previewMode && !dashboard.profile.isDemo} />
+      <div className={`role-content${view === 'choose' ? ' has-study-choice' : ''}`}>
         {view === 'choose' && <RecommendationOverview schoolClass={dashboard.profile.schoolClass} nextPlan={nextTeachingPlan} newTopic={recommendedNewTopic} reviews={recommendedReviews} dueSkillCount={dueSkillCount} loading={studyCatalogLoading} error={studyCatalogError} busy={busy || Boolean(dashboard.profile.isDemo)} onOpenTopic={openSelfStudy} onBrowse={(nextView) => setView(nextView)} />}
         {error && <div className="inline-alert" role="alert">{error}</div>}
         {view === 'choose' && <section className="study-choice" aria-labelledby="study-choice-title">
@@ -514,6 +515,67 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       </div>
     </div></>
   )
+}
+
+function MobileStudentNavigation({ view, onNavigate, showAccount }: { view: StudentView; onNavigate: (view: StudentView) => void; showAccount: boolean }) {
+  const [open, setOpen] = useState(false)
+  const sheetId = useId()
+  const moreButton = useRef<HTMLButtonElement>(null)
+  const sheet = useRef<HTMLElement>(null)
+  const primaryViews: StudentView[] = ['choose', 'today', 'directory']
+  const entries = [
+    { view: 'stage', label: '跟着进度走', Icon: Layers3 },
+    { view: 'type', label: '题型训练场', Icon: ListFilter },
+    { view: 'reminders', label: '复习雷达', Icon: Bell },
+    { view: 'map', label: '能力地图', Icon: MapIcon },
+    { view: 'growth', label: '我的战绩', Icon: Trophy },
+    ...(showAccount ? [{ view: 'settings', label: '账户设置', Icon: Settings }] : []),
+  ] as const
+
+  useEffect(() => {
+    if (!open) return
+    const returnFocus = moreButton.current
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const mobileViewport = window.matchMedia?.('(max-width: 820px)')
+    const closeOnDesktop = (event: MediaQueryListEvent) => { if (!event.matches) setOpen(false) }
+    mobileViewport?.addEventListener?.('change', closeOnDesktop)
+    sheet.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      mobileViewport?.removeEventListener?.('change', closeOnDesktop)
+      if (returnFocus?.isConnected && mobileViewport?.matches !== false) returnFocus.focus()
+    }
+  }, [open])
+
+  function navigate(nextView: StudentView) {
+    setOpen(false)
+    onNavigate(nextView)
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
+
+  return <>
+    <nav className="mobile-student-nav" aria-label="手机学习导航">
+      <button type="button" aria-label="手机导航：学习大厅" aria-current={view === 'choose' ? 'page' : undefined} className={view === 'choose' ? 'active' : ''} onClick={() => navigate('choose')}><BookOpen aria-hidden="true" /><span>学习大厅</span></button>
+      <button type="button" aria-label="手机导航：学习日历" aria-current={view === 'today' ? 'page' : undefined} className={view === 'today' ? 'active' : ''} onClick={() => navigate('today')}><Clock3 aria-hidden="true" /><span>学习日历</span></button>
+      <button type="button" aria-label="手机导航：知识点" aria-current={view === 'directory' ? 'page' : undefined} className={view === 'directory' ? 'active' : ''} onClick={() => navigate('directory')}><Layers3 aria-hidden="true" /><span>知识点</span></button>
+      <button ref={moreButton} type="button" aria-label="手机导航：更多" aria-expanded={open} aria-controls={sheetId} className={open || !primaryViews.includes(view) ? 'active' : ''} onClick={() => setOpen((value) => !value)}><MoreHorizontal aria-hidden="true" /><span>更多</span></button>
+    </nav>
+    {open && <div className="mobile-nav-sheet-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+      <section ref={sheet} id={sheetId} className="mobile-nav-sheet" role="dialog" aria-modal="true" aria-labelledby={`${sheetId}-title`} onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); setOpen(false); return }
+        if (event.key !== 'Tab') return
+        const buttons = sheet.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])')
+        const firstButton = buttons?.[0]
+        const lastButton = buttons?.[buttons.length - 1]
+        if (event.shiftKey && document.activeElement === firstButton) { event.preventDefault(); lastButton?.focus() }
+        else if (!event.shiftKey && document.activeElement === lastButton) { event.preventDefault(); firstButton?.focus() }
+      }}>
+        <div className="mobile-nav-sheet-header"><h2 id={`${sheetId}-title`}>更多学习入口</h2><button type="button" aria-label="关闭更多学习入口" onClick={() => setOpen(false)}><X aria-hidden="true" /></button></div>
+        <div className="mobile-nav-sheet-links">{entries.map(({ view: nextView, label, Icon }) => <button type="button" key={nextView} aria-current={view === nextView ? 'page' : undefined} className={view === nextView ? 'active' : ''} onClick={() => navigate(nextView as StudentView)}><Icon aria-hidden="true" /><span>{label}</span><ChevronRight aria-hidden="true" /></button>)}</div>
+      </section>
+    </div>}
+  </>
 }
 
 function KnowledgeCardArticle({ card, position, total, eyebrow = '从零讲清楚' }: { card: KnowledgeCard; position: number; total: number; eyebrow?: string }) {
@@ -638,6 +700,9 @@ function StudyReminders({ dashboard, reviews, catalogLoading, catalogError, onOp
 
 function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean; embedded?: boolean }) {
   const [selectedMonth, setSelectedMonth] = useState('all')
+  const [mobileWeekOverrides, setMobileWeekOverrides] = useState<Record<string, boolean>>({})
+  const [todayScrollRequest, setTodayScrollRequest] = useState(0)
+  const calendarId = useId()
   const months = [...new Set(plans.map((plan) => plan.date.slice(0, 7)))]
   const shownPlans = selectedMonth === 'all' ? plans : plans.filter((plan) => plan.date.startsWith(selectedMonth))
   const weeks = splitCalendarWeeks(shownPlans)
@@ -649,6 +714,11 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
   const last = plans.at(-1)?.date
   const displayDate = (date?: string) => date ? `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日` : ''
   const hasAdvanceStudy = plans.some((plan) => plan.canStudyAhead)
+  const defaultMobileWeek = (weeks.find((week) => week.some((plan) => plan.date === today)) ?? weeks[0])?.[0].date
+  function selectMonth(month: string) {
+    setSelectedMonth(month)
+    setMobileWeekOverrides({})
+  }
   useEffect(() => {
     const button = focusButton.current
     const grid = button?.parentElement
@@ -657,27 +727,47 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
     const gridRect = grid.getBoundingClientRect()
     grid.scrollLeft += buttonRect.left - gridRect.left - (grid.clientWidth - button.offsetWidth) / 2
   }, [today, first, last, selectedMonth])
+  useEffect(() => {
+    if (todayScrollRequest === 0) return
+    focusButton.current?.scrollIntoView?.({ block: 'center', inline: 'nearest' })
+  }, [todayScrollRequest])
   return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title">
     <div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习日历</h2> : <h1 id="learning-plan-title">我的学习日历</h1>}<p>{hasAdvanceStudy ? '日期是路标，节奏你来定。没学过的可以从头学，漏做的随时补，后面已开放的也能提前练。' : '老师安排的题组都在这里。前面漏做的可以补上；后面的可以先看知识卡，正式题目要到安排的日期才能做。'}</p></div>
-    {months.length > 1 && <div className="calendar-months" role="group" aria-label="选择学习月份">
-      <button type="button" aria-pressed={selectedMonth === 'all'} onClick={() => setSelectedMonth('all')}>全部日期</button>
-      {months.map((month) => <button type="button" key={month} aria-pressed={selectedMonth === month} onClick={() => setSelectedMonth(month)}>{Number(month.slice(5))} 月</button>)}
+    {(months.length > 1 || hasToday) && <div className="calendar-months" role="group" aria-label="选择学习月份">
+      {months.length > 1 && <><button type="button" aria-pressed={selectedMonth === 'all'} onClick={() => selectMonth('all')}>全部日期</button>
+      {months.map((month) => <button type="button" key={month} aria-pressed={selectedMonth === month} onClick={() => selectMonth(month)}>{Number(month.slice(5))} 月</button>)}</>}
+      {hasToday && <button type="button" className="calendar-today-button" onClick={() => { selectMonth('all'); setTodayScrollRequest((value) => value + 1) }}>回到今天</button>}
     </div>}
     <div className="week-stack">{weeks.map((week) => {
       const currentWeek = week.some((plan) => plan.date === today)
       const nextWeek = week.some((plan) => plan.date === nextDate)
+      const weekId = week[0].date
+      const expanded = mobileWeekOverrides[weekId] ?? weekId === defaultMobileWeek
+      const gridId = `${calendarId}-week-${weekId}`
+      const weekLabel = `${displayDate(weekId)}${week.length > 1 ? `—${displayDate(week.at(-1)?.date)}` : ''}`
+      const completedCount = week.filter((plan) => plan.isComplete).length
       return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0].date}>
-        <div className="week-label">{displayDate(week[0].date)}{week.length > 1 && `—${displayDate(week.at(-1)?.date)}`}{currentWeek ? ' · 今天在这里' : nextWeek ? ' · 下一次安排' : ''}</div>
-        <div className="week-grid">{week.map((plan) => {
+        <div className="week-label desktop-week-label">{weekLabel}{currentWeek ? ' · 今天在这里' : nextWeek ? ' · 下一次安排' : ''}</div>
+        <button type="button" className="mobile-week-toggle" aria-expanded={expanded} aria-controls={gridId} onClick={() => setMobileWeekOverrides((previous) => ({ ...previous, [weekId]: !expanded }))}>
+          <span className="mobile-week-title">{weekLabel}{currentWeek ? ' · 本周' : ''}</span><span className="mobile-week-summary">{completedCount > 0 ? `已完成 ${completedCount}/${week.length} 天` : `${week.length} 天待学`}</span><ChevronRight aria-hidden="true" />
+        </button>
+        <div className="week-grid" id={gridId} data-mobile-expanded={expanded}>{week.map((plan) => {
           const isToday = plan.date === today
           const isNext = plan.date === nextDate
           const previewOnly = isKnowledgeOnlyFuturePlan(plan, today)
           const status = calendarPlanStatus(plan, enrollment, today)
+          const mobileStatus = plan.juniorSessionStatus === 'blocked' ? '待修复'
+            : plan.isComplete || plan.isResolved || (plan.deliveryMode !== 'junior_adaptive' && plan.attemptCount >= plan.roundLimit) ? '已完成'
+              : plan.attemptCount > 0 || plan.juniorSessionStatus === 'active' ? '继续学'
+                : previewOnly ? '可预习' : plan.date > today ? '可提前' : plan.date < today ? '可补学' : '未开始'
           return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''} ${previewOnly ? 'is-future-preview' : ''}`} aria-current={isToday ? 'date' : undefined} aria-label={previewOnly ? `${plan.title}，可提前预习` : `${plan.date} · ${plan.title}，${status}`} title={previewOnly ? '提前预习只展示知识卡，不展示题目，也不计入学习记录' : undefined} onClick={() => onOpen(plan)} disabled={busy}>
-            <span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}
-            <b><ChemText>{plan.title}</ChemText></b>
-            <ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}><ChemText>{topic}</ChemText></li>)}</ul>
-            <small>{previewOnly ? '知识卡预习 · 不含正式题目' : compactPlanRhythmLabel(plan)}</small><em>{status}</em>
+            <span className="plan-day-date"><span className="plan-date"><time dateTime={plan.date} className="plan-date-number">{plan.date.slice(5)}</time><span className="plan-date-weekday"> · {weekdayLabel(plan.date)}</span></span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}</span>
+            <div className="plan-day-content"><b className="plan-day-title"><ChemText>{plan.title}</ChemText></b>
+              <ul className="plan-day-topics">{plan.knowledgeSummaries.map((topic) => <li key={topic}><ChemText>{topic}</ChemText></li>)}</ul>
+              <span className="plan-day-mobile-summary" aria-hidden="true"><ChemText>{plan.knowledgeSummaries.join(' · ')}</ChemText></span>
+            </div>
+            <small className="plan-day-meta">{previewOnly ? '知识卡预习 · 不含正式题目' : compactPlanRhythmLabel(plan)}</small><em className="plan-day-status">{status}</em>
+            <span className="plan-day-mobile-status" aria-hidden="true">{mobileStatus}</span>
           </button>
         })}</div>
       </div>
