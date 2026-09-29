@@ -618,7 +618,7 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
   return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title">
     <div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习日历</h2> : <h1 id="learning-plan-title">我的学习日历</h1>}<p>{hasAdvanceStudy ? '日期是路标，节奏你来定。没学过的可以从头学，漏做的随时补，后面已开放的也能提前练。' : '老师安排的题组都在这里。前面漏做的可以补上；后面的可以先看知识卡，正式题目要到安排的日期才能做。'}</p></div>
     {months.length > 1 && <div className="calendar-months" role="group" aria-label="选择学习月份">
-      <button type="button" aria-pressed={selectedMonth === 'all'} onClick={() => setSelectedMonth('all')}>全部日期 · {new Set(plans.map((plan) => plan.date)).size} 天</button>
+      <button type="button" aria-pressed={selectedMonth === 'all'} onClick={() => setSelectedMonth('all')}>全部日期</button>
       {months.map((month) => <button type="button" key={month} aria-pressed={selectedMonth === month} onClick={() => setSelectedMonth(month)}>{Number(month.slice(5))} 月</button>)}
     </div>}
     <div className="week-stack">{weeks.map((week) => {

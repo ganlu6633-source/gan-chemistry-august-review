@@ -30,7 +30,7 @@ describe('assigned September and October calendar access', () => {
     const session: SessionIdentity = { role: previewMode ? 'teacher' : 'student', token: 'session', displayName: '测试', expiresAt: '2099-01-01T00:00:00Z' }
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} previewMode={previewMode} />)
     fireEvent.click(screen.getByRole('button', { name: /学习日历 老师排好的题在这里/ }))
-    expect(screen.getByRole('button', { name: '全部日期 · 61 天' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '全部日期' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /^2026-\d\d-\d\d · 化学课程/ })).toHaveLength(61)
     fireEvent.click(screen.getByRole('button', { name: /2026-09-01 · 化学课程 .*还没学过 · 可补学/ }))
     await waitFor(() => expect(screen.getByTestId('opened-junior-lesson')).toBeInTheDocument())
