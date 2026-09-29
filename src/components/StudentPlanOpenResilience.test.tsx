@@ -104,6 +104,58 @@ describe('StudentApp plan opening resilience', () => {
     expect(fetchMock.mock.calls.every(call => !/^(?:junior_submit_step|submit_attempt|record_|save_)/.test(JSON.parse(String(call[1]?.body)).action))).toBe(true)
   })
 
+  it.each(['<html>not JSON</html>', '{}', 'null', '{"payload":null}', '{"payload":{}}'])('shows a persistent retry panel instead of silently returning to the calendar for %s', async (body) => {
+    const juniorPlan: LearningPlanDay = { ...plan, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'not_started' }
+    const validPending: JuniorAdaptivePayload = { deliveryMode: 'junior_adaptive', plan: juniorPlan, cards: [],
+      session: { id: 'pending-session', status: 'active', issuedCount: 0, answeredCount: 0, correctCount: 0, initialQuestionTarget: 8, hardQuestionCap: 30 },
+      currentQuestion: null, completed: false, pendingMessage: '今天的同考点原题待补充，已有进度保留。' }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(body, { status: 200 }))
+      .mockResolvedValueOnce(jsonResponse({ payload: validPending }))
+    vi.stubGlobal('fetch', fetchMock)
+    const onDashboard = vi.fn()
+    render(<StudentApp session={session} initialDashboard={{ ...dashboard, profile: { ...dashboard.profile, gradeBand: '初三' }, plans: [juniorPlan] }} onDashboard={onDashboard} />)
+    chooseDate()
+    fireEvent.click(screen.getByRole('button', { name: '开始今日学习' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/不完整|没有完整送达/)
+    expect(screen.getByLabelText('题组没有打开')).toHaveClass('plan-opening-overlay')
+    expect(screen.queryByLabelText('正在打开题组')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onDashboard).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '重新打开题组' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(validPending.pendingMessage!)
+    expect(screen.queryByLabelText('题组没有打开')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '返回学习计划' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps an opening failure and retry visible when launched from reminders rather than the calendar', async () => {
+    const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    const juniorPlan: LearningPlanDay = { ...plan, date: yesterday, deliveryMode: 'junior_adaptive', juniorSessionStatus: 'not_started' }
+    let opens = 0
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      const request = JSON.parse(String(init?.body))
+      if (request.action === 'self_study_catalog') return jsonResponse({ catalog: { topics: [] } })
+      opens += 1
+      return opens === 1 ? jsonResponse({ error: '今天这组暂时无法打开，原有进度已保留。' }, 409)
+        : jsonResponse({ payload: { deliveryMode: 'junior_adaptive', plan: juniorPlan, cards: [],
+          session: { id: 'session', status: 'completed', issuedCount: 8, answeredCount: 8, correctCount: 6, initialQuestionTarget: 8, hardQuestionCap: 30 },
+          currentQuestion: null, completed: true } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StudentApp session={session} initialDashboard={{ ...dashboard, profile: { ...dashboard.profile, gradeBand: '初三', isDemo: false }, plans: [juniorPlan] }} onDashboard={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /复习雷达 到时间该回看的/ }))
+    fireEvent.click(screen.getByRole('button', { name: '补上这一组' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('今天这组暂时无法打开，原有进度已保留。')
+    expect(screen.getByLabelText('题组没有打开')).toHaveClass('plan-opening-overlay')
+    expect(screen.getByRole('heading', { name: '复习雷达' })).toBeInTheDocument()
+    expect(opens).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: '先返回，稍后再试' }))
+    expect(screen.queryByLabelText('题组没有打开')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '补上这一组' }))
+    expect(await screen.findByRole('heading', { name: '今天的练习已完成' })).toBeInTheDocument()
+    expect(opens).toBe(2)
+  })
+
   it('starts with four choices and opens a source-backed knowledge challenge catalog', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ catalog: { topics: [{ skillId: 'H1_REDOX', skillTitle: '氧化还原反应', conceptKey: 'H1_REDOX__C01', title: '化合价升降', sequence: 1, originalCount: 5, freshCount: 5 }] } })))
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} />)

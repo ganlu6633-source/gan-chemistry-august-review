@@ -3,8 +3,11 @@ import { ACCESS_FUNCTION, functionUrl, JUNIOR_FUNCTION_REGION, SUPABASE_PUBLISHA
 import { readAccessSession } from './session'
 
 async function parseResponse<T>(response: Response): Promise<T> {
-  const payload = await response.json().catch(() => ({})) as { message?: string; error?: string }
-  if (!response.ok) throw new Error(payload.message || payload.error || '服务暂时不可用，请稍后重试。')
+  const payload = await response.json().catch(() => {
+    if (response.ok) throw new Error('服务返回的内容不完整，请重新打开题组。')
+    return null
+  }) as { message?: string; error?: string } | null
+  if (!response.ok) throw new Error(payload?.message || payload?.error || '服务暂时不可用，请稍后重试。')
   return payload as T
 }
 

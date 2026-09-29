@@ -9,6 +9,15 @@ export type JuniorDailyPolicy = {
 export const LEGACY_JUNIOR_POLICY: JuniorDailyPolicy = { initialTarget: 12, hardCap: 15, recoveryRoundLimit: 0 };
 export const JUNIOR_THREE_ROUND_POLICY: JuniorDailyPolicy = { initialTarget: 8, hardCap: 30, recoveryRoundLimit: 3 };
 
+/** New plans share one student/day budget, so unfinished dates can coexist.
+ * Historical sessions retain their original single-active-session contract. */
+export function juniorSessionBlocksDateSwitch(policy: JuniorDailyPolicy, other: Record<string, unknown>, planId: string) {
+  if (String(other.plan_day_id || "") === planId) return false;
+  return policy.initialTarget !== 8 || policy.hardCap !== 30 || policy.recoveryRoundLimit !== 3
+    || Number(other.initial_question_target) !== 8 || Number(other.hard_question_cap) !== 30
+    || Number(other.recovery_round_limit) !== 3;
+}
+
 export function juniorDailyPolicy(plan: Record<string, unknown>, session?: Record<string, unknown> | null): JuniorDailyPolicy {
   const initialTarget = Number(session?.initial_question_target ?? plan.question_count);
   if (initialTarget === 8 && Number(plan.question_count) === 8 && Number(plan.round_limit) === 4

@@ -8,7 +8,7 @@ import { selectAdaptiveQuestions, selectAssignedQuestions } from "./adaptive.ts"
 import { effectiveReviewRoundLimit, FORMAL_REVIEW_DAILY_QUESTION_CAP, isFormalHighSchoolReview, validFormalReviewQuestionCount, validFormalReviewRoundLimit } from "./review-daily-policy.ts";
 import { selectJuniorNextQuestion, type JuniorAdaptiveCandidate, type JuniorAdaptiveHistory, type JuniorRouteKind } from "./junior-adaptive.ts";
 import { juniorPublicOptionProgress, juniorOptionContext, selectJuniorScheduledQuestion, nextJuniorOptionBranch, juniorDailyBudgetEnabled, juniorDailyBudgetReached, juniorReserveAllocationDeferred, juniorRouteInventoryReadiness, type JuniorOptionState, type JuniorPracticeAvailability } from "./junior-option-practice.ts";
-import { juniorDailyPolicy, juniorRecoveryRound, LEGACY_JUNIOR_POLICY, JUNIOR_THREE_ROUND_POLICY, type JuniorDailyPolicy } from "./junior-daily-policy.ts";
+import { juniorDailyPolicy, juniorRecoveryRound, juniorSessionBlocksDateSwitch, LEGACY_JUNIOR_POLICY, JUNIOR_THREE_ROUND_POLICY, type JuniorDailyPolicy } from "./junior-daily-policy.ts";
 import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
 import { loadJuniorKnowledgeCards, juniorDisplayKnowledgeCards } from "./junior-knowledge-cards.ts";
 import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
@@ -1707,10 +1707,10 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   if (sessionResult.error) throw sessionResult.error;
   if (!sessionResult.data) {
     const existingActive = await supabase.from("chem_junior_daily_sessions")
-      .select("id,plan_day_id")
-      .eq("student_id", studentId).eq("status", "active").limit(1).maybeSingle();
+      .select("id,plan_day_id,initial_question_target,hard_question_cap,recovery_round_limit")
+      .eq("student_id", studentId).eq("status", "active");
     if (existingActive.error) throw existingActive.error;
-    if (existingActive.data && String(existingActive.data.plan_day_id) !== planId) {
+    if ((existingActive.data || []).some((other) => juniorSessionBlocksDateSwitch(planPolicy, other, planId))) {
       throw new RequestError(409, "已有另一天的初三学习会话正在进行；请先完成或由甘老师处理后再开启新计划。");
     }
     const created = await supabase.from("chem_junior_daily_sessions").insert({
@@ -1724,10 +1724,10 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
       sessionResult = created;
     } else {
       const activeAfterConflict = await supabase.from("chem_junior_daily_sessions")
-        .select("id,plan_day_id")
-        .eq("student_id", studentId).eq("status", "active").limit(1).maybeSingle();
+        .select("id,plan_day_id,initial_question_target,hard_question_cap,recovery_round_limit")
+        .eq("student_id", studentId).eq("status", "active");
       if (activeAfterConflict.error) throw activeAfterConflict.error;
-      if (activeAfterConflict.data && String(activeAfterConflict.data.plan_day_id) !== planId) {
+      if ((activeAfterConflict.data || []).some((other) => juniorSessionBlocksDateSwitch(planPolicy, other, planId))) {
         throw new RequestError(409, "另一初三学习会话刚刚开始；系统已阻止并发取题，请先完成该会话。");
       }
       sessionResult = await supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).single();
@@ -3110,7 +3110,7 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   if (skillIds.length !== 3 || new Set(skillIds).size !== 3) throw new RequestError(422, "当天三个知识点配置不完整。");
   const [sessionResult, activeResult, cardsResult, sessionsResult, practiceContextResult] = await Promise.all([
     supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).maybeSingle(),
-    supabase.from("chem_junior_daily_sessions").select("id,plan_day_id").eq("student_id", studentId).eq("status", "active").limit(1).maybeSingle(),
+    supabase.from("chem_junior_daily_sessions").select("id,plan_day_id,initial_question_target,hard_question_cap,recovery_round_limit").eq("student_id", studentId).eq("status", "active"),
     juniorBoundKnowledgeCards(null, JUNIOR_TEXTBOOK_VERSION),
     supabase.from("chem_junior_daily_sessions").select("id,curriculum_day_id,status,study_date").eq("student_id", studentId).order("study_date"),
     // A null session lets the service RPC resolve this plan's real session, or
@@ -3122,7 +3122,8 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   if (!Array.isArray(practiceContext?.questions) || !practiceContext.availability?.questions) {
     throw new RequestError(503, "练习题池暂时无法读取，请稍后重试。");
   }
-  if (activeResult.data && String(activeResult.data.plan_day_id) !== planId && !sessionResult.data) {
+  const planPolicy = juniorDailyPolicy(plan);
+  if (!sessionResult.data && (activeResult.data || []).some((other) => juniorSessionBlocksDateSwitch(planPolicy, other, planId))) {
     throw new RequestError(409, "已有另一天的初三学习会话正在进行；请先完成该会话。");
   }
   const session = sessionResult.data as Record<string, unknown> | null;

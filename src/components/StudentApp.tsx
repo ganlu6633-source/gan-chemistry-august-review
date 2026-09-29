@@ -63,6 +63,23 @@ type PlanOpenState = {
 }
 
 type PlanStartResult = { payload: PlanPayload | JuniorAdaptivePayload }
+
+function hasPlanOpenPayload(result: PlanStartResult | null | undefined, plan: LearningPlanDay): result is PlanStartResult {
+  const next = result?.payload
+  if (!next || typeof next !== 'object' || Array.isArray(next)
+    || next.plan?.id !== plan.id || !Array.isArray(next.cards)) return false
+  if (plan.deliveryMode === 'junior_adaptive') {
+    if (!('session' in next) || next.deliveryMode !== 'junior_adaptive'
+      || !next.session || typeof next.session !== 'object'
+      || !['active', 'completed', 'blocked', 'abandoned'].includes(next.session.status)
+      || typeof next.completed !== 'boolean') return false
+    // No question is legitimate while waiting for eligible originals or after
+    // completion. Missing payload/session is not a successful plan open.
+    return next.currentQuestion === null || Boolean(next.currentQuestion
+      && typeof next.currentQuestion.stem === 'string' && Array.isArray(next.currentQuestion.options))
+  }
+  return 'questions' in next && Array.isArray(next.questions)
+}
 type PlanRequestEntry = {
   controller: AbortController
   expiresAt: number
@@ -306,6 +323,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
     try {
       const result = await Promise.race([planRequest.promise, timeoutPromise])
       if (requestId !== planOpenRequestId.current) return false
+      if (!hasPlanOpenPayload(result, plan)) throw new Error('题组内容没有完整送达，请重试打开。已有学习记录不会改变。')
       if (planRequestCache.current.get(key) === planRequest) planRequestCache.current.delete(key)
       setPlanOpenState(null)
       if (plan.deliveryMode === 'junior_adaptive') setActiveJuniorPlan((result as { payload: JuniorAdaptivePayload }).payload)
@@ -425,7 +443,13 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const todayPlanOpenState = todayPlan && planOpenState?.request.plan.id === todayPlan.id ? planOpenState : null
 
   return (
-    <>{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">正在准备</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>从题库取几道好题，马上见面。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}<div className="role-layout student-theme">
+    <>{planOpenState?.status === 'loading' && <div className="plan-opening-overlay" aria-busy="true" aria-label="正在打开题组"><section className="plan-opening-panel"><Clock3 aria-hidden="true" /><span className="eyebrow">正在准备</span><h2>正在打开“<ChemText>{planOpenState.request.plan.title}</ChemText>”</h2><p>从题库取几道好题，马上见面。</p><PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} /></section></div>}
+      {planOpenState?.status === 'error' && <div className="plan-opening-overlay" aria-label="题组没有打开"><section className="plan-opening-panel">
+        <h2>“<ChemText>{planOpenState.request.plan.title}</ChemText>”还没打开</h2>
+        <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />
+        <button type="button" className="text-button" onClick={() => setPlanOpenState(null)}>先返回，稍后再试</button>
+      </section></div>}
+      <div className="role-layout student-theme">
       <aside className="side-nav" aria-label="学生导航">
         <button className={view === 'choose' ? 'active' : ''} onClick={() => setView('choose')}><BookOpen />学习大厅</button>
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />学习日历</button>
@@ -462,10 +486,9 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
             <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlanIsFuturePreview ? `安排日期 ${todayPlan.date} · ${todayPlan.questionCount} 道起` : planRhythmLabel(todayPlan)}</span></div></div>
-            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : todayPlanIsAdvanceStudy ? '提前开始学习' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
+            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : todayPlanIsAdvanceStudy ? '提前开始学习' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button></div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {todayPlan && <section className="date-lecture-links"><h2>这一天对应的讲义</h2><div>{LECTURE_SECTIONS.filter((section) => section.grade === dashboard.profile.gradeBand && section.skillIds.some((skillId) => todayPlan.skillIds.includes(skillId))).slice(0, 6).map((section) => <a key={section.id} href={lectureUrl(section)} target="_blank" rel="noopener noreferrer"><BookOpen size={15} />{section.title} · 第 {section.page} 页<ChevronRight size={15} /></a>)}</div></section>}
-          {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
           <StudentVideoSection session={session} videos={dashboard.videoRecommendations ?? []} readOnly={previewMode || Boolean(dashboard.profile.isDemo)} />
           {dashboard.profile.gradeBand === '高一' && <section className="semester-progress" aria-label="高一学期进度">
             <b>这学期怎么走</b><span>9 月 12 日—12 月 11 日，共 91 天。这名学生已安排 {high1ReleasedDays} 天原题；之后按教材继续学硫、元素周期律和物质结构，最后做全册回看。</span>

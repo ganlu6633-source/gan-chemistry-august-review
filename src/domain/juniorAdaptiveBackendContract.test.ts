@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import accessFunction from '../../supabase/functions/chemistry-access/index.ts?raw'
 import juniorBaseMigration from '../../supabase/migrations/20260823102000_add_junior_adaptive_daily_learning.sql?raw'
 import juniorFastPathMigration from '../../supabase/migrations/20260929100711_junior_answer_targeted_fast_path.sql?raw'
+import juniorParallelDatesMigration from '../../supabase/migrations/20260929140627_junior_parallel_new_policy_dates.sql?raw'
 
 const migrationModules = import.meta.glob('../../supabase/migrations/20260829*junior*.sql', {
   eager: true,
@@ -551,14 +552,38 @@ describe('2026-08-29 junior evidence backend contract', () => {
 
   it('backs selector uniqueness with one junior plan per day and five session identity constraints', () => {
     expect(juniorEvidenceMigration).toMatch(/create\s+unique\s+index[\s\S]{0,240}on\s+public\.chem_learning_plans\s*\(\s*student_id\s*,\s*plan_date\s*\)[\s\S]{0,160}delivery_mode\s*=\s*'junior_adaptive'/i)
-    expect(juniorEvidenceMigration).toMatch(/create\s+unique\s+index[\s\S]{0,240}on\s+public\.chem_junior_daily_sessions\s*\(\s*student_id\s*\)[\s\S]{0,160}status\s*=\s*'active'/i)
-    expect(juniorAccess).toMatch(/existingActive[\s\S]*?status["']\s*,\s*["']active[\s\S]*?RequestError\(409/i)
 
     for (const identity of ['question_id', 'mother_id', 'source_item_key', 'parent_source_item_key', 'content_fingerprint']) {
       expect(effectiveJuniorSql, `missing session-level uniqueness for ${identity}`).toMatch(
         new RegExp(`(?:unique\\s*\\(\\s*session_id\\s*,\\s*${identity}\\s*\\)|create\\s+unique\\s+index[^;]*?\\(\\s*session_id\\s*,\\s*${identity}\\s*\\))`, 'i'),
       )
     }
+  })
+
+  it('allows parallel assigned dates only for the new 8/30/3 policy, with matching real and preview gates', () => {
+    // Assert the migration that supersedes the old all-policy single-active
+    // index; historical DDL alone is not evidence of the current contract.
+    const sql = juniorParallelDatesMigration.replace(/\s+/g, ' ')
+    expect(sql).toContain('drop index public.chem_junior_daily_sessions_one_active_student_uidx;')
+    expect(sql).toMatch(/create unique index chem_junior_daily_sessions_one_active_legacy_student_uidx on public\.chem_junior_daily_sessions\(student_id\) where status='active' and not\(initial_question_target=8 and hard_question_cap=30 and recovery_round_limit=3\)/i)
+    expect(sql).toContain('new_policy:=new.initial_question_target=8 and new.hard_question_cap=30 and new.recovery_round_limit=3;')
+    expect(sql).toContain("other.student_id=new.student_id and other.status='active' and other.id<>new.id")
+    expect(sql).toContain('(not new_policy or other.initial_question_target<>8 or other.hard_question_cap<>30 or other.recovery_round_limit<>3)')
+    expect(sql).toContain("raise exception 'junior_session_legacy_active_conflict' using errcode='23505'")
+    expect(sql).toMatch(/create trigger chem_junior_sessions_guard_active_policy before insert or update of status,student_id,initial_question_target,hard_question_cap,recovery_round_limit on public\.chem_junior_daily_sessions for each row execute function app_private\.chem_guard_junior_active_session_policy\(\)/i)
+    expect(sql).toContain('where s.id=new.student_id for update;')
+
+    const actual = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
+    const preview = accessSection('async function juniorPreviewPayload', 'async function guestPractice')
+    for (const section of [actual, preview]) {
+      expect(section).toContain('.select("id,plan_day_id,initial_question_target,hard_question_cap,recovery_round_limit")')
+      expect(section).toContain('.eq("student_id", studentId).eq("status", "active")')
+      expect(section).toContain('.some((other) => juniorSessionBlocksDateSwitch(planPolicy, other, planId))')
+      expect(section).not.toContain('.eq("status", "active").limit(1)')
+    }
+    // Both the initial check and concurrent-insert recovery use that policy.
+    expect(actual.match(/juniorSessionBlocksDateSwitch\(planPolicy, other, planId\)/g)).toHaveLength(2)
+    expect(preview.match(/juniorSessionBlocksDateSwitch\(planPolicy, other, planId\)/g)).toHaveLength(1)
   })
 
   it('persists actionable blocked metadata and refuses non-native junior questions', () => {

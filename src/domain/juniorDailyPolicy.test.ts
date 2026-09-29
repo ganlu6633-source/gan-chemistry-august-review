@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { juniorDailyPolicy, LEGACY_JUNIOR_POLICY, JUNIOR_THREE_ROUND_POLICY } from '../../supabase/functions/chemistry-access/junior-daily-policy'
+import { juniorDailyPolicy, juniorSessionBlocksDateSwitch, LEGACY_JUNIOR_POLICY, JUNIOR_THREE_ROUND_POLICY } from '../../supabase/functions/chemistry-access/junior-daily-policy'
 import { juniorDailyBudgetReached, juniorReserveAllocationDeferred, nextJuniorOptionBranch, selectJuniorScheduledQuestion, type JuniorOptionBranch, type JuniorOptionState } from '../../supabase/functions/chemistry-access/junior-option-practice'
 import type { JuniorAdaptiveCandidate, JuniorAdaptiveHistory } from '../../supabase/functions/chemistry-access/junior-adaptive'
 
@@ -12,6 +12,16 @@ const branch = (round: number, id: string): JuniorOptionBranch => ({ branchId: i
 const state = (branches: JuniorOptionBranch[], dailyIssuedCount = 8): JuniorOptionState => ({ branches, stepContexts: [], dailyIssuedCount })
 
 describe('junior first-eight and three recovery rounds', () => {
+  it('lets current first-eight plans coexist across dates without reinterpreting older sessions', () => {
+    const current = { plan_day_id: 'old-date', initial_question_target: 8, hard_question_cap: 30, recovery_round_limit: 3 }
+    const legacy = { plan_day_id: 'old-date', initial_question_target: 12, hard_question_cap: 15, recovery_round_limit: 0 }
+    expect(juniorSessionBlocksDateSwitch(JUNIOR_THREE_ROUND_POLICY, current, 'today')).toBe(false)
+    expect(juniorSessionBlocksDateSwitch(JUNIOR_THREE_ROUND_POLICY, legacy, 'today')).toBe(true)
+    expect(juniorSessionBlocksDateSwitch(LEGACY_JUNIOR_POLICY, current, 'today')).toBe(true)
+    expect(juniorSessionBlocksDateSwitch(LEGACY_JUNIOR_POLICY, legacy, 'today')).toBe(true)
+    expect(juniorSessionBlocksDateSwitch(JUNIOR_THREE_ROUND_POLICY, { plan_day_id: 'unknown-contract' }, 'today')).toBe(true)
+    expect(juniorSessionBlocksDateSwitch(LEGACY_JUNIOR_POLICY, legacy, 'old-date')).toBe(false)
+  })
   it('keeps historical sessions on their persisted 12/15 policy and rejects drift', () => {
     expect(juniorDailyPolicy({ question_count: 12, round_limit: 1 }, { initial_question_target: 12, hard_question_cap: 15 })).toEqual(LEGACY_JUNIOR_POLICY)
     expect(juniorDailyPolicy({ question_count: 8, round_limit: 4 }, { initial_question_target: 8, hard_question_cap: 30, recovery_round_limit: 3 })).toEqual(JUNIOR_THREE_ROUND_POLICY)

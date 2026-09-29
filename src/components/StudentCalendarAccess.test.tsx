@@ -17,6 +17,12 @@ const dashboard: StudentDashboardData = {
   plans, skillStates: [], skillDefinitions: [], todayQuestionCount: 8, achievements: [],
 }
 
+function openedPayload(planId: string) {
+  return { deliveryMode: 'junior_adaptive', plan: plans.find(plan => plan.id === planId), cards: [],
+    session: { id: `session-${planId}`, status: 'active', initialQuestionTarget: 8, hardQuestionCap: 30,
+      issuedCount: 0, answeredCount: 0, correctCount: 0 }, currentQuestion: null, completed: false }
+}
+
 describe('assigned September and October calendar access', () => {
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
@@ -25,7 +31,7 @@ describe('assigned September and October calendar access', () => {
     const requests: Array<{ action: string; data: { planId?: string; studentId?: string } }> = []
     vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
       const request = JSON.parse(String(init?.body)); requests.push(request)
-      return new Response(JSON.stringify(request.action === 'self_study_catalog' ? { catalog: { topics: [] } } : { payload: {} }), { status: 200 })
+      return new Response(JSON.stringify(request.action === 'self_study_catalog' ? { catalog: { topics: [] } } : { payload: openedPayload(request.data.planId) }), { status: 200 })
     }))
     const session: SessionIdentity = { role: previewMode ? 'teacher' : 'student', token: 'session', displayName: '测试', expiresAt: '2099-01-01T00:00:00Z' }
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} previewMode={previewMode} />)
@@ -46,7 +52,7 @@ describe('assigned September and October calendar access', () => {
     vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
       const request = JSON.parse(String(init?.body)); actions.push(request.action)
       if (request.action !== 'self_study_catalog') expect(request.data.planId).toBe('plan-2026-10-31')
-      return new Response(JSON.stringify(request.action === 'self_study_catalog' ? { catalog: { topics: [] } } : { payload: {} }), { status: 200 })
+      return new Response(JSON.stringify(request.action === 'self_study_catalog' ? { catalog: { topics: [] } } : { payload: openedPayload(request.data.planId) }), { status: 200 })
     }))
     const session: SessionIdentity = { role: previewMode ? 'teacher' : 'student', token: 'session', displayName: '测试', expiresAt: '2099-01-01T00:00:00Z' }
     render(<StudentApp session={session} initialDashboard={dashboard} onDashboard={vi.fn()} previewMode={previewMode} />)

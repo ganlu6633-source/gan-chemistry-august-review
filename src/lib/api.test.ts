@@ -94,6 +94,20 @@ describe('regional junior access routing', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects a malformed successful response without silently accepting it or retrying the request', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('<html>gateway response</html>', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(accessApi(session, 'junior_open_session', {})).rejects.toThrow('服务返回的内容不完整')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves a readable error for non-JSON denial responses without a retry', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('Denied', { status: 403 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(accessApi(session, 'junior_open_session', {})).rejects.toThrow('服务暂时不可用')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it.each(['already-aborted', 'regional-abort', 'abort-before-fallback'])('never falls back when cancelled: %s', async (scenario) => {
     const controller = new AbortController()
     if (scenario === 'already-aborted') controller.abort()
