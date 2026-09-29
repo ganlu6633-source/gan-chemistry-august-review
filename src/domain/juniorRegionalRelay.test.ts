@@ -1,10 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import { relayJuniorRequest } from '../../supabase/functions/chemistry-access/junior-regional-relay'
+import { REGIONAL_LEARNING_ACTIONS } from '../../supabase/functions/chemistry-access/learning-regional-actions'
 
 const project = 'https://phdleezffrqqzyveicrm.supabase.co'
 const endpoint = `${project}/functions/v1/chemistry-access`
-const actions = ['junior_open_session', 'junior_submit_step', 'preview_junior_open_session', 'preview_junior_submit_step']
+const actions = REGIONAL_LEARNING_ACTIONS
 const rawBody = '{ "action": "junior_submit_step", "data": { "stepId":"immutable-step", "revisionToken":"v1", "selectedOption":2, "uncertain":false, "durationSec":11, "note":"化学\\n原样" } }\n'
 
 function request(url = endpoint, extraHeaders: Record<string, string> = {}) {
@@ -48,10 +49,20 @@ describe('single-hop junior regional transport', () => {
     expect(fetchMock.mock.calls[0][1]?.body).toBe(rawBody)
   })
 
-  it.each(['student_dashboard', 'start_plan', 'login', 'knowledge_skill_tree', undefined, null, {}])('never relays another action: %s', async (action) => {
+  it.each(['register', 'guardian_dashboard', 'login', 'unknown_action', undefined, null, {}])('never relays another action: %s', async (action) => {
     const { config, fetchMock } = setup()
     expect(await relayJuniorRequest(request(), action, config)).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['open_self_study', 'submit_attempt', 'save_knowledge_rating'])('never falls back locally after an ambiguous %s write failure', async (action) => {
+    const response = new Response('uncertain commit', { status: 503 })
+    const { config, fetchMock } = setup(response)
+    expect(await relayJuniorRequest(request(), action, config)).toBe(response)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fetchMock.mockRejectedValueOnce(new TypeError('connection lost'))
+    await expect(relayJuniorRequest(request(), action, config)).rejects.toThrow('connection lost')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it.each(['GET', 'OPTIONS', 'DELETE'])('does not relay %s', async (method) => {

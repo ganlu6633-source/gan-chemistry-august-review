@@ -25,7 +25,9 @@
 .library-knowledge-content { margin: 12px 0 16px; }
 .library-knowledge-content > p { margin: 0 0 10px; }
 .library-no-questions { margin: 5px 4px 14px; color: #607985; font-size: 13px; }
-@media (max-width: 700px) {
+@media (max-width: 820px) {
   .library-knowledge-toggle { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .library-knowledge-toggle > span { width: 100%; }
+  .library-knowledge-toggle b { min-width: 0; line-height: 1.5; }
   .library-knowledge-toggle small { padding-left: 27px; }
 }

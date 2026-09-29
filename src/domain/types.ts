@@ -140,6 +140,7 @@ export interface Question {
   revisionToken?: string | null
   /** Server-selected follow-up for one immutable wrong first choice. */
   optionPractice?: QuestionOptionPractice
+  choiceContext?: { recoveryRound: number; anchorQuestionId?: string; anchorId?: string; knowledgePoint?: string; position?: number; total?: number }
 }
 
 export interface QuestionOptionPractice {
@@ -148,6 +149,16 @@ export interface QuestionOptionPractice {
   knowledgePoint: string
   position: number
   total: number
+  recoveryRound?: number
+}
+
+export interface ChoiceTrainingProgress {
+  policyVersion: 'choice_8_3_30_v1'
+  baseQuestionCount: number
+  dailyUsed: number
+  dailyRemaining: number
+  complete: boolean
+  pendingReason: string | null
 }
 
 export interface OptionPracticeProgress {
@@ -158,6 +169,8 @@ export interface OptionPracticeProgress {
   answered: number
   correct: number
   status: 'practicing' | 'consolidated' | 'needs_practice' | 'reserve_gap'
+  recoveryRound?: number
+  gap?: string | null
 }
 
 /** Server-issued only after a protected question's first answer is locked. */
@@ -274,6 +287,9 @@ export interface LearningPlanDay {
   source?: 'course' | 'exam' | 'memory' | 'mastery' | 'mixed'
   isScheduled: boolean
   attemptCount: number
+  /** True only after a saved answer/attempt; opening or prefetching a plan does not count. */
+  hasStarted?: boolean
+  choiceTrainingPolicy?: 'choice_8_3_30_v1'
   firstScore: number | null
   latestScore: number | null
   latestCompletedAt: string | null

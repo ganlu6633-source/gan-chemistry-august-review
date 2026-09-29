@@ -95,7 +95,7 @@ describe('StudentApp plan opening resilience', () => {
       expect(updated.plans[1]).toEqual(anotherPlan)
       expect(updated.skillStates).toEqual(juniorDashboard.skillStates)
       fireEvent.click(screen.getByRole('button', { name: '学习日历' }))
-      expect(screen.getByRole('button', { name: `${today} · 制氧气原题，学习已完成` })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `${today} · 制氧气原题，学习已完成 · 可复习` })).toBeInTheDocument()
     } else {
       fireEvent.click(await screen.findByRole('button', { name: '稍后继续 / 返回计划' }))
       expect(onDashboard).not.toHaveBeenCalled()
@@ -181,7 +181,7 @@ describe('StudentApp plan opening resilience', () => {
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
       const action = JSON.parse(String(init?.body)).action
       if (action === 'preview_self_study') return jsonResponse({ payload: { ...payload(),
-        plan: { ...plan, id: 'topic-preview', deliveryMode: 'self_study', roundLimit: 1 }, cards: [],
+        plan: { ...plan, id: 'topic-preview', studentId, deliveryMode: 'self_study', roundLimit: 1 }, cards: [],
         questions: [{ ...question, id: 'source-question-1', options: ['纯净物', '混合物', '单质', '化合物'],
           stem: '海水属于哪类物质？', correctOption: 1, explanation: '海水含有多种物质，属于混合物。' }],
         roundLimit: 1,
@@ -466,7 +466,9 @@ describe('StudentApp plan opening resilience', () => {
       const request = JSON.parse(String(init?.body))
       if (request.data?.previewRound === 2) {
         nextRoundRequests += 1
-        return nextRoundRequests === 1
+        // Regional 5xx retries the same immutable request once before the UI
+        // offers a user retry. Both regions must fail for this scenario.
+        return nextRoundRequests <= 2
           ? jsonResponse({ message: '下一轮暂时读取失败，请重试。' }, 503)
           : jsonResponse({ payload: payload(2) })
       }
@@ -491,9 +493,10 @@ describe('StudentApp plan opening resilience', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试进入第 2 轮' }))
     await waitFor(() => expect(screen.getByRole('heading', { name: question.stem })).toBeInTheDocument())
     const nextRoundCalls = fetchMock.mock.calls.filter((call) => JSON.parse(String(call[1]?.body)).data?.previewRound === 2)
-    expect(nextRoundCalls).toHaveLength(2)
+    expect(nextRoundCalls).toHaveLength(3)
     const failedRequest = JSON.parse(String((nextRoundCalls[0][1] as RequestInit).body))
-    const retriedRequest = JSON.parse(String((nextRoundCalls[1][1] as RequestInit).body))
+    expect(JSON.parse(String((nextRoundCalls[1][1] as RequestInit).body))).toEqual(failedRequest)
+    const retriedRequest = JSON.parse(String((nextRoundCalls[2][1] as RequestInit).body))
     expect(retriedRequest).toEqual(failedRequest)
     expect(retriedRequest).toMatchObject({ action: 'start_plan', data: { planId: plan.id, previewRound: 2 } })
   })

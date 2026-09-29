@@ -1,6 +1,5 @@
-const JUNIOR_ACTIONS = new Set([
-  "junior_open_session", "junior_submit_step", "preview_junior_open_session", "preview_junior_submit_step",
-]);
+import { REGIONAL_LEARNING_ACTIONS, regionalLearningReplaySafe } from "./learning-regional-actions.ts";
+const LEARNING_ACTIONS = new Set<string>(REGIONAL_LEARNING_ACTIONS);
 
 // Supabase's documented Edge regions. Unknown/local runtime values fail closed
 // to the original handler instead of accidentally starting a relay loop.
@@ -43,7 +42,7 @@ export async function relayJuniorRequest(
   config: JuniorRegionalRelayConfig,
 ): Promise<Response | null> {
   const targetRegion = config.targetRegion ?? "ap-southeast-2";
-  if (request.method !== "POST" || typeof action !== "string" || !JUNIOR_ACTIONS.has(action)
+  if (request.method !== "POST" || typeof action !== "string" || !LEARNING_ACTIONS.has(action)
     || !request.headers.get("x-app-session")?.trim()
     || !EDGE_REGIONS.has(config.currentRegion ?? "") || !EDGE_REGIONS.has(targetRegion)
     || config.currentRegion === targetRegion || request.headers.has("x-chem-region-relay")
@@ -89,14 +88,16 @@ export async function relayJuniorRequest(
       method: "POST", headers, body, signal: request.signal, redirect: "error",
     });
     if (response.status >= 500 && response.status <= 599) {
+      if (!regionalLearningReplaySafe(action)) return response;
       void response.body?.cancel().catch(() => {});
       return null;
     }
     // Return the untouched stream, including authentication/permission/rate
     // errors. No local retry on 4xx, and no answer body parsing or buffering.
     return response;
-  } catch {
+  } catch (error) {
     request.signal.throwIfAborted();
+    if (!regionalLearningReplaySafe(action)) throw error;
     return null;
   }
 }

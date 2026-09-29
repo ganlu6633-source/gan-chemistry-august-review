@@ -166,6 +166,7 @@ describe('assigned September and October calendar access', () => {
     expect(container.querySelector('.role-content')).toHaveClass('has-study-choice')
     fireEvent.click(screen.getByRole('button', { name: '手机导航：学习日历' }))
     expect(container.querySelector('.role-content')).not.toHaveClass('has-study-choice')
+    expect(container.querySelector('.role-content')).toHaveClass('has-study-calendar')
     fireEvent.click(screen.getByRole('button', { name: '10 月' }))
     const firstWeek = container.querySelector('.mobile-week-toggle')
     expect(firstWeek).toHaveAttribute('aria-expanded', 'true')

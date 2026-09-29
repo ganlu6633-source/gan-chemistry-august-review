@@ -31,6 +31,46 @@ const payload: PlanPayload = { plan: { id: 'plan', studentId: 'student', date: '
 describe('wrong-answer recovery', () => {
   afterEach(() => { cleanup(); vi.resetAllMocks() })
 
+  it.each(['初三', '高一', '高二', '高三'] as const)('keeps %s teacher simulation repair choices usable without saving the simulated answers or ratings', async (grade) => {
+    const openFocused = vi.fn(async () => undefined)
+    const previewDashboard = { ...dashboard, profile: { ...dashboard.profile, gradeBand: grade }, plans: [payload.plan] }
+    render(<LearningRound session={{ ...session, role: 'teacher' }} payload={{ ...payload,
+      questions: [{ ...question, gradeBand: grade }] }} practiceMode practiceDashboard={previewDashboard}
+      studyTopics={[{ skillId: card.skillId, skillTitle: card.title, conceptKey: question.conceptKey!,
+        title: '原电池与燃料电池放电原理', sequence: 1, originalCount: 5, freshCount: 2,
+        releaseId: 'release', releaseKind: 'primary', answeredCount: 0, recentCorrect: 0,
+        reviewDueAt: null, reviewPriority: 100, reviewReason: '最近答错' }]}
+      onOpenFocusedTopic={openFocused} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /不知道/ }))
+    fireEvent.click(screen.getByRole('button', { name: '开始练习' }))
+    fireEvent.click(screen.getByRole('button', { name: 'B. 乙' }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(screen.getByRole('button', { name: '完成今日题组' }))
+    expect(await screen.findByRole('heading', { name: '本组答对 0/1 题。' })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByText('原电池与燃料电池放电原理').closest('article')!).getByRole('button', { name: '复习这块' }))
+    fireEvent.click(screen.getByRole('button', { name: /电极判断/ }))
+    fireEvent.click(screen.getByRole('button', { name: /眼熟/ }))
+    fireEvent.click(screen.getByRole('button', { name: /原电池与燃料电池放电原理.*2 道未做原题/ }))
+    await waitFor(() => expect(openFocused).toHaveBeenCalledWith(card.skillId, question.conceptKey))
+    expect(submitAttempt).not.toHaveBeenCalled()
+    expect(saveKnowledgeRating).not.toHaveBeenCalled()
+  })
+
+  it('matches the student maximum-level resolution in a read-only simulated round', async () => {
+    const completed = { ...payload, plan: { ...payload.plan, roundLimit: 4, maxQuestionLevel: 2 }, roundLimit: 4 }
+    const previewDashboard = { ...dashboard, plans: [completed.plan] }
+    render(<LearningRound session={{ ...session, role: 'teacher' }} payload={completed} practiceMode
+      practiceDashboard={previewDashboard} onExit={vi.fn()} onContinue={vi.fn(async () => undefined)} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /不知道/ }))
+    fireEvent.click(screen.getByRole('button', { name: '开始练习' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A. 甲' }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(screen.getByRole('button', { name: '完成第 1 轮' }))
+    expect(await screen.findByRole('heading', { name: '本组全部回答正确。' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /进入第 2 轮/ })).not.toBeInTheDocument()
+    expect(submitAttempt).not.toHaveBeenCalled()
+  })
+
   it('offers knowledge self-rating, a small-point repair path and a real same-concept question action', async () => {
     vi.mocked(submitAttempt).mockResolvedValue({ dashboard, achievements: [] })
     vi.mocked(saveKnowledgeRating).mockResolvedValue({ ok: true })

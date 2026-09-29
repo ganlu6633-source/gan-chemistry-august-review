@@ -9,6 +9,7 @@ export type RecoveryTarget = {
   conceptKey: string | null
   title: string
   wrongCount: number
+  uncertainCount?: number
   anchorQuestionId: string | null
   branch: OptionPracticeProgress | null
   fromSelfRating: boolean
@@ -17,7 +18,7 @@ export type RecoveryTarget = {
 }
 
 type RecoveryInput = {
-  questions: Pick<Question, 'id' | 'skillId' | 'conceptKey' | 'optionPractice'>[]
+  questions: Pick<Question, 'id' | 'skillId' | 'conceptKey' | 'optionPractice' | 'choiceContext'>[]
   answers: LearningAttempt['answers']
   branches: OptionPracticeProgress[]
   cards: KnowledgeCard[]
@@ -32,10 +33,14 @@ export function buildRecoveryTargets({ questions, answers, branches, cards, poin
   const byQuestion = new Map(questions.map((question) => [question.id, question]))
   const targets = new Map<string, RecoveryTarget>()
 
-  for (const answer of answers.filter((item) => !item.correct)) {
+  for (const answer of answers.filter((item) => !item.correct || item.uncertain)) {
     const question = byQuestion.get(answer.questionId)
     if (!question) continue
-    const anchorId = question.optionPractice?.anchorQuestionId ?? question.id
+    // The three-round policy diagnoses the newly wrong reserve's own option.
+    // Its incoming optionPractice identifies why it was issued, not why this
+    // new answer is wrong. Legacy single-branch practice still groups follow-ups
+    // under the original anchor as before.
+    const anchorId = question.choiceContext ? question.id : question.optionPractice?.anchorQuestionId ?? question.id
     const anchor = byQuestion.get(anchorId) ?? question
     const branch = branches.find((item) => item.anchorQuestionId === anchorId && item.knowledgePoint.trim()) ?? null
     const conceptKey = anchor.conceptKey ?? null
@@ -44,8 +49,8 @@ export function buildRecoveryTargets({ questions, answers, branches, cards, poin
     const title = branch?.knowledgePoint || (conceptKey && conceptTitles[conceptKey]) || card?.title || anchor.skillId
     const previous = targets.get(key)
     targets.set(key, previous
-      ? { ...previous, wrongCount: previous.wrongCount + 1 }
-      : { key, skillId: anchor.skillId, conceptKey, title, wrongCount: 1, anchorQuestionId: anchorId, branch, fromSelfRating: false })
+      ? { ...previous, wrongCount: previous.wrongCount + Number(!answer.correct), uncertainCount: (previous.uncertainCount ?? 0) + Number(answer.uncertain) }
+      : { key, skillId: anchor.skillId, conceptKey, title, wrongCount: Number(!answer.correct), uncertainCount: Number(answer.uncertain), anchorQuestionId: anchorId, branch, fromSelfRating: false })
   }
 
   for (const card of cards) {
@@ -60,6 +65,7 @@ export function buildRecoveryTargets({ questions, answers, branches, cards, poin
 
   return [...targets.values()].sort((a, b) => Number(Boolean(b.branch)) - Number(Boolean(a.branch))
     || b.wrongCount - a.wrongCount
+    || (b.uncertainCount ?? 0) - (a.uncertainCount ?? 0)
     || Number(b.selfRating === 'unknown') - Number(a.selfRating === 'unknown')
     || a.title.localeCompare(b.title, 'zh-CN'))
 }

@@ -1,5 +1,6 @@
 import type { CreateVideoRecommendationInput, FuturePlanPreviewPayload, GuardianDashboardData, JuniorAdaptivePayload, JuniorStepSubmissionResult, LearningAttempt, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
-import { ACCESS_FUNCTION, functionUrl, JUNIOR_FUNCTION_REGION, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
+import { ACCESS_FUNCTION, functionUrl, LEARNING_FUNCTION_REGION, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
+import { REGIONAL_LEARNING_ACTIONS, regionalLearningReplaySafe } from '../../supabase/functions/chemistry-access/learning-regional-actions'
 import { readAccessSession } from './session'
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -83,22 +84,20 @@ export interface ApiRequestOptions {
   signal?: AbortSignal
 }
 
-const REGIONAL_JUNIOR_ACTIONS = new Set([
-  'junior_open_session', 'junior_submit_step', 'preview_junior_open_session', 'preview_junior_submit_step',
-])
+const regionalActions = new Set<string>(REGIONAL_LEARNING_ACTIONS)
 
 async function fetchAccessAction(action: string, request: RequestInit): Promise<Response> {
   const defaultUrl = functionUrl(ACCESS_FUNCTION)
-  if (!REGIONAL_JUNIOR_ACTIONS.has(action)) {
+  if (!regionalActions.has(action)) {
     return fetch(defaultUrl, request)
   }
   // Tell the server this is an intentional automatic-region fallback. Otherwise
   // its compatibility relay for older tabs could send us back to the failed region.
   const fallbackUrl = new URL(defaultUrl)
   fallbackUrl.searchParams.set('chemRegionalFallback', '1')
-  if (!JUNIOR_FUNCTION_REGION || JUNIOR_FUNCTION_REGION === 'any') return fetch(fallbackUrl.toString(), request)
+  if (!LEARNING_FUNCTION_REGION || LEARNING_FUNCTION_REGION === 'any') return fetch(fallbackUrl.toString(), request)
   const regionalUrl = new URL(defaultUrl)
-  regionalUrl.searchParams.set('forceFunctionRegion', JUNIOR_FUNCTION_REGION)
+  regionalUrl.searchParams.set('forceFunctionRegion', LEARNING_FUNCTION_REGION)
   request.signal?.throwIfAborted()
   let response: Response
   try {
@@ -109,10 +108,12 @@ async function fetchAccessAction(action: string, request: RequestInit): Promise<
     request.signal?.throwIfAborted()
     const errorName = reason instanceof Error || reason instanceof DOMException ? reason.name : ''
     if (errorName === 'AbortError') throw reason
+    if (!regionalLearningReplaySafe(action)) throw reason
     if (!(reason instanceof TypeError) && errorName !== 'NetworkError') throw reason
     return fetch(fallbackUrl.toString(), request)
   }
   if (response.status >= 500 && response.status <= 599) {
+    if (!regionalLearningReplaySafe(action)) return response
     request.signal?.throwIfAborted()
     return fetch(fallbackUrl.toString(), request)
   }
@@ -192,7 +193,7 @@ export interface QuestionFeedbackInput {
   durationSec: number
   revisionToken?: string | null
   previewRound?: number
-  previewAnswers?: Array<{ questionId: string; selectedOption: number; revisionToken?: string | null }>
+  previewAnswers?: Array<{ questionId: string; selectedOption: number; revisionToken?: string | null; uncertain?: boolean; durationSec?: number }>
   previewSelfStudy?: { skillId: string; conceptKey: string; releaseId: string }
 }
 
@@ -202,6 +203,7 @@ export interface QuestionFeedbackResponse {
   /** Complete ordered group, including follow-up questions selected by the server. */
   questions?: Question[]
   optionPractice?: OptionPracticeProgress[]
+  choiceTraining?: import('../domain/types').ChoiceTrainingProgress
 }
 
 /** Lock a real student's first high-school source answer before revealing feedback. */

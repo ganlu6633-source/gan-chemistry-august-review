@@ -2,15 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionIdentity } from '../domain/types'
 import { accessApi, loadLearningRecord, loadStudentPreviewDashboard, loadTeacherDashboard, openJuniorAdaptiveSession, previewQuestionFeedback, teacherApi } from './api'
 import { clearAccessSession, writeAccessSession } from './session'
+import { REGIONAL_LEARNING_ACTIONS, regionalLearningReplaySafe } from '../../supabase/functions/chemistry-access/learning-regional-actions'
 
 const session: SessionIdentity = { role: 'student', token: 'student-session', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }
 
-describe('regional junior access routing', () => {
+describe('regional learning access routing', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetModules() })
-  const actions = ['junior_open_session', 'junior_submit_step', 'preview_junior_open_session', 'preview_junior_submit_step']
+  const actions = REGIONAL_LEARNING_ACTIONS
   const response = (status = 200) => new Response(JSON.stringify(status >= 400 ? { error: `failure-${status}` } : { ok: true }), { status })
 
-  it.each(actions)('routes only the approved junior action %s to Sydney', async (action) => {
+  it.each(actions)('routes approved learning action %s to Sydney', async (action) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(response())
     vi.stubGlobal('fetch', fetchMock)
     const identity = action.startsWith('preview_') ? { ...session, role: 'teacher' as const } : session
@@ -23,7 +24,7 @@ describe('regional junior access routing', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ action, data: { planId: 'plan', feedbackOnly: true } })
   })
 
-  it.each(['student_dashboard', 'question_feedback', 'start_plan', 'submit_attempt', 'preview_start_plan', 'question_asset'])('leaves %s on its original route without adding a retry', async (action) => {
+  it.each(['login', 'register', 'claim_existing_student_phone', 'guardian_dashboard', 'unknown_action'])('leaves %s on its original route without adding a retry', async (action) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(response(503))
     vi.stubGlobal('fetch', fetchMock)
     await expect(accessApi(session, action, {})).rejects.toThrow('failure-503')
@@ -31,7 +32,7 @@ describe('regional junior access routing', () => {
     expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.has('forceFunctionRegion')).toBe(false)
   })
 
-  it.each(actions)('falls back once after regional 5xx with the identical %s request', async (action) => {
+  it.each(actions.filter(regionalLearningReplaySafe))('falls back once after regional 5xx with the identical %s request', async (action) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(response(503)).mockResolvedValueOnce(response())
     vi.stubGlobal('fetch', fetchMock)
     const identity = action.startsWith('preview_') ? { ...session, role: 'teacher' as const } : session
@@ -43,6 +44,17 @@ describe('regional junior access routing', () => {
     expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get('chemRegionalFallback')).toBe('1')
     expect(fetchMock.mock.calls[1][1]).toBe(fetchMock.mock.calls[0][1])
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ action, data })
+  })
+
+  it.each(['open_self_study', 'submit_attempt', 'save_knowledge_rating'])('does not automatically replay a possibly committed %s write', async (action) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(response(503))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(accessApi(session, action, { id: 'immutable-attempt' })).rejects.toThrow('failure-503')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('forceFunctionRegion')).toBe('ap-southeast-2')
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(accessApi(session, action, { id: 'immutable-attempt' })).rejects.toThrow('Failed to fetch')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('serializes the first answer once even if the caller changes its object during a lost response', async () => {

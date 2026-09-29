@@ -15,6 +15,7 @@ import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeSt
 import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
 import { recommendStudyTopics, type StudyHistoryAnswer } from "./study-recommendations.ts";
 import { relayJuniorRequest } from "./junior-regional-relay.ts";
+import { parseChoiceContext, choiceProgress, choiceBranches, choiceQuestionContext, choiceAnswersMatch, choiceErrorMessage, type ChoiceTrainingContext } from "./choice-training.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -2115,7 +2116,7 @@ async function studentDashboard(studentId: string, readOnly = false) {
   // adding a full network round trip to every login and refresh. Only the
   // grade-scoped skill catalogue depends on it; all other reads can start at
   // once without weakening row scoping or the student-id checks.
-  const [profileResult, planResult, stateResult, attemptResult, videoRecommendations] = await Promise.all([
+  const [profileResult, planResult, stateResult, attemptResult, videoRecommendations, startedPlansResult, choicePoliciesResult] = await Promise.all([
     supabase.from("chem_students_v2")
       .select("id,display_name,grade_band,school_class,textbook_version,enrollment_start_date,needs_initial_diagnostic,metadata")
       .eq("id", studentId)
@@ -2132,9 +2133,13 @@ async function studentDashboard(studentId: string, readOnly = false) {
       .eq("student_id", studentId)
       .order("completed_at"),
     loadVideoRecommendations(studentId),
+    supabase.rpc("chem_started_plan_ids", { p_student_id: studentId }),
+    supabase.rpc("chem_choice_training_policies", { p_student_id: studentId }),
   ]);
   if (profileResult.error) throw profileResult.error;
-  for (const result of [planResult, stateResult, attemptResult]) if (result.error) throw result.error;
+  for (const result of [planResult, stateResult, attemptResult, startedPlansResult, choicePoliciesResult]) if (result.error) throw result.error;
+  const startedPlanIds = new Set((startedPlansResult.data || []).map((row: { plan_id: string }) => String(row.plan_id)));
+  const choicePolicies = new Map((choicePoliciesResult.data || []).map((row: { plan_id: string; policy_version: string; allow_advance_study: boolean }) => [String(row.plan_id), row]));
   let plans = (planResult.data || []) as Array<Record<string, unknown>>;
   let juniorSessionByPlanId = new Map<string, Record<string, unknown>>();
   if (String(profileResult.data.grade_band) === "初三") {
@@ -2199,12 +2204,12 @@ async function studentDashboard(studentId: string, readOnly = false) {
       reviewProgram: program,
       availableDemoGrades: isDemo ? ["高一", "高二", "高三"] : undefined,
     },
-    plans: plans.map((plan) => studentDashboardPlanShape(
-      plan,
-      attemptResult.data || [],
-      juniorSessionByPlanId.get(String(plan.id)),
-      reviewProfile,
-    )),
+    plans: plans.map((plan) => ({
+      ...studentDashboardPlanShape(plan, attemptResult.data || [], juniorSessionByPlanId.get(String(plan.id)), reviewProfile),
+      hasStarted: startedPlanIds.has(String(plan.id)),
+      ...(choicePolicies.has(String(plan.id)) ? { choiceTrainingPolicy: 'choice_8_3_30_v1',
+        canStudyAhead: (choicePolicies.get(String(plan.id)) as { allow_advance_study: boolean }).allow_advance_study === true } : {}),
+    })),
     skillStates: states,
     skillDefinitions: (skillResult.data || []).map(skillShape),
     todayQuestionCount: todayPlan ? planQuestionCount(todayPlan) : 0,
@@ -2544,13 +2549,15 @@ type PreparedFeedbackContinuation = (locks: Array<Record<string, unknown>>) => {
 };
 
 type StartPlanOptions = {
+  /** Only the explicit student open may freeze/reserve a new choice session. */
+  choiceOpen?: boolean;
   /** Request-local only: never serialize answer-bearing source rows or cache across requests. */
   onFeedbackPrepared?: (continueWithLocks: PreparedFeedbackContinuation) => void;
   allowCompletedPreview?: boolean;
   previewRound?: number;
   includeAnswerLocks?: boolean;
   /** Teacher-only simulation, never persisted as student evidence. */
-  previewAnswers?: Array<{ questionId: string; selectedOption: number; revisionToken?: string | null }>;
+  previewAnswers?: Array<{ questionId: string; selectedOption: number; revisionToken?: string | null; uncertain?: boolean; durationSec?: number }>;
   /** Server-reconstructed teacher topic plan. Never inserted into a student's plans. */
   planOverride?: Record<string, unknown>;
   teacherSimulation?: boolean;
@@ -2559,7 +2566,7 @@ type StartPlanOptions = {
 };
 
 async function startPlanPayload(studentId: string, planId: string, options: StartPlanOptions = {}) {
-  const [planResult, gradeResult, sourceReleasesResult] = await Promise.all([
+  const [planResult, gradeResult, sourceReleasesResult, choicePolicy] = await Promise.all([
     options.planOverride ? Promise.resolve({ data: options.planOverride, error: null }) : supabase
       .from("chem_learning_plans")
       .select("*")
@@ -2570,10 +2577,19 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     // This query does not depend on the student's grade. Starting it with the
     // plan/profile fetch removes one cross-region round trip for high-school REVIEW.
     supabase.rpc("chem_active_verified_source_releases"),
+    options.planOverride ? Promise.resolve({ data: null, error: null })
+      : supabase.rpc("chem_choice_training_policy", { p_plan_id: planId }),
   ]);
   const { data: plan, error: planError } = planResult;
   if (planError) throw planError;
   if (gradeResult.error) throw gradeResult.error;
+  if (choicePolicy.error) throw choicePolicy.error;
+  if (choicePolicy.data) {
+    const preview = options.teacherSimulation === true;
+    const context = await choiceContext(studentId, planId, preview ? options.previewAnswers ?? [] : null,
+      options.choiceOpen === true && !preview);
+    return choicePlanPayload(plan, String(gradeResult.data.grade_band), context);
+  }
   if (plan.delivery_mode === "junior_adaptive") {
     throw new RequestError(409, "初三自适应学习只能通过专用学习会话打开；通用练习入口已关闭。");
   }
@@ -3014,7 +3030,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
         throw new RequestError(409, "预览答题顺序或题目版本已变化，请重新打开预览。");
       }
       return { question_id: answer.questionId, selected_option: answer.selectedOption,
-        uncertain: false, duration_sec: 0, revision_token: answer.revisionToken };
+        uncertain: answer.uncertain === true, duration_sec: Math.min(3600, Math.max(0, Number(answer.durationSec) || 0)), revision_token: answer.revisionToken };
     })
     : effectiveOptions.includeAnswerLocks && plan.mode === "REVIEW" && !options.planOverride
     ? await answerLocks(studentId, String(plan.id), selectionSequence)
@@ -3072,7 +3088,82 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     isResolved,
     isComplete: isResolved || reachedRoundLimit,
     roundsRemaining: isResolved || reachedRoundLimit ? 0 : Math.max(0, roundLimit - actualAttemptCount),
+    choiceTraining: undefined,
   };
+}
+
+async function choiceContext(studentId: string, planId: string, previewAnswers: StartPlanOptions["previewAnswers"] | null = null, open = false) {
+  const result = open
+    ? await supabase.rpc("chem_choice_training_open", { p_student_id: studentId, p_plan_id: planId })
+    : await supabase.rpc("chem_choice_training_context", { p_student_id: studentId, p_plan_id: planId, p_preview_answers: previewAnswers });
+  if (result.error) throw result.error;
+  return parseChoiceContext(result.data);
+}
+
+function choicePublicQuestions(context: ChoiceTrainingContext) {
+  return context.questions.map(q => {
+    const detail = q.choiceContext as Record<string, unknown> | undefined;
+    return { ...questionShape(q, true), ...(detail ? { choiceContext: choiceQuestionContext(detail),
+      ...(Number(detail.recoveryRound) > 0 ? { optionPractice: {
+        anchorQuestionId: String(detail.anchorQuestionId || detail.anchorId || ""),
+        optionIndex: Number(detail.optionIndex ?? context.branches.find(b => b.anchorQuestionId === (detail.anchorQuestionId || detail.anchorId))?.anchorOptionIndex), knowledgePoint: String(detail.knowledgePoint || ""),
+        position: Number(detail.position), total: Number(detail.total), recoveryRound: Number(detail.recoveryRound),
+      } } : {}) } : {}) };
+  });
+}
+
+function choiceLockedFeedback(context: ChoiceTrainingContext) {
+  return context.lockedAnswers.map(lock => {
+    const q = context.questions.find(item => item.id === lock.question_id);
+    if (!q) throw new RequestError(409, "保存的答案与当前题组不一致，请联系甘老师核对。");
+    return questionFeedbackShape(q, Number(lock.selected_option), {
+      uncertain: lock.uncertain === true, durationSec: Number(lock.duration_sec) || 0,
+    });
+  });
+}
+
+async function choicePlanPayload(plan: Record<string, unknown>, gradeBand: string, context: ChoiceTrainingContext) {
+  if (!context.questions.length) throw new RequestError(409,
+    context.pendingReason === 'daily_limit' ? "今天的题量已到上限，先回顾错点，明天再继续。"
+      : "这个知识点的合格原题暂时不足，请先进入知识点复习，甘老师正在补齐题目。");
+  const skills = [...new Set([...((plan.skill_ids || []) as string[]), ...context.questions.map(q => String(q.skill_id))])];
+  const cards = await supabase.from("chem_knowledge_cards").select("*").in("skill_id", skills).eq("review_status", "approved");
+  if (cards.error) throw cards.error;
+  return { plan: { ...planShape(plan, [], undefined, { gradeBand, isDemo: false }), hasStarted: context.lockedAnswers.length > 0, choiceTrainingPolicy: 'choice_8_3_30_v1' },
+    cards: (cards.data || []).map(cardShape), questions: choicePublicQuestions(context),
+    lockedFeedback: choiceLockedFeedback(context), optionPractice: choiceBranches(context),
+    baseQuestionCount: 8, attemptSequence: 0, roundNumber: 1, roundLimit: 1, questionCount: 8,
+    isResolved: false, isComplete: false, roundsRemaining: 1, choiceTraining: choiceProgress(context) };
+}
+
+async function choiceMasteryStates(studentId: string, context: ChoiceTrainingContext) {
+  const answers = context.questions.map(q => {
+    const lock = context.lockedAnswers.find(a => a.question_id === q.id)!;
+    return { question_id: String(q.id), skill_id: String(q.skill_id), concept_key: q.concept_key ? String(q.concept_key) : null,
+      level: Number(q.level), correct: Number(lock.selected_option) === Number(q.correct_option), uncertain: lock.uncertain === true };
+  });
+  const skills = [...new Set(answers.map(a => a.skill_id))];
+  const current = await supabase.from("chem_student_skill_state")
+    .select("skill_id,verified_level,candidate_level,stability,consecutive_errors,review_interval_index,updated_at")
+    .eq("student_id", studentId).in("skill_id", skills);
+  if (current.error) throw current.error;
+  const now = new Date();
+  return skills.map(skillId => {
+    const old = current.data?.find(s => s.skill_id === skillId);
+    const evidence = skillMasteryEvidence(answers, choiceBranches(context), skillId);
+    const stable = evidence.unresolvedErrors === 0 && (evidence.confirmedLevel > 0 || old?.stability === "verified");
+    const errors = evidence.unresolvedErrors ? Number(old?.consecutive_errors || 0) + evidence.unresolvedErrors
+      : evidence.confirmedLevel > 0 ? 0 : Number(old?.consecutive_errors || 0);
+    const interval = stable ? Math.min(4, Number(old?.review_interval_index || 0) + (evidence.confirmedLevel > 0 ? 1 : 0)) : 0;
+    return { student_id: studentId, skill_id: skillId,
+      _expected_updated_at: old?.updated_at ?? null,
+      verified_level: Math.max(Number(old?.verified_level || 0), evidence.confirmedLevel),
+      candidate_level: evidence.candidateLevel || old?.candidate_level || null,
+      stability: stable ? "verified" : "learning", consecutive_errors: errors,
+      next_review_at: new Date(now.getTime() + [1, 3, 7, 14, 30][interval] * 86400000).toISOString(),
+      review_interval_index: interval, last_reviewed_at: now.toISOString(), teacher_intervention: errors >= 3 && evidence.unresolvedErrors > 0,
+      updated_at: now.toISOString() };
+  });
 }
 
 async function answerLocks(studentId: string, planId: string, sequence: number) {
@@ -3766,6 +3857,7 @@ Deno.serve(async (req: Request) => {
         // Demo profiles never inherit historical evidence. They may read only
         // the exact question image issued by the current verified source release.
         let hasCompletedAnswer = false;
+        let choiceAssetContext: ChoiceTrainingContext | null = null;
         if (!assetTargetIsDemo) {
           const evidence = await supabase
             .from("chem_attempt_answers")
@@ -3793,10 +3885,17 @@ Deno.serve(async (req: Request) => {
         if (identity.role === "student" && String(question.source_release_id || "") !== activeAssetReleaseId) {
           const assetPlanId = String(body.data?.planId || "");
           if (validUuid(assetPlanId)) {
-            const assetPlan = await supabase.from("chem_learning_plans")
+            const [assetPlan, choicePolicy] = await Promise.all([supabase.from("chem_learning_plans")
               .select("teaching_managed,teaching_source_grade,delivery_mode,self_study_release_id")
-              .eq("id", assetPlanId).eq("student_id", assetStudentId).maybeSingle();
-            if (assetPlan.error) throw assetPlan.error;
+              .eq("id", assetPlanId).eq("student_id", assetStudentId).maybeSingle(),
+              supabase.rpc("chem_choice_training_policy", { p_plan_id: assetPlanId })]);
+            if (assetPlan.error || choicePolicy.error) throw assetPlan.error || choicePolicy.error;
+            if (assetPlan.data && choicePolicy.data) {
+              choiceAssetContext = await choiceContext(assetStudentId!, assetPlanId);
+              const issued = choiceAssetContext.questions.find(q => q.id === questionId
+                && q.question_revision_token === question.question_revision_token);
+              if (issued) activeAssetReleaseId = String(issued.source_release_id);
+            }
             if ((assetPlan.data?.teaching_managed === true
               && assetPlan.data.teaching_source_grade === question.grade_band)
               || (assetPlan.data?.delivery_mode === "self_study"
@@ -3879,7 +3978,9 @@ Deno.serve(async (req: Request) => {
             const demoTarget = await isDemoStudent(assetStudentId!);
             if (previewRound === undefined || demoTarget) {
               try {
-                const expectedPayload = await startPlanPayload(
+                const expectedPayload = choiceAssetContext ? {
+                  plan: { mode: "REVIEW" }, attemptSequence: 0, questions: choicePublicQuestions(choiceAssetContext),
+                } : await startPlanPayload(
                   assetStudentId!,
                   planId,
                   demoTarget
@@ -3970,6 +4071,31 @@ Deno.serve(async (req: Request) => {
       const onFeedbackPrepared = (continuation: PreparedFeedbackContinuation) => { prepared.continueWithLocks = continuation; };
       const previewSelfStudy = identity.role === "teacher" && body.data?.previewSelfStudy
         && typeof body.data.previewSelfStudy === "object" ? body.data.previewSelfStudy as Record<string, unknown> : null;
+      const choicePolicy = previewSelfStudy ? { data: null, error: null }
+        : await supabase.rpc("chem_choice_training_policy", { p_plan_id: planId });
+      if (choicePolicy.error) throw choicePolicy.error;
+      if (choicePolicy.data) {
+        const virtualAnswers = [...(previewAnswers ?? []), { questionId, selectedOption: Number(selectedOption),
+          revisionToken: submittedRevisionToken, uncertain: body.data?.uncertain === true,
+          durationSec: Math.min(3600, Math.max(0, Number(body.data?.durationSec) || 0)) }];
+        if (readOnlyPreview && (virtualAnswers.length > 30
+          || new Set(virtualAnswers.map(a => a.questionId)).size !== virtualAnswers.length)) {
+          return reply(req, { error: "模拟答题记录重复或超过题量上限。" }, 400);
+        }
+        const result = readOnlyPreview ? null : await supabase.rpc("chem_choice_training_lock_answer", {
+          p_student_id: targetId, p_plan_id: planId, p_question_id: questionId,
+          p_revision_token: submittedRevisionToken, p_selected_option: selectedOption,
+          p_uncertain: body.data?.uncertain === true,
+          p_duration_sec: Math.min(3600, Math.max(0, Math.round(Number(body.data?.durationSec) || 0))),
+        });
+        if (result?.error) throw result.error;
+        const context = readOnlyPreview ? await choiceContext(targetId, planId, virtualAnswers)
+          : parseChoiceContext(result?.data?.context);
+        const feedback = choiceLockedFeedback(context).find(item => item.questionId === questionId);
+        if (!feedback || feedback.selectedOption !== selectedOption) throw new RequestError(409, "这道题已按第一次选择保存，请重新打开以恢复答案。");
+        return reply(req, { feedback, questions: choicePublicQuestions(context), optionPractice: choiceBranches(context),
+          choiceTraining: choiceProgress(context), simulated: readOnlyPreview });
+      }
       const feedbackOptions: StartPlanOptions = readOnlyPreview
         ? { studentOpen: true, teacherSimulation: true, includeAnswerLocks: true, previewRound, previewAnswers, onFeedbackPrepared }
         : { studentOpen: true, includeAnswerLocks: true, onFeedbackPrepared };
@@ -4072,7 +4198,7 @@ Deno.serve(async (req: Request) => {
         ? await answerLocks(targetId, planId, Number(payload.attemptSequence))
         : [...(previewAnswers ?? []).filter((answer) => answer.questionId !== questionId).map((answer) => ({
           question_id: answer.questionId, selected_option: answer.selectedOption,
-          revision_token: answer.revisionToken, uncertain: false, duration_sec: 0,
+          revision_token: answer.revisionToken, uncertain: answer.uncertain === true, duration_sec: Math.min(3600, Math.max(0, Number(answer.durationSec) || 0)),
         })), { question_id: questionId, selected_option: lockedOption, revision_token: expectedRevisionToken,
           uncertain: lockedUncertain, duration_sec: lockedDurationSec }];
       const continued = !readOnlyPreview || identity.role === "teacher"
@@ -4347,7 +4473,7 @@ Deno.serve(async (req: Request) => {
       if (!planId) return reply(req, { error: "学习计划信息不完整。" }, 400);
       const previewRound = body.data?.previewRound === undefined ? undefined : Number(body.data.previewRound);
       return reply(req, {
-        payload: await startPlanPayload(targetId, planId, { studentOpen: true, previewRound }),
+        payload: await startPlanPayload(targetId, planId, { studentOpen: true, previewRound, choiceOpen: true }),
       });
     }
 
@@ -4384,6 +4510,35 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (planError) throw planError;
       if (!plan) return reply(req, { error: "无权提交该学习记录。" }, 403);
+      const choicePolicy = await supabase.rpc("chem_choice_training_policy", { p_plan_id: String(plan.id) });
+      if (choicePolicy.error) throw choicePolicy.error;
+      if (choicePolicy.data) {
+        const context = await choiceContext(targetId, String(plan.id));
+        if (!validUuid(String(attempt.id || "")) || !choiceAnswersMatch(context, attempt.answers)) {
+          return reply(req, { error: "请完成当前题组，提交的记录须与已保存的第一次选择一致。" }, 409);
+        }
+        let finalized;
+        for (let tryIndex = 0; tryIndex < 2; tryIndex++) {
+          const states = await choiceMasteryStates(targetId, context);
+          finalized = await supabase.rpc("chem_choice_training_finalize", {
+            p_student_id: targetId, p_plan_id: String(plan.id), p_attempt_id: String(attempt.id), p_skill_states: states,
+          });
+          // This conflict is raised before the transaction commits. Re-read
+          // mastery once; never replay arbitrary failed writes.
+          if (finalized.error?.message !== "choice_mastery_changed") break;
+        }
+        if (!finalized) throw new RequestError(500, "本轮暂时无法保存，请重试。");
+        if (finalized.error) throw finalized.error;
+        if (finalized.data?.completed !== true) throw new RequestError(500, "本轮记录暂未保存完整，请重试。");
+        let knowledgeRatingsSaved = true;
+        if (submittedKnowledgeRatings.length) {
+          const ratings = await supabase.from("chem_learning_attempts").update({ knowledge_ratings: submittedKnowledgeRatings })
+            .eq("id", String(finalized.data.attemptId)).eq("student_id", targetId);
+          knowledgeRatingsSaved = !ratings.error;
+        }
+        return reply(req, { dashboard: await studentDashboard(targetId), achievements: [],
+          feedback: choiceLockedFeedback(context), knowledgeRatingsSaved });
+      }
       const delivery = ownedPlanDeliveryContext(plan, String(targetProfile.data.grade_band));
       if (String(targetProfile.data.grade_band) === "初三" && !delivery.managed && plan.delivery_mode !== "self_study") {
         return reply(req, { error: "初三原自适应课程请从专用会话提交。" }, 409);
@@ -4859,6 +5014,10 @@ Deno.serve(async (req: Request) => {
     return reply(req, { error: "无权执行该操作。" }, 403);
   } catch (error) {
     if (error instanceof RequestError) return reply(req, { error: error.message }, error.status);
+    if (isPlainRecord(error)) {
+      const message = choiceErrorMessage(String(error.message || ''));
+      if (message) return reply(req, { error: message }, 409);
+    }
     if (isPlainRecord(error) && String(error.message || "").includes("junior_daily_question_limit")) {
       return reply(req, { error: "今天已达到30道题的上限，已提交的答案和学习进度都已保留。剩下的题明天接着练。" }, 409);
     }

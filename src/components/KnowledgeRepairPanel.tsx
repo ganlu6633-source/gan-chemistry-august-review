@@ -7,6 +7,7 @@ import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { ChemText } from './ChemText'
 import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { knowledgeReviewPointExamples } from '../domain/knowledgeReviewPointExamples'
+import { splitAnswerExplanation } from '../domain/answerExplanation'
 
 export function KnowledgeConfidencePicker({ value, onChange }: { value?: KnowledgeConfidence; onChange: (value: KnowledgeConfidence) => void }) {
   const choices: Array<{ value: KnowledgeConfidence; label: string; detail: string }> = [
@@ -23,10 +24,21 @@ export function KnowledgeConfidencePicker({ value, onChange }: { value?: Knowled
 
 type RepairSection = { id: string; title: string; items: KnowledgeTreeNode[] }
 
-function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, explanation?: string): RepairSection[] {
+function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, explanation?: string, focusedOnly = false): RepairSection[] {
   const exactPoint = target.pointId && card ? getKnowledgeReviewPoints(card).find((point) => point.id === target.pointId) : null
   if (exactPoint) return [{ id: exactPoint.id, title: exactPoint.section, items: [{ label: exactPoint.title, rule: exactPoint.rule,
     examples: knowledgeReviewPointExamples(card!, exactPoint), caution: exactPoint.caution }] }]
+  if (focusedOnly && target.branch) {
+    // A reviewed option binding identifies the small point. Without an exact
+    // card leaf, use that option's original explanation rather than substituting
+    // all the neighbouring topics from the broad chapter.
+    const option = String.fromCharCode(65 + target.branch.optionIndex)
+    const parts = splitAnswerExplanation(explanation || '')
+    const own = parts.filter(p => p.option === option).map(p => p.text).join('\n')
+    return [{ id: target.key, title: target.branch.knowledgePoint, items: [{ label: target.branch.knowledgePoint,
+      rule: own || '回看刚才这个选项的判断依据，再用下面的同类型原题检查这一点。',
+      examples: own ? undefined : parts.filter(p => !p.option).map(p => p.text).slice(0, 1) }] }]
+  }
   if (card && isStructuredKnowledgeContent(card.structuredContent) && card.structuredContent.sections.length) {
     const points = getKnowledgeReviewPoints(card)
     const sections = card.structuredContent.sections.map((section, index) => ({ title: section.title,
@@ -47,7 +59,7 @@ function sectionsFor(card: KnowledgeCard | undefined, target: RecoveryTarget, ex
     rule: explanation || '请结合刚才的原题解析，先说清判断依据，再做同知识点原题。' }] }]
 }
 
-export function KnowledgeRepairPanel({ target, card, explanation, practiceTopics = [], onBack, onPractice, onRating, practiceBusy }: {
+export function KnowledgeRepairPanel({ target, card, explanation, practiceTopics = [], onBack, onPractice, onRating, practiceBusy, onContinue, continueLabel }: {
   target: RecoveryTarget
   card?: KnowledgeCard
   explanation?: string
@@ -56,8 +68,10 @@ export function KnowledgeRepairPanel({ target, card, explanation, practiceTopics
   onPractice?: (conceptKey: string) => Promise<void>
   onRating?: (point: string, rating: KnowledgeConfidence) => void
   practiceBusy?: boolean
+  onContinue?: () => void
+  continueLabel?: string
 }) {
-  const sections = sectionsFor(card, target, explanation)
+  const sections = sectionsFor(card, target, explanation, Boolean(target.branch))
   const suggested = target.branch?.knowledgePoint || target.title
   const suggestedIndex = sections.findIndex((section) => section.title.includes(suggested)
     || section.items.some((item) => item.label.includes(suggested) || suggested.includes(item.label)))
@@ -77,19 +91,20 @@ export function KnowledgeRepairPanel({ target, card, explanation, practiceTopics
   }
 
   return <section className="learning-stage repair-stage">
-    <button type="button" className="text-button" onClick={onBack}>← 返回本轮结果</button>
+    <button type="button" className="text-button" onClick={onBack}>{onContinue ? '← 回看刚才的题目' : '← 返回本轮结果'}</button>
     <div className="repair-intro"><span className="eyebrow"><BookOpen size={16} />知识点补给站</span><h1><ChemText>{target.title}</ChemText></h1>
-      <p>{target.branch ? '这条小点来自刚才选错的选项及甘老师审核过的对应关系。' : '一道错题只能说明这一块还要查一查；请你选出真正卡住的小点。'}</p></div>
+      <p>{target.branch ? '这条小点来自刚才选错或拿不准的选项及甘老师审核过的对应关系。' : '答错或拿不准，说明这一块还要查一查；请你选出真正卡住的小点。'}</p></div>
     {sectionIndex === null ? <div className="repair-section-list"><h2>先找卡住的那一环</h2><p>选你最想弄明白的部分，一次只啃一小块。</p>
       <div>{sections.map((item, index) => <button type="button" key={item.id} onClick={() => { setSectionIndex(index); setPointIndex(0) }}><span><ChemText>{item.title}</ChemText></span><small>{item.items.length} 个小点</small><ChevronRight size={17} /></button>)}</div>
     </div> : done && section ? <div className="repair-finished"><h2>这块复习完，拿原题检验一下</h2><p>“不知道／眼熟／熟练”是你的自我判断；系统会以之后的选择题作答继续检验，不会因为点了“熟练”就直接判定掌握。</p>
       <div className="repair-rating-summary">{section.items.map((item) => <span key={item.label}><ChemText>{item.label}</ChemText><b>{ratings[`${section.id}:${item.label}`] === 'unknown' ? '不知道' : ratings[`${section.id}:${item.label}`] === 'familiar' ? '眼熟' : '熟练'}</b></span>)}</div>
+      {onContinue && <button type="button" className="primary-button" onClick={onContinue}>{continueLabel || '开始同类型训练'}<ChevronRight size={18} /></button>}
       {onPractice && <div className="repair-practice-topics"><h3>选一个要突破的题库小点</h3><p>{target.pointId ? '只有题库考点与这个细点完全对上时才显示原题，避免拿大章节里的其他题凑数。' : '这里只列本模块已有审核原题的知识点。请选与你刚才卡住的环节对应的一项。'}</p>
         <div>{practiceTopics.map((topic) => <button type="button" key={`${topic.releaseId}:${topic.conceptKey}`} disabled={practiceBusy || topic.freshCount < 1} onClick={() => void onPractice(topic.conceptKey)}>
           <span><ChemText>{topic.title}</ChemText>{topic.conceptKey === target.conceptKey && <small>刚才错题所属</small>}</span><b>{topic.freshCount > 0 ? `${topic.freshCount} 道未做原题` : '暂无未做原题'}</b><ChevronRight size={17} /></button>)}</div>
         {!practiceTopics.length && <p>{target.pointId ? '这个细点暂未绑定到同点的已审核原题；先复习这一点，题库核对后再补练。' : '这个模块暂时没有可继续做的已审核原题。'}</p>}</div>}
       <div className="repair-actions">
-        <button type="button" className="secondary-button" onClick={() => { setSectionIndex(null); setPointIndex(0) }}>再挑一个小点</button><button type="button" className="secondary-button" onClick={onBack}>返回结果页</button></div>
+        <button type="button" className="secondary-button" onClick={() => { setSectionIndex(null); setPointIndex(0) }}>再挑一个小点</button><button type="button" className="secondary-button" onClick={onBack}>{onContinue ? '回看刚才的题目' : '返回结果页'}</button></div>
     </div> : <><div className="repair-step-head"><span>{section?.title} · {pointIndex + 1}/{section?.items.length}</span><button type="button" className="text-button" onClick={() => { setSectionIndex(null); setPointIndex(0) }}>换一个小点</button></div>
       <article className="knowledge-card repair-point"><span className="eyebrow">把这一点讲清楚</span><h2><ChemText>{point?.label ?? ''}</ChemText></h2><p className="repair-rule"><ChemText>{point?.rule ?? ''}</ChemText></p>
         {point?.examples?.length ? <details><summary>看一个例子</summary><ul>{point.examples.slice(0, 2).map((example) => <li key={example}><ChemText>{example}</ChemText></li>)}</ul></details> : null}

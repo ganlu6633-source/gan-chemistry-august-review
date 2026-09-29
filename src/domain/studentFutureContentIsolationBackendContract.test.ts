@@ -59,6 +59,6 @@ describe('student future-content isolation', () => {
     expect(juniorPlanShape).toContain('filter(([key]) => key !== "source")')
     expect(juniorPlanShape).toContain('futurePreviewInstructionalTextIsSafe([withoutSource.title, withoutSource.knowledgeSummaries])')
     expect(juniorPlanShape).toContain('title: "初三学习计划（内容清理中）", knowledgeSummaries: []')
-    expect(dashboard).toContain('plans.map((plan) => studentDashboardPlanShape(')
+    expect(dashboard).toContain('...studentDashboardPlanShape(plan,')
   })
 })
