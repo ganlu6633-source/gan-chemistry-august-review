@@ -52,6 +52,15 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     vi.restoreAllMocks()
   })
 
+  it('labels a real due review without describing an unseen question as review', () => {
+    const current = { ...question('due', '复习质量守恒'), learningPurpose: 'spaced_review' as const, lastAnsweredDate: '2026-09-20' }
+    const view = render(<JuniorAdaptiveSession session={session} initialPayload={payload(current)} onExit={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.getByText('到期复习 · 上次练习 2026-09-20')).toBeInTheDocument()
+    view.unmount()
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload({ ...question('fresh', '第一次练习'), learningPurpose: 'new_learning' })} onExit={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.queryByText(/到期复习/)).not.toBeInTheDocument()
+  })
+
   it('keeps coefficient/formula spans inside the option text so they cannot become letter badges or separate flex columns', () => {
     const current = question('formula', '选择配平正确的制氧方程式')
     current.options = ['2H₂O₂ = 2H₂O＋O₂↑（条件：MnO₂）', 'H₂O₂ = H₂O＋O₂↑', '2KMnO₄ = K₂MnO₄＋MnO₂＋O₂↑（条件：加热）', '2H']

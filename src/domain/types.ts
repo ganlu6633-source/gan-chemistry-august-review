@@ -287,6 +287,8 @@ export interface LearningPlanDay {
   deliveryMode?: 'legacy_round' | 'junior_adaptive' | 'self_study'
   /** Explicit course choices saved from teacher management. */
   teachingManaged?: boolean
+  /** Server-authorized advance study for a ready, assigned junior lesson. */
+  canStudyAhead?: boolean
   /** Grade of the assigned source content; it can differ from the student's grade. */
   teachingSourceGrade?: GradeBand
   juniorSessionStatus?: 'not_started' | 'active' | 'completed' | 'blocked' | 'abandoned' | null
@@ -318,6 +320,9 @@ export interface IssuedJuniorQuestion {
   stem: string
   options: string[]
   revisionToken?: string | null
+  learningPurpose?: 'new_learning' | 'spaced_review' | 'foundation_repair'
+  lastAnsweredDate?: string | null
+  reviewDueDate?: string | null
   optionPractice?: { anchorStepId: string; optionIndex: number; knowledgePoint: string; position: number; total: number; recoveryRound?: number }
 }
 

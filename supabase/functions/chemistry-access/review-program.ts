@@ -21,6 +21,21 @@ export function programPlanVisible(program: ReviewProgram | null, plan: Record<s
   return plan.is_scheduled === true && programContainsDate(program, String(plan.plan_date || ""));
 }
 
+// Advancing an assigned junior lesson is a teacher opt-in, not a general
+// bypass for future assessments. Source/curriculum readiness is checked by
+// the session open path independently of this date policy.
+export function juniorPlanAllowsAdvanceStudy(profile: Record<string, unknown>, plan: Record<string, unknown>) {
+  const metadata = profile.metadata as Record<string, unknown> | null;
+  const config = metadata?.reviewProgram as Record<string, unknown> | undefined;
+  const program = readReviewProgram(metadata);
+  return profile.grade_band === "初三" && profile.textbook_version === "科粤版"
+    && metadata?.demo !== true && config?.allowAdvanceStudy === true
+    && program !== null && program.participating
+    && plan.delivery_mode === "junior_adaptive" && plan.mode === "REVIEW"
+    && plan.is_scheduled === true && Boolean(plan.junior_curriculum_day_id)
+    && programContainsDate(program, String(plan.plan_date || ""));
+}
+
 export function programAllowsJuniorUnit(metadata: unknown, unitId: unknown) {
   const program = (metadata as Record<string, unknown> | null)?.reviewProgram as Record<string, unknown> | undefined;
   if (!program || !("juniorUnitIds" in program)) return true;

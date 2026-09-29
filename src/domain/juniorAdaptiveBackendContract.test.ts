@@ -38,11 +38,25 @@ describe('2026-08-29 junior evidence backend contract', () => {
     expect(juniorAccess).toContain('textbookVersion !== JUNIOR_TEXTBOOK_VERSION')
     expect(juniorAccess).toContain('textbookVersion: JUNIOR_TEXTBOOK_VERSION')
     expect(juniorAccess).toContain('sourceKind: JUNIOR_SOURCE_KIND')
-    expect((juniorAccess.match(/JUNIOR_SOURCE_KIND/g) || []).length).toBeGreaterThanOrEqual(5)
+    expect((juniorAccess.match(/JUNIOR_SOURCE_KIND/g) || []).length).toBeGreaterThanOrEqual(4)
+    expect(juniorAccess).toContain('supabase.rpc("chem_junior_practice_pool"')
     expect(juniorAccess).not.toContain('"licensed_local"')
     expect(juniorEvidenceMigration).toContain("'科粤版'")
     expect(juniorEvidenceMigration).toContain("'user_provided_local'")
     expect((accessFunction.match(/"licensed_local"/g) || []).length).toBeGreaterThanOrEqual(6)
+  })
+
+  it('loads only the exact service-gated recovery pool without expanding ordinary daily skills', () => {
+    const actual = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
+    const preview = accessSection('async function juniorPreviewPayload', 'async function authenticate')
+    for (const section of [actual, preview]) {
+      expect(section).toContain('supabase.rpc("chem_junior_practice_pool"')
+      expect(section).toContain('juniorNativeQuestionIsSafe(row)')
+      expect(section).toContain('provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id)')
+      expect(section).toContain('selectJuniorScheduledQuestion({ candidates, knowledgeSkillIds: skillIds')
+      expect(section).toContain('juniorBoundKnowledgeCards(null,')
+      expect(section).not.toContain('.in("knowledge_id", skillIds)')
+    }
   })
 
   it('admits a bounded junior source release without weakening any high-school count contract', () => {
@@ -69,8 +83,12 @@ describe('2026-08-29 junior evidence backend contract', () => {
     const juniorSession = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
     expect(juniorSession).toContain('const studentCards = orderedCards.map(studentProvenanceFreeCardShape)')
     expect(juniorSession).toContain('studentCards.some((card) => !studentInstructionalCardTextIsSafe(card))')
-    const safeCardReturns = (juniorSession.match(/cards:\s*studentCards/g) || []).length
+    const safeCardReturns = (juniorSession.match(/cards:\s*(?:studentCards|selectedCards|juniorStudentCardsForPoint\()/g) || []).length
     expect(safeCardReturns).toBeGreaterThanOrEqual(5)
+    const boundCardShape = accessSection('function juniorStudentCardsForPoint', 'async function juniorVerifiedProvenance')
+    expect(boundCardShape).toContain('cards.map(studentProvenanceFreeCardShape)')
+    expect(boundCardShape).toContain('!studentInstructionalCardTextIsSafe(card)')
+    expect(juniorSession).toContain('const selectedCards = juniorStudentCardsForPoint(')
     expect(juniorSession).toContain('const studentPlan = juniorStudentPlanShape(')
     expect(juniorSession).toContain('{ failClosedOnUnsafeCopy: true }')
     expect(juniorSession).toContain('futurePreviewInstructionalTextIsSafe([curriculum.title, curriculum.knowledge_summaries])')

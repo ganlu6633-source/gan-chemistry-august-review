@@ -23,4 +23,7 @@ describe('learning plan history', () => {
     expect(next[1].attemptKind).toBe('review')
     expect(scoreComparison(next, 'p')).toEqual({ first: 3, latest: 5, improvedBy: 2 })
   })
+  it('keeps completed catch-up evidence even when its scheduled date predates enrollment', () => {
+    expect(planDayStatus(plan, '2026-08-11', [attempt('a1', 'scheduled', 0, 3)], '2026-08-12')).toBe('completed')
+  })
 })

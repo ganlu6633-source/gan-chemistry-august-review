@@ -3,11 +3,11 @@ import type { LearningAttempt, LearningPlanDay } from './types'
 export type PlanDayStatus = 'before_enrollment' | 'scheduled' | 'completed' | 'completed_early' | 'reviewed'
 
 export function planDayStatus(plan: LearningPlanDay, enrollmentStartDate: string, attempts: LearningAttempt[], today: string): PlanDayStatus {
-  if (plan.date < enrollmentStartDate) return 'before_enrollment'
   const dayAttempts = attempts.filter((attempt) => attempt.planDayId === plan.id)
   const scheduled = dayAttempts.find((attempt) => attempt.attemptKind === 'scheduled')
   if (scheduled) return plan.date > scheduled.completedAt.slice(0, 10) ? 'completed_early' : 'completed'
   if (dayAttempts.some((attempt) => attempt.attemptKind === 'review')) return 'reviewed'
+  if (plan.date < enrollmentStartDate) return 'before_enrollment'
   void today
   return 'scheduled'
 }

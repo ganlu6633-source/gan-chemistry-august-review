@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit, programQuestionIds, programReviewSkillIds } from '../../supabase/functions/chemistry-access/review-program'
+import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit, programQuestionIds, programReviewSkillIds, juniorPlanAllowsAdvanceStudy } from '../../supabase/functions/chemistry-access/review-program'
 
 const program = readReviewProgram({ reviewProgram: { startDate: '2026-09-12', endDate: '2026-09-18', participating: true } })
 describe('bounded review program', () => {
+  it('allows advance study only for explicitly authorized assigned junior lessons within the program', () => {
+    const profile = { grade_band: '初三', textbook_version: '科粤版', metadata: { reviewProgram: { startDate: '2026-09-01', endDate: '2026-10-31', participating: true, allowAdvanceStudy: true } } }
+    const assigned = { delivery_mode: 'junior_adaptive', mode: 'REVIEW', is_scheduled: true, junior_curriculum_day_id: 'ready-course', plan_date: '2026-10-31' }
+    expect(juniorPlanAllowsAdvanceStudy(profile, assigned)).toBe(true)
+    expect(juniorPlanAllowsAdvanceStudy(profile, { ...assigned, plan_date: '2026-11-01' })).toBe(false)
+    expect(juniorPlanAllowsAdvanceStudy(profile, { ...assigned, is_scheduled: false })).toBe(false)
+    expect(juniorPlanAllowsAdvanceStudy(profile, { ...assigned, delivery_mode: 'legacy_round' })).toBe(false)
+    expect(juniorPlanAllowsAdvanceStudy(profile, { ...assigned, junior_curriculum_day_id: null })).toBe(false)
+    expect(juniorPlanAllowsAdvanceStudy({ ...profile, grade_band: '高一' }, assigned)).toBe(false)
+    expect(juniorPlanAllowsAdvanceStudy({ ...profile, textbook_version: '人教版' }, assigned)).toBe(false)
+    for (const settings of [{ allowAdvanceStudy: false }, { allowAdvanceStudy: 'true' }, { participating: false }]) {
+      expect(juniorPlanAllowsAdvanceStudy({ ...profile, metadata: { reviewProgram: { ...profile.metadata.reviewProgram, ...settings } } }, assigned)).toBe(false)
+    }
+    expect(juniorPlanAllowsAdvanceStudy({ ...profile, metadata: { ...profile.metadata, demo: true } }, assigned)).toBe(false)
+  })
   it('includes exactly the selected date boundaries', () => {
     expect(programContainsDate(program, '2026-09-11')).toBe(false)
     expect(programContainsDate(program, '2026-09-12')).toBe(true)

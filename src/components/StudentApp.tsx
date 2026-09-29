@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
 import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { selectFocusPlan } from '../domain/focusPlan'
+import { calendarPlanStatus, isKnowledgeOnlyFuturePlan, splitCalendarWeeks } from '../domain/learningCalendar'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildRecoveryTargets, type KnowledgeConfidence } from '../domain/learningRecovery'
 import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
@@ -116,26 +117,6 @@ const nextRoundLabel = (plan: LearningPlanDay) => {
   return plan.attemptCount === 0 ? '开始第一轮' : `继续第 ${plan.attemptCount + 1} 轮`
 }
 
-const statusLabel = (plan: LearningPlanDay, enrollment: string) => {
-  if (plan.deliveryMode === 'junior_adaptive' && plan.isComplete) return '今日自适应学习已完成'
-  if (plan.date < enrollment) return '加入前｜可补学'
-  if (plan.attemptCount > 0) {
-    if (isSingleDailyReviewPlan(plan)) return plan.isResolved ? '今日题组已接稳' : plan.isComplete || plan.attemptCount >= 1 ? '今日题组已完成' : '今日题组进行中'
-    if (plan.isResolved) return `第 ${plan.attemptCount} 轮已接稳`
-    if (plan.isComplete || plan.attemptCount >= plan.roundLimit) return `今日 ${plan.roundLimit} 轮已完成`
-    if (plan.latestCompletedAt && plan.date > plan.latestCompletedAt.slice(0, 10)) return '已提前完成'
-    if (plan.firstScore !== null && plan.latestScore !== null && plan.latestScore > plan.firstScore) return `复习后提升 ${plan.firstScore}→${plan.latestScore}`
-    return `已完成 ${plan.attemptCount}/${plan.roundLimit} 轮`
-  }
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-  // A past plan is not evidence that the student has learned it. The plan
-  // itself may be waiting for its very first attempt, so make the catch-up
-  // action explicit. Only attemptCount tells us whether this is review.
-  if (plan.date < today) return plan.attemptCount > 0 ? '可再次复习' : '补学第一轮'
-  if (plan.date > today) return '可提前预习'
-  return '今天'
-}
-
 export function StudentApp({ session, initialDashboard, onDashboard, previewMode = false }: { session: SessionIdentity; initialDashboard: StudentDashboardData; onDashboard: (data: StudentDashboardData) => void; previewMode?: boolean }) {
   const [view, setView] = useState<StudentView>('choose')
   const [dashboard, setDashboard] = useState(initialDashboard)
@@ -165,7 +146,8 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   const duePlans = visiblePlans.filter((plan) => plan.date <= today && !plan.isComplete)
   const completedPlans = visiblePlans.filter((plan) => plan.date <= today && plan.isComplete)
   const planRequestIdentityKey = [session.role, dashboard.profile.id, session.expiresAt].join(':')
-  const todayPlanIsFuturePreview = Boolean(todayPlan && todayPlan.date > today)
+  const todayPlanIsFuturePreview = Boolean(todayPlan && isKnowledgeOnlyFuturePlan(todayPlan, today))
+  const todayPlanIsAdvanceStudy = Boolean(todayPlan && todayPlan.date > today && todayPlan.canStudyAhead)
   const todayPlanIsCatchUp = Boolean(todayPlan && todayPlan.date < today)
   const dueSkillCount = dashboard.skillStates.filter((state) => state.nextReviewAt && Date.parse(state.nextReviewAt) <= Date.now() && (state.verifiedLevel > 0 || state.consecutiveErrors > 0)).length
   const recommendedReviews = useMemo(() => {
@@ -278,7 +260,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
 
   async function openPlan(plan: LearningPlanDay, previewRound?: number): Promise<boolean> {
     if (busy) return false
-    if (plan.date > today) {
+    if (isKnowledgeOnlyFuturePlan(plan, today)) {
       setBusy(true)
       setError('')
       try {
@@ -452,7 +434,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
         </section>}
         {view === 'today' && <>
           <section className="welcome-banner">
-            <div><span className="eyebrow">{todayPlanIsFuturePreview ? '下一次学习' : todayPlanIsCatchUp ? '补上这一站' : todayPlan?.isComplete ? '今天已完成' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview ? '下一组题已经排好啦。' : todayPlanIsCatchUp ? '这组题等你回来接着练。' : todayPlan?.isComplete ? '今天的任务完成啦！' : todayPlan ? '今天的题组备好啦！' : '今天没有日期任务，想练什么自己挑。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将在北京时间 ${todayPlan?.date} 00:00 开放；现在可以先看知识卡。` : todayPlanIsCatchUp ? `这组原本安排在 ${todayPlan?.date}，还没做完。现在回来补上，正合适。` : todayPlan?.isComplete ? '想看看答题记录，或换个知识点继续练，都可以。' : !todayPlan ? '今天可以去“知识点任选”或“题型训练场”自由开练。' : dashboard.profile.needsInitialDiagnostic ? '先做几道题找找手感，再决定从哪里学起。' : '这是老师按课堂进度安排的原题；想练别的，也可以随时自己挑。'}</p></div>
+            <div><span className="eyebrow">{todayPlanIsFuturePreview || todayPlanIsAdvanceStudy ? '下一次学习' : todayPlanIsCatchUp ? '补上这一站' : todayPlan?.isComplete ? '今天已完成' : '今日安排'}</span><h1>{dashboard.profile.displayName}，{todayPlanIsFuturePreview || todayPlanIsAdvanceStudy ? '下一组题已经排好啦。' : todayPlanIsCatchUp ? '这组题等你回来接着练。' : todayPlan?.isComplete ? '今天的任务完成啦！' : todayPlan ? '今天的题组备好啦！' : '今天没有日期任务，想练什么自己挑。'}</h1><p>{todayPlanIsFuturePreview ? `正式题组将在北京时间 ${todayPlan?.date} 00:00 开放；现在可以先看知识卡。` : todayPlanIsAdvanceStudy ? `这组安排在 ${todayPlan?.date}，已经可以提前开练。你来决定学习的节奏。` : todayPlanIsCatchUp ? `这组原本安排在 ${todayPlan?.date}，还没做完。现在回来补上，正合适。` : todayPlan?.isComplete ? '想看看答题记录，或换个知识点继续练，都可以。' : !todayPlan ? '今天可以去“知识点任选”或“题型训练场”自由开练。' : dashboard.profile.needsInitialDiagnostic ? '先做几道题找找手感，再决定从哪里学起。' : '这是老师按课堂进度安排的原题；想练别的，也可以随时自己挑。'}</p></div>
             <div className="daily-orb"><b>{todayPlan?.questionCount ?? 0}</b><span>{!todayPlan ? '今日未安排' : todayPlanIsFuturePreview ? '下次题目' : todayPlan?.deliveryMode === 'junior_adaptive' ? '今日基础题' : isSingleDailyReviewPlan(todayPlan) ? '今日原题' : '每轮题目'}</span></div>
           </section>
           <button type="button" className="text-button study-change-way" onClick={() => setView('choose')}>切换学习方式<ChevronRight size={16} /></button>
@@ -461,7 +443,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           {todayPlan ? <section className="focus-card">
             <div className="focus-icon"><BookOpen /></div>
             <div><span className="mode-pill">{todayPlan.deliveryMode === 'junior_adaptive' ? '初中自适应学习' : todayPlan.mode === 'EXAM_SPRINT' ? '考前拿分' : '长期复习'}</span><h2><ChemText>{todayPlan.title}</ChemText></h2><div className="focus-topics">{todayPlan.knowledgeSummaries.map((topic) => <span key={topic}><ChemText>{topic}</ChemText></span>)}</div><div className="meta-row"><span><Clock3 size={15} />约{todayPlan.estimatedMinutes}分钟</span><span>{todayPlanIsFuturePreview ? `安排日期 ${todayPlan.date} · ${todayPlan.questionCount} 道起` : planRhythmLabel(todayPlan)}</span></div></div>
-            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
+            <div className="focus-action"><button className="primary-button compact" onClick={() => todayPlan.isComplete ? setView('growth') : void openPlan(todayPlan)} disabled={busy}>{todayPlanIsFuturePreview ? '进入预习' : todayPlanIsAdvanceStudy ? '提前开始学习' : todayPlanOpenState?.status === 'loading' ? `正在读取 · ${todayPlanOpenState.elapsedSeconds}秒` : todayPlanOpenState?.status === 'error' ? `重试${nextRoundLabel(todayPlan)}` : todayPlan.isComplete ? '查看今日成果' : nextRoundLabel(todayPlan)}<ChevronRight size={18} /></button>{todayPlanOpenState?.status === 'error' && <PlanOpenNotice state={todayPlanOpenState} onRetry={retryPlanOpen} />}</div>
           </section> : <EmptyState text="甘老师还没有为今天安排正式任务。" />}
           {todayPlan && <section className="date-lecture-links"><h2>这一天对应的讲义</h2><div>{LECTURE_SECTIONS.filter((section) => section.grade === dashboard.profile.gradeBand && section.skillIds.some((skillId) => todayPlan.skillIds.includes(skillId))).slice(0, 6).map((section) => <a key={section.id} href={lectureUrl(section)} target="_blank" rel="noopener noreferrer"><BookOpen size={15} />{section.title} · 第 {section.page} 页<ChevronRight size={15} /></a>)}</div></section>}
           {planOpenState?.status === 'error' && !todayPlanOpenState && <PlanOpenNotice state={planOpenState} onRetry={retryPlanOpen} showRetryButton />}
@@ -575,19 +557,6 @@ function AccountSettings({ session }: { session: SessionIdentity }) {
   return <section className="account-settings"><div className="page-title"><span className="eyebrow">只有你自己知道</span><h1>账户与找回</h1><p>你可以把初始登录码改成更好记的6—12位数字，也可以设置一个私密找回短语。</p></div>{error && <div className="inline-alert" role="alert">{error}</div>}{message && <div className="success-message" role="status">{message}</div>}<div className="account-settings-grid"><form className="account-card" onSubmit={changeCode}><div className="account-card-title"><KeyRound /><div><h2>修改登录码</h2><p>修改后，旧登录码立即失效。</p></div></div><label>当前登录码<input type="password" inputMode="numeric" autoComplete="current-password" value={currentCode} onChange={(event) => setCurrentCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="6—12位数字" /></label><label>新登录码<input type="password" inputMode="numeric" autoComplete="new-password" value={newCode} onChange={(event) => setNewCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="6—12位数字" /></label><label>再次输入新登录码<input type="password" inputMode="numeric" autoComplete="new-password" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="请再次输入" /></label><button className="primary-button" disabled={Boolean(busy)}>{busy === 'code' ? '正在修改…' : '保存新登录码'}</button></form><form className="account-card" onSubmit={saveRecoverySecret}><div className="account-card-title"><ShieldCheck /><div><h2>设置私密找回短语</h2><p>忘记登录码时，用姓名和这句话重新设置。</p></div></div><label>当前登录码<input type="password" inputMode="numeric" autoComplete="current-password" value={recoveryCurrentCode} onChange={(event) => setRecoveryCurrentCode(event.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="用于确认是本人" /></label><label>私密找回短语<input type="password" autoComplete="off" value={recoverySecret} onChange={(event) => setRecoverySecret(event.target.value.slice(0, 40))} placeholder="6—40个字符" /></label><label>再次输入找回短语<input type="password" autoComplete="off" value={confirmSecret} onChange={(event) => setConfirmSecret(event.target.value.slice(0, 40))} placeholder="请再次输入" /></label><div className="privacy-tip"><ShieldCheck />不要使用身份证号、生日、手机号或常用密码。系统只保存加密摘要，无法查看你的原文。</div><button className="primary-button" disabled={Boolean(busy)}>{busy === 'recovery' ? '正在安全保存…' : '保存找回短语'}</button></form></div></section>
 }
 
-function splitCalendarWeeks(plans: LearningPlanDay[]) {
-  const sorted = [...plans].sort((a, b) => a.date.localeCompare(b.date))
-  const weeks: LearningPlanDay[][] = []
-  let cursor = 0
-  while (cursor < sorted.length) {
-    const weekday = new Date(`${sorted[cursor].date}T12:00:00+08:00`).getUTCDay()
-    const remainingInWeek = weekday === 0 ? 1 : 8 - weekday
-    weeks.push(sorted.slice(cursor, cursor + remainingInWeek))
-    cursor += remainingInWeek
-  }
-  return weeks
-}
-
 const weekdayLabel = (date: string) => `周${'日一二三四五六'[new Date(`${date}T12:00:00+08:00`).getUTCDay()]}`
 
 function RecommendationOverview({ schoolClass, nextPlan, newTopic, reviews, dueSkillCount, loading, error, busy, onOpenTopic, onBrowse }: {
@@ -626,7 +595,10 @@ function StudyReminders({ dashboard, reviews, catalogLoading, catalogError, onOp
 }
 
 function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { plans: LearningPlanDay[]; enrollment: string; onOpen: (plan: LearningPlanDay) => void; busy: boolean; embedded?: boolean }) {
-  const weeks = splitCalendarWeeks(plans)
+  const [selectedMonth, setSelectedMonth] = useState('all')
+  const months = [...new Set(plans.map((plan) => plan.date.slice(0, 7)))]
+  const shownPlans = selectedMonth === 'all' ? plans : plans.filter((plan) => plan.date.startsWith(selectedMonth))
+  const weeks = splitCalendarWeeks(shownPlans)
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
   const hasToday = plans.some((plan) => plan.date === today)
   const nextDate = hasToday ? undefined : plans.find((plan) => plan.date > today)?.date
@@ -634,6 +606,7 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
   const first = plans[0]?.date
   const last = plans.at(-1)?.date
   const displayDate = (date?: string) => date ? `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日` : ''
+  const hasAdvanceStudy = plans.some((plan) => plan.canStudyAhead)
   useEffect(() => {
     const button = focusButton.current
     const grid = button?.parentElement
@@ -641,9 +614,32 @@ function PlanCalendar({ plans, enrollment, onOpen, busy, embedded = false }: { p
     const buttonRect = button.getBoundingClientRect()
     const gridRect = grid.getBoundingClientRect()
     grid.scrollLeft += buttonRect.left - gridRect.left - (grid.clientWidth - button.offsetWidth) / 2
-  }, [today, first, last])
-  return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title"><div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习日历</h2> : <h1 id="learning-plan-title">我的学习日历</h1>}<p>老师安排的题组都在这里。前面漏做的可以补上；后面的可以先看知识卡，正式题目要到安排的日期才能做。</p></div>
-    <div className="week-stack">{weeks.map((week, index) => { const currentWeek = week.some((plan) => plan.date === today); const nextWeek = week.some((plan) => plan.date === nextDate); return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0]?.date ?? index}><div className="week-label">{displayDate(week[0]?.date)}{week.length > 1 && `—${displayDate(week.at(-1)?.date)}`}{currentWeek ? ' · 今天已点亮' : nextWeek ? ' · 下一次安排' : ''}</div><div className="week-grid">{week.map((plan) => { const isToday = plan.date === today; const isNext = plan.date === nextDate; const isFuture = plan.date > today; return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''} ${isFuture ? 'is-future-preview' : ''}`} aria-current={isToday ? 'date' : undefined} aria-label={isFuture ? `${plan.title}，可提前预习` : undefined} title={isFuture ? '提前预习只展示知识卡，不展示题目，也不计入学习记录' : undefined} onClick={() => onOpen(plan)} disabled={busy}><span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}<b><ChemText>{plan.title}</ChemText></b><ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}><ChemText>{topic}</ChemText></li>)}</ul><small>{isFuture ? '知识卡预习 · 不含正式题目' : compactPlanRhythmLabel(plan)}</small><em>{statusLabel(plan, enrollment)}</em></button> })}</div></div> })}</div>
+  }, [today, first, last, selectedMonth])
+  return <section className={embedded ? 'home-plan section-block' : undefined} aria-labelledby="learning-plan-title">
+    <div className="page-title"><span className="eyebrow">{displayDate(first)}—{displayDate(last)}</span>{embedded ? <h2 id="learning-plan-title">我的学习日历</h2> : <h1 id="learning-plan-title">我的学习日历</h1>}<p>{hasAdvanceStudy ? '日期是路标，节奏你来定。没学过的可以从头学，漏做的随时补，后面已开放的也能提前练。' : '老师安排的题组都在这里。前面漏做的可以补上；后面的可以先看知识卡，正式题目要到安排的日期才能做。'}</p></div>
+    {months.length > 1 && <div className="calendar-months" role="group" aria-label="选择学习月份">
+      <button type="button" aria-pressed={selectedMonth === 'all'} onClick={() => setSelectedMonth('all')}>全部日期 · {new Set(plans.map((plan) => plan.date)).size} 天</button>
+      {months.map((month) => <button type="button" key={month} aria-pressed={selectedMonth === month} onClick={() => setSelectedMonth(month)}>{Number(month.slice(5))} 月</button>)}
+    </div>}
+    <div className="week-stack">{weeks.map((week) => {
+      const currentWeek = week.some((plan) => plan.date === today)
+      const nextWeek = week.some((plan) => plan.date === nextDate)
+      return <div className={`week-card ${currentWeek ? 'is-current-week' : nextWeek ? 'is-next-week' : ''}`} key={week[0].date}>
+        <div className="week-label">{displayDate(week[0].date)}{week.length > 1 && `—${displayDate(week.at(-1)?.date)}`}{currentWeek ? ' · 今天在这里' : nextWeek ? ' · 下一次安排' : ''}</div>
+        <div className="week-grid">{week.map((plan) => {
+          const isToday = plan.date === today
+          const isNext = plan.date === nextDate
+          const previewOnly = isKnowledgeOnlyFuturePlan(plan, today)
+          const status = calendarPlanStatus(plan, enrollment, today)
+          return <button key={plan.id} ref={isToday || isNext ? focusButton : undefined} className={`plan-day ${isToday ? 'is-today' : isNext ? 'is-next' : ''} ${previewOnly ? 'is-future-preview' : ''}`} aria-current={isToday ? 'date' : undefined} aria-label={previewOnly ? `${plan.title}，可提前预习` : `${plan.date} · ${plan.title}，${status}`} title={previewOnly ? '提前预习只展示知识卡，不展示题目，也不计入学习记录' : undefined} onClick={() => onOpen(plan)} disabled={busy}>
+            <span className="plan-date">{plan.date.slice(5)} · {weekdayLabel(plan.date)}</span>{isToday ? <span className="plan-today-badge" aria-hidden="true">今天</span> : isNext ? <span className="plan-next-badge">下一次</span> : null}
+            <b><ChemText>{plan.title}</ChemText></b>
+            <ul>{plan.knowledgeSummaries.map((topic) => <li key={topic}><ChemText>{topic}</ChemText></li>)}</ul>
+            <small>{previewOnly ? '知识卡预习 · 不含正式题目' : compactPlanRhythmLabel(plan)}</small><em>{status}</em>
+          </button>
+        })}</div>
+      </div>
+    })}</div>
   </section>
 }
 

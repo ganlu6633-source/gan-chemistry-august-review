@@ -19,6 +19,7 @@ export type JuniorAdaptiveCandidate = {
 };
 
 export type JuniorAdaptiveHistory = {
+  session_id?: string;
   question_id: string;
   mother_id?: string | null;
   skill_id: string;
@@ -35,7 +36,7 @@ export type JuniorAdaptiveHistory = {
   practice_round?: number;
 };
 
-export type JuniorRouteKind = 'new_learning' | 'advance' | 'stability_validation' | 'foundation_repair' | 'prior_error_recovery';
+export type JuniorRouteKind = 'new_learning' | 'advance' | 'stability_validation' | 'foundation_repair' | 'prior_error_recovery' | 'spaced_review';
 
 export type JuniorNextSelection<T extends JuniorAdaptiveCandidate> = {
   question: T;
