@@ -89,9 +89,14 @@ const REGIONAL_JUNIOR_ACTIONS = new Set([
 
 async function fetchAccessAction(action: string, request: RequestInit): Promise<Response> {
   const defaultUrl = functionUrl(ACCESS_FUNCTION)
-  if (!REGIONAL_JUNIOR_ACTIONS.has(action) || !JUNIOR_FUNCTION_REGION || JUNIOR_FUNCTION_REGION === 'any') {
+  if (!REGIONAL_JUNIOR_ACTIONS.has(action)) {
     return fetch(defaultUrl, request)
   }
+  // Tell the server this is an intentional automatic-region fallback. Otherwise
+  // its compatibility relay for older tabs could send us back to the failed region.
+  const fallbackUrl = new URL(defaultUrl)
+  fallbackUrl.searchParams.set('chemRegionalFallback', '1')
+  if (!JUNIOR_FUNCTION_REGION || JUNIOR_FUNCTION_REGION === 'any') return fetch(fallbackUrl.toString(), request)
   const regionalUrl = new URL(defaultUrl)
   regionalUrl.searchParams.set('forceFunctionRegion', JUNIOR_FUNCTION_REGION)
   request.signal?.throwIfAborted()
@@ -105,11 +110,11 @@ async function fetchAccessAction(action: string, request: RequestInit): Promise<
     const errorName = reason instanceof Error || reason instanceof DOMException ? reason.name : ''
     if (errorName === 'AbortError') throw reason
     if (!(reason instanceof TypeError) && errorName !== 'NetworkError') throw reason
-    return fetch(defaultUrl, request)
+    return fetch(fallbackUrl.toString(), request)
   }
   if (response.status >= 500 && response.status <= 599) {
     request.signal?.throwIfAborted()
-    return fetch(defaultUrl, request)
+    return fetch(fallbackUrl.toString(), request)
   }
   return response
 }

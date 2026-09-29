@@ -34,6 +34,18 @@ function accessSection(startMarker: string, endMarker: string) {
 const juniorAccess = accessSection('function juniorSourceQuestionIsSafe', 'async function studentDashboard')
 
 describe('2026-08-29 junior evidence backend contract', () => {
+  it('checks program and unit scope inside the owned open context before any session creation', () => {
+    const actual = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
+    const creation = actual.indexOf('supabase.from("chem_junior_daily_sessions").insert')
+    for (const gate of ['programPlanVisible(program, plan)', 'programAllowsJuniorUnit(profileResult.data.metadata, curriculum.unit_id)', 'juniorPlanAllowsAdvanceStudy(profileResult.data, plan)']) {
+      expect(actual.indexOf(gate)).toBeGreaterThan(0)
+      expect(actual.indexOf(gate)).toBeLessThan(creation)
+    }
+    expect(actual).toContain('.eq("id", planId).eq("student_id", studentId)')
+    expect(actual).toContain('.eq("plan_day_id", planId).eq("student_id", studentId)')
+    expect(actual).toContain('supabase.rpc("chem_junior_validate_issued_step"')
+  })
+
   it('binds the final junior runtime and appended SQL contract to Keyue user-provided local sources', () => {
     expect(accessFunction).toContain('const JUNIOR_TEXTBOOK_VERSION = "科粤版"')
     expect(accessFunction).toContain('const JUNIOR_SOURCE_KIND = "user_provided_local"')

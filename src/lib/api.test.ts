@@ -40,6 +40,7 @@ describe('regional junior access routing', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('forceFunctionRegion')).toBe('ap-southeast-2')
     expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.has('forceFunctionRegion')).toBe(false)
+    expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get('chemRegionalFallback')).toBe('1')
     expect(fetchMock.mock.calls[1][1]).toBe(fetchMock.mock.calls[0][1])
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ action, data })
   })

@@ -14,6 +14,7 @@ import { loadJuniorKnowledgeCards, juniorDisplayKnowledgeCards } from "./junior-
 import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
 import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
 import { recommendStudyTopics, type StudyHistoryAnswer } from "./study-recommendations.ts";
+import { relayJuniorRequest } from "./junior-regional-relay.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -1122,6 +1123,7 @@ function juniorPlanMatchesSessionContract(
   curriculum: Record<string, unknown>,
   studentId: string,
   textbookVersion: string,
+  allowAdvanceStudy = false,
 ) {
   const planDate = String(plan.plan_date || "");
   return String(plan.id || "") === String(session.plan_day_id || "")
@@ -1130,7 +1132,7 @@ function juniorPlanMatchesSessionContract(
     && plan.delivery_mode === "junior_adaptive"
     && planDate.length > 0
     && planDate === String(session.study_date || "")
-    && planDate <= shanghaiDate()
+    && (planDate <= shanghaiDate() || allowAdvanceStudy)
     && String(plan.junior_curriculum_day_id || "") === String(session.curriculum_day_id || "")
     && String(session.curriculum_day_id || "") === String(curriculum.id || "")
     && juniorExactStringArray(plan.skill_ids, session.knowledge_skill_ids)
@@ -1661,11 +1663,13 @@ async function ensureJuniorDailyPlan(studentId: string, profile: Record<string, 
 }
 
 async function juniorSessionPayload(studentId: string, planId: string): Promise<Record<string, unknown>> {
-  const [planResult, profileResult] = await Promise.all([
+  const [planResult, profileResult, existingSessionResult] = await Promise.all([
     supabase.from("chem_learning_plans").select("*").eq("id", planId).eq("student_id", studentId).maybeSingle(),
     supabase.from("chem_students_v2").select("grade_band,textbook_version,metadata,record_status").eq("id", studentId).single(),
+    supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).eq("student_id", studentId).maybeSingle(),
   ]);
-  if (planResult.error || profileResult.error) throw planResult.error || profileResult.error;
+  let sessionResult = existingSessionResult;
+  if (planResult.error || profileResult.error || existingSessionResult.error) throw planResult.error || profileResult.error || existingSessionResult.error;
   const plan = planResult.data as Record<string, unknown> | null;
   const profileTextbookVersion = String(profileResult.data.textbook_version || "").trim();
   if (!plan || !isJuniorAdaptivePlan(plan) || String(profileResult.data.grade_band) !== "初三"
@@ -1675,6 +1679,12 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   }
   const textbookVersion = JUNIOR_TEXTBOOK_VERSION;
   if ((profileResult.data.metadata as Record<string, unknown> | null)?.demo) throw new RequestError(403, "演示账号不下发私有原题。");
+  // Check the same current program against the owned rows already fetched here.
+  // No preliminary profile/plan/curriculum HTTP chain is needed for this route.
+  const program = readReviewProgram(profileResult.data.metadata);
+  if (program && !programPlanVisible(program, plan)) {
+    throw new RequestError(409, "这项复习不在本期安排中，历史学习记录仍可查看。");
+  }
   if (String(plan.plan_date || "") > shanghaiDate()
     && !juniorPlanAllowsAdvanceStudy(profileResult.data, plan)) {
     throw new RequestError(409, "后续日期的初三自适应学习尚未开放，请在计划当天进入。");
@@ -1703,8 +1713,6 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   if (skillIds.length !== 3 || new Set(skillIds).size !== 3) throw new RequestError(422, "当天课程没有配置三个互不重复的知识点。");
   const planPolicy = juniorDailyPolicy(plan);
 
-  let sessionResult = await supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).maybeSingle();
-  if (sessionResult.error) throw sessionResult.error;
   if (!sessionResult.data) {
     const existingActive = await supabase.from("chem_junior_daily_sessions")
       .select("id,plan_day_id,initial_question_target,hard_question_cap,recovery_round_limit")
@@ -1736,7 +1744,8 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   }
   const session = sessionResult.data as Record<string, unknown>;
   const policy = juniorDailyPolicy(plan, session);
-  if (!juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, textbookVersion)) {
+  if (!juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, textbookVersion,
+    juniorPlanAllowsAdvanceStudy(profileResult.data, plan))) {
     const detail = `计划“${planId}”与课程日“${curriculumId}”或既有会话的学生、日期、教材、知识点、题量合同不再完全一致。`;
     if (session.status === "active") {
       await blockJuniorSession(
@@ -1752,13 +1761,14 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     }
     throw new RequestError(409, "初中计划、课程日与学习会话的不可变合同已变化；系统已停止返回内容并通知甘老师。");
   }
-  const [cardsResult, stepsResult, allSessionsResult] = await Promise.all([
+  const [cardsResult, stepsResult, allSessionsResult, optionStateResult] = await Promise.all([
     juniorBoundKnowledgeCards(null, textbookVersion),
     supabase.from("chem_junior_session_steps").select("*").eq("session_id", String(session.id)).order("sequence"),
     supabase.from("chem_junior_daily_sessions").select("id,curriculum_day_id,status,study_date").eq("student_id", studentId).order("study_date"),
+    supabase.rpc("chem_junior_option_state", { p_student_id: studentId, p_session_id: String(session.id) }),
   ]);
-  if (cardsResult.error || stepsResult.error || allSessionsResult.error) {
-    throw cardsResult.error || stepsResult.error || allSessionsResult.error;
+  if (cardsResult.error || stepsResult.error || allSessionsResult.error || optionStateResult.error) {
+    throw cardsResult.error || stepsResult.error || allSessionsResult.error || optionStateResult.error;
   }
   const allBoundCards = cardsResult.data;
   // Supplemental review questions may have another skill, but must belong to
@@ -1805,8 +1815,6 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     }
     throw new RequestError(422, `${detail} 系统已停止返回内容并通知甘老师。`);
   }
-  const optionStateResult = await supabase.rpc("chem_junior_option_state", { p_student_id: studentId, p_session_id: String(session.id) });
-  if (optionStateResult.error) throw optionStateResult.error;
   const optionState = optionStateResult.data as JuniorOptionState;
   if (!optionState || !Array.isArray(optionState.branches) || !Array.isArray(optionState.stepContexts)) throw new RequestError(503, "错项补练进度暂时无法读取，请稍后重试。");
   const optionPractice = juniorPublicOptionProgress(optionState);
@@ -1817,16 +1825,21 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
   }
 
   if (unanswered) {
-    const currentQuestion = await supabase.from("chem_questions").select("*").eq("id", String(unanswered.question_id)).maybeSingle();
-    if (currentQuestion.error) throw currentQuestion.error;
     // The database re-locks the active session, immutable step, current
     // question, textbook provenance and source release in one transaction.
-    // Never shape or return the question before that atomic gate succeeds.
-    const validated = await supabase.rpc("chem_junior_validate_issued_step", {
-      p_session_id: String(session.id),
-      p_student_id: studentId,
-      p_step_id: String(unanswered.id),
-    });
+    // Independent question reads may overlap the gate, but nothing is shaped
+    // or returned until BOTH the source filter and atomic validation succeed.
+    const [currentQuestion, validated] = await Promise.all([
+      (async () => {
+        const result = await supabase.from("chem_questions").select("*").eq("id", String(unanswered.question_id)).maybeSingle();
+        if (result.error) throw result.error;
+        const ready = result.data ? await excludeHeldQuestions([result.data]) : [];
+        return { data: ready[0] ?? null };
+      })(),
+      supabase.rpc("chem_junior_validate_issued_step", {
+        p_session_id: String(session.id), p_student_id: studentId, p_step_id: String(unanswered.id),
+      }),
+    ]);
     const validatedRow = Array.isArray(validated.data)
       ? validated.data[0] as Record<string, unknown> | undefined
       : undefined;
@@ -1846,7 +1859,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
       );
       throw new RequestError(409, "当前原题的正式来源或版本已变化，系统没有返回题目内容；请联系甘老师处理。");
     }
-    if (!currentQuestion.data || !(await excludeHeldQuestions([currentQuestion.data])).length || !juniorIssuedQuestionMatchesContract(
+    if (!currentQuestion.data || !juniorIssuedQuestionMatchesContract(
       currentQuestion.data as Record<string, unknown>,
       unanswered.question_snapshot,
       textbookVersion,
@@ -3129,7 +3142,8 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   const session = sessionResult.data as Record<string, unknown> | null;
   const policy = juniorDailyPolicy(plan, session);
   if (previewAnswers.length > policy.hardCap) throw new RequestError(400, "模拟答题已超过当天题量上限。");
-  if (session && !juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, JUNIOR_TEXTBOOK_VERSION)) {
+  if (session && !juniorPlanMatchesSessionContract(plan, session, curriculum, studentId, JUNIOR_TEXTBOOK_VERSION,
+    juniorPlanAllowsAdvanceStudy(profile, plan))) {
     throw new RequestError(409, "初三计划与既有会话的课程合同不一致。");
   }
   if (session && !["active", "completed"].includes(String(session.status))) {
@@ -3420,7 +3434,22 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(req) });
   if (req.method !== "POST") return reply(req, { error: "仅支持 POST 请求。" }, 405);
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    const body = JSON.parse(rawBody);
+    const relayed = await relayJuniorRequest(req, body?.action, {
+      supabaseUrl: Deno.env.get("SUPABASE_URL")!,
+      currentRegion: Deno.env.get("SB_REGION"),
+      rawBody,
+    });
+    if (relayed) {
+      // Authentication and all delivery gates run in the destination handler.
+      // Rebuild transport headers because fetch may have decoded the body.
+      const headers = new Headers(cors(req));
+      const retryAfter = relayed.headers.get("Retry-After");
+      if (retryAfter) headers.set("Retry-After", retryAfter);
+      headers.set("Server-Timing", `total;dur=${Math.max(0, performance.now() - requestStartedAt.get(req)!).toFixed(1)}, regional;desc="ap-southeast-2"`);
+      return new Response(relayed.body, { status: relayed.status, headers });
+    }
     if (body.action === "login") {
       const name = String(body.name || "").trim();
       const code = String(body.code || "").trim();
@@ -3607,8 +3636,9 @@ Deno.serve(async (req: Request) => {
 
     // Enforce the selected program for every formal write/open route, even
     // when an old tab still holds a plan id. Historical record reads remain available.
-    // Junior submissions validate the same program gates inside the locked atomic RPC.
-    const programActions = new Set(["start_plan", "future_plan_preview", "junior_open_session", "question_feedback", "submit_attempt", "save_knowledge_rating"]);
+    // Junior opens validate the same gates with their owned plan/profile rows;
+    // submissions validate them inside the locked atomic RPC.
+    const programActions = new Set(["start_plan", "future_plan_preview", "question_feedback", "submit_attempt", "save_knowledge_rating"]);
     if (identity.role === "student" && identity.studentId && programActions.has(body.action)) {
       const profile = await supabase.from("chem_students_v2").select("metadata").eq("id", identity.studentId).single();
       if (profile.error) throw profile.error;
