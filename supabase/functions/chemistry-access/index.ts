@@ -35,12 +35,17 @@ function cors(req: Request) {
     "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-app-session",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "86400",
+    "Access-Control-Expose-Headers": "Server-Timing",
     "Vary": "Origin",
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
   };
 }
-const reply = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: cors(req) });
+const requestStartedAt = new WeakMap<Request, number>();
+const reply = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status, headers: { ...cors(req),
+    "Server-Timing": `total;dur=${Math.max(0, performance.now() - (requestStartedAt.get(req) ?? performance.now())).toFixed(1)}` },
+});
 
 class RequestError extends Error {
   status: number;
@@ -1867,25 +1872,26 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
 
   const allSessions = (allSessionsResult.data || []) as Array<Record<string, unknown>>;
   const allSessionIds = allSessions.map((row) => String(row.id));
-  const allStepsResult = allSessionIds.length
-    ? await supabase.from("chem_junior_session_steps").select("*").in("session_id", allSessionIds).order("created_at")
-    : { data: [], error: null };
-  if (allStepsResult.error) throw allStepsResult.error;
+  const [allStepsResult, practiceContextResult] = await Promise.all([
+    allSessionIds.length
+      ? supabase.from("chem_junior_session_steps").select("*").in("session_id", allSessionIds).order("created_at")
+      : Promise.resolve({ data: [], error: null }),
+    supabase.rpc("chem_junior_practice_context", {
+      p_student_id: studentId, p_plan_id: planId, p_session_id: String(session.id),
+    }),
+  ]);
+  if (allStepsResult.error || practiceContextResult.error) throw allStepsResult.error || practiceContextResult.error;
   const allSteps = (allStepsResult.data || []) as Array<Record<string, unknown>>;
-  const poolResult = await supabase.rpc("chem_junior_practice_pool", {
-    p_student_id: studentId, p_plan_id: planId, p_session_id: String(session.id),
-  });
-  if (poolResult.error) throw poolResult.error;
-  const poolRows = await excludeHeldQuestions((poolResult.data || []) as Array<Record<string, unknown>>);
+  const practiceContext = practiceContextResult.data as { questions?: Array<Record<string, unknown>>; availability?: JuniorPracticeAvailability } | null;
+  if (!Array.isArray(practiceContext?.questions) || !practiceContext.availability?.questions) {
+    throw new RequestError(503, "练习题池暂时无法读取，请稍后重试。");
+  }
+  const poolRows = await excludeHeldQuestions(practiceContext.questions);
   const eligiblePoolRows = poolRows.filter((row) => juniorNativeQuestionIsSafe(row)
     && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
   const candidates = eligiblePoolRows.map(juniorCandidate);
   const answeredHistory = allSteps.map(juniorStepHistory);
-  const availabilityResult = await supabase.rpc("chem_junior_practice_availability", {
-    p_student_id: studentId, p_plan_id: planId, p_session_id: String(session.id),
-  });
-  if (availabilityResult.error) throw availabilityResult.error;
-  const availability = availabilityResult.data as JuniorPracticeAvailability;
+  const availability = practiceContext.availability;
   const branch = nextJuniorOptionBranch(optionState, steps.length, policy);
   const branchQuestion = branch && candidates.find((row) => row.id === branch.nextQuestionId);
   if (branch && !branchQuestion) throw new RequestError(422, "该错项对应的补练题暂时无法打开，已保留原答案和补练进度。");
@@ -3070,7 +3076,7 @@ type JuniorPreviewAnswer = { stepId: string; selectedOption: number; revisionTok
 
 /** Replays teacher choices against the student's real starting evidence, without
  * creating a daily session, issuing a step, locking an answer or changing mastery. */
-async function juniorPreviewPayload(studentId: string, planId: string, previewAnswers: JuniorPreviewAnswer[] = []) {
+async function juniorPreviewPayload(studentId: string, planId: string, previewAnswers: JuniorPreviewAnswer[] = [], feedbackOnly = false) {
   if (!validUuid(studentId) || !validUuid(planId) || previewAnswers.length > 30
     || previewAnswers.some((answer) => !answer || !validUuid(String(answer.stepId || ""))
       || !Number.isInteger(answer.selectedOption) || answer.selectedOption < 0 || answer.selectedOption > 3)
@@ -3102,16 +3108,20 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   }
   const skillIds = Array.isArray(curriculum.knowledge_skill_ids) ? curriculum.knowledge_skill_ids.map(String) : [];
   if (skillIds.length !== 3 || new Set(skillIds).size !== 3) throw new RequestError(422, "当天三个知识点配置不完整。");
-  const [sessionResult, activeResult, cardsResult, sessionsResult, poolResult] = await Promise.all([
+  const [sessionResult, activeResult, cardsResult, sessionsResult, practiceContextResult] = await Promise.all([
     supabase.from("chem_junior_daily_sessions").select("*").eq("plan_day_id", planId).maybeSingle(),
     supabase.from("chem_junior_daily_sessions").select("id,plan_day_id").eq("student_id", studentId).eq("status", "active").limit(1).maybeSingle(),
     juniorBoundKnowledgeCards(null, JUNIOR_TEXTBOOK_VERSION),
     supabase.from("chem_junior_daily_sessions").select("id,curriculum_day_id,status,study_date").eq("student_id", studentId).order("study_date"),
     // A null session lets the service RPC resolve this plan's real session, or
     // prepare a read-only pool before a teacher simulation creates any record.
-    supabase.rpc("chem_junior_practice_pool", { p_student_id: studentId, p_plan_id: planId, p_session_id: null }),
+    supabase.rpc("chem_junior_practice_context", { p_student_id: studentId, p_plan_id: planId, p_session_id: null }),
   ]);
-  for (const result of [sessionResult, activeResult, cardsResult, sessionsResult, poolResult]) if (result.error) throw result.error;
+  for (const result of [sessionResult, activeResult, cardsResult, sessionsResult, practiceContextResult]) if (result.error) throw result.error;
+  const practiceContext = practiceContextResult.data as { questions?: Array<Record<string, unknown>>; availability?: JuniorPracticeAvailability } | null;
+  if (!Array.isArray(practiceContext?.questions) || !practiceContext.availability?.questions) {
+    throw new RequestError(503, "练习题池暂时无法读取，请稍后重试。");
+  }
   if (activeResult.data && String(activeResult.data.plan_day_id) !== planId && !sessionResult.data) {
     throw new RequestError(409, "已有另一天的初三学习会话正在进行；请先完成该会话。");
   }
@@ -3166,16 +3176,12 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
         const step = realStepById.get(context.stepId);
         return step?.answered_at ? [step.correct === true && (policy.recoveryRoundLimit === 0 || step.uncertain !== true)] : [];
       })]));
-  const eligiblePool = (await excludeHeldQuestions((poolResult.data || []) as Array<Record<string, unknown>>))
+  const eligiblePool = (await excludeHeldQuestions(practiceContext.questions))
     .filter((row) => juniorNativeQuestionIsSafe(row)
       && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
   const questionById = new Map(eligiblePool.map((row) => [String(row.id), row]));
   const candidates = eligiblePool.map(juniorCandidate);
-  const availabilityResult = await supabase.rpc("chem_junior_practice_availability", {
-    p_student_id: studentId, p_plan_id: planId, p_session_id: session?.id ?? null,
-  });
-  if (availabilityResult.error) throw availabilityResult.error;
-  const availability = availabilityResult.data as JuniorPracticeAvailability;
+  const availability = practiceContext.availability;
   const studentPlan = juniorStudentPlanShape(plan, [], session ?? undefined, undefined, { failClosedOnUnsafeCopy: true });
   const issued = realSteps.map(juniorStepHistory);
   const history = realHistory.map(juniorStepHistory);
@@ -3314,6 +3320,11 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
     const correct = answer.selectedOption === Number(row.correct_option);
     const practiceRound = currentContext?.recoveryRound ?? 0;
     lastFeedback = juniorQuestionFeedbackShape(row, stepId, answer.selectedOption, answer) as Record<string, unknown>;
+    if (feedbackOnly && answer === previewAnswers[previewAnswers.length - 1]) {
+      // The exact ordered transcript and current revision have been checked.
+      // Subsequent branch allocation belongs to the background continuation.
+      return { payload: null, feedback: lastFeedback, continuation: { status: "pending" as const } };
+    }
     answeredCount += 1;
     if (correct) correctCount += 1;
     const virtual = answerHistory(row, correct, stepId, answer.selectedOption, answer.uncertain === true, practiceRound);
@@ -3368,7 +3379,10 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
       : nextReviewDate ? `这部分的下一次原题复习从 ${nextReviewDate} 开始。进度已保留，现在可以先学其他知识点。`
         : "已保留你的答题和补练进度，后续题目正在准备，请稍后继续或联系甘老师。" } : {}),
   };
-  const dashboard = completed && previewAnswers.length ? await studentDashboard(studentId, true) : null;
+  let dashboard;
+  if (completed && previewAnswers.length) {
+    try { dashboard = await studentDashboard(studentId, true); } catch { /* Keep the same completed payload as the student path during a dashboard outage. */ }
+  }
   return { payload, feedback: lastFeedback, ...(dashboard ? { dashboard } : {}) };
 }
 
@@ -3401,6 +3415,7 @@ async function guestPractice(token: string) {
 }
 
 Deno.serve(async (req: Request) => {
+  requestStartedAt.set(req, performance.now());
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(req) });
   if (req.method !== "POST") return reply(req, { error: "仅支持 POST 请求。" }, 405);
   try {
@@ -3591,7 +3606,8 @@ Deno.serve(async (req: Request) => {
 
     // Enforce the selected program for every formal write/open route, even
     // when an old tab still holds a plan id. Historical record reads remain available.
-    const programActions = new Set(["start_plan", "future_plan_preview", "junior_open_session", "junior_submit_step", "question_feedback", "submit_attempt", "save_knowledge_rating"]);
+    // Junior submissions validate the same program gates inside the locked atomic RPC.
+    const programActions = new Set(["start_plan", "future_plan_preview", "junior_open_session", "question_feedback", "submit_attempt", "save_knowledge_rating"]);
     if (identity.role === "student" && identity.studentId && programActions.has(body.action)) {
       const profile = await supabase.from("chem_students_v2").select("metadata").eq("id", identity.studentId).single();
       if (profile.error) throw profile.error;
@@ -4058,7 +4074,7 @@ Deno.serve(async (req: Request) => {
       const planId = String(body.data?.planId || "");
       const answers = Array.isArray(body.data?.answers) ? body.data.answers as JuniorPreviewAnswer[] : null;
       if (!answers || !answers.length) return reply(req, { error: "请先选择答案。" }, 400);
-      const result = await juniorPreviewPayload(studentId, planId, answers);
+      const result = await juniorPreviewPayload(studentId, planId, answers, body.data?.feedbackOnly === true);
       if (!result.feedback) return reply(req, { error: "本题反馈暂时无法生成。" }, 409);
       return reply(req, { ...result, simulated: true });
     }
@@ -4081,118 +4097,59 @@ Deno.serve(async (req: Request) => {
         || !Number.isFinite(durationSec) || durationSec < 0 || durationSec > 3600) {
         return reply(req, { error: "本题作答信息无效。" }, 400);
       }
-      if (await isDemoStudent(identity.studentId)) return reply(req, { error: "演示账号不下发私有原题。" }, 403);
-      // Read a locked answer through its student's session before preparing another
-      // question. Replaying this response must never repeat the record-step RPC.
-      const ownedSession = await supabase.from("chem_junior_daily_sessions").select("id")
-        .eq("student_id", identity.studentId).eq("plan_day_id", planId).maybeSingle();
-      if (ownedSession.error) throw ownedSession.error;
-      if (!ownedSession.data) return reply(req, { error: "当前学习会话不存在，请重新打开当天学习。" }, 409);
-      const ownedSessionId = String(ownedSession.data.id);
-      const readOwnedStep = async () => {
-        const result = await supabase.from("chem_junior_session_steps")
-          .select("question_id,skill_id,knowledge_id,session_id,question_snapshot,selected_option,correct,uncertain,duration_sec,answered_at")
-          .eq("id", stepId).eq("session_id", ownedSessionId).maybeSingle();
-        if (result.error) throw result.error;
-        return result.data as Record<string, unknown> | null;
-      };
-      const respondWithFeedback = async (feedback: Record<string, unknown>, replayed: boolean) => {
-        let nextPayload: Record<string, unknown>;
-        try {
-          nextPayload = await juniorSessionPayload(identity.studentId!, planId);
-        } catch {
-          return reply(req, {
-            feedback, payload: null, replayed,
-            continuation: { status: "unavailable", message: "答案已保存，下一题暂时无法打开。你可以查看本题解析，再重试或返回学习计划。" },
-          });
-        }
-        // A dashboard outage also must not hide an already committed answer.
-        let dashboard;
-        if (nextPayload.completed) {
-          try { dashboard = await studentDashboard(identity.studentId!); } catch { /* Returning to the plan remains available. */ }
-        }
-        return reply(req, { feedback, payload: nextPayload, replayed, continuation: { status: "ready" }, ...(dashboard ? { dashboard } : {}) });
-      };
-      const replayLockedStep = async (step: Record<string, unknown> | null) => {
-        if (!step?.answered_at) return null;
-        const snapshot = step.question_snapshot && typeof step.question_snapshot === "object" && !Array.isArray(step.question_snapshot)
-          ? step.question_snapshot as Record<string, unknown> : null;
-        if (Number(step.selected_option) !== selectedOption || !snapshot
-          || String(snapshot.revisionToken || "") !== String(revisionToken || "")) {
-          return reply(req, { error: "这道题已经按第一次选择锁定，不能更换答案或题目版本。" }, 409);
-        }
-        const correctOption = Number(snapshot.correctOption);
-        if (String(snapshot.questionId || "") !== String(step.question_id || "")
-          || !Array.isArray(snapshot.options) || snapshot.options.length !== 4
-          || !Number.isInteger(correctOption) || correctOption < 0 || correctOption > 3
-          || step.correct !== (selectedOption === correctOption) || typeof snapshot.explanation !== "string") {
-          return reply(req, { error: "已保存的答题快照暂时无法核验，请联系甘老师；首次答案没有被更改。" }, 409);
-        }
-        return respondWithFeedback(juniorQuestionFeedbackShape({
-          correct_option: correctOption, explanation: snapshot.explanation,
-          scaffold: snapshot.scaffold, question_revision_token: snapshot.revisionToken,
-        }, stepId, selectedOption, { uncertain: step.uncertain === true, durationSec: Number(step.duration_sec) || 0 }), true);
-      };
-      const firstStep = await readOwnedStep();
-      const replay = await replayLockedStep(firstStep);
-      if (replay) return replay;
-      if (!firstStep) return reply(req, { error: "这道题不属于当前学习会话。" }, 409);
-      let issued: Record<string, unknown>;
-      try {
-        issued = await juniorSessionPayload(identity.studentId, planId);
-      } catch (error) {
-        const concurrentReplay = await replayLockedStep(await readOwnedStep());
-        if (concurrentReplay) return concurrentReplay;
-        throw error;
-      }
-      if (issued.completed || String(issued.currentStepId || "") !== stepId || !issued.currentQuestion) {
-        const concurrentReplay = await replayLockedStep(await readOwnedStep());
-        if (concurrentReplay) return concurrentReplay;
-        return reply(req, { error: issued.pendingMessage || "这道题不是当前等待作答的原题；系统不会替换或重复保存答案。" }, 409);
-      }
-      const currentQuestion = issued.currentQuestion as Record<string, unknown>;
-      const options = Array.isArray(currentQuestion.options) ? currentQuestion.options : [];
-      if (selectedOption >= options.length || String(currentQuestion.revisionToken || "") !== String(revisionToken || "")) {
-        return reply(req, { error: "原题内容已更新，请重新打开当天学习。" }, 409);
-      }
-      const sessionPayload = issued.session as Record<string, unknown>;
-      const currentStepResult = await supabase.from("chem_junior_session_steps")
-        .select("question_id,skill_id,knowledge_id,session_id")
-        .eq("id", stepId).eq("session_id", String(sessionPayload.id)).maybeSingle();
-      if (currentStepResult.error) throw currentStepResult.error;
-      if (!currentStepResult.data
-        || String(currentStepResult.data.skill_id || "") !== String(currentQuestion.skillId || "")
-        || String(currentStepResult.data.knowledge_id || "") !== String(currentQuestion.skillId || "")) {
-        return reply(req, { error: "当前答题步骤已变化，请重新打开当天学习。" }, 409);
-      }
-      const questionResult = await supabase.from("chem_questions")
-        .select("*")
-        .eq("id", String(currentStepResult.data.question_id)).eq("grade_band", "初三")
-        .eq("textbook_version", JUNIOR_TEXTBOOK_VERSION).eq("source_kind", JUNIOR_SOURCE_KIND)
-        .eq("skill_id", String(currentQuestion.skillId)).eq("knowledge_id", String(currentQuestion.skillId))
-        .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true)
-        .eq("render_mode", "native").maybeSingle();
-      if (questionResult.error) throw questionResult.error;
-      if (!questionResult.data || !(await excludeHeldQuestions([questionResult.data])).length || !juniorNativeQuestionIsSafe(questionResult.data as Record<string, unknown>)) {
-        return reply(req, { error: "这道原题已退出正式题库或不再满足原生题门禁，请联系甘老师处理。" }, 409);
-      }
-      const recorded = await supabase.rpc("chem_junior_record_step", {
-        p_session_id: String(sessionPayload.id), p_student_id: identity.studentId, p_step_id: stepId,
+      // One atomic transaction validates this learner's currently issued step,
+      // source, revision, plan, cards and daily budget before locking the answer.
+      // It also replays the immutable first answer. No new question or full
+      // course payload is needed to judge an already issued question.
+      const recorded = await supabase.rpc("chem_junior_submit_answer", {
+        p_student_id: identity.studentId, p_plan_id: planId, p_step_id: stepId,
         p_selected_option: selectedOption, p_uncertain: body.data?.uncertain === true,
         p_duration_sec: Math.round(durationSec), p_revision_token: revisionToken,
       });
       if (recorded.error) {
-        const concurrentReplay = await replayLockedStep(await readOwnedStep());
-        if (concurrentReplay) return concurrentReplay;
-        if (recorded.error.message.includes("junior_daily_question_limit")) return reply(req, { error: "今天的题量已到上限，这道题尚未计入成绩。原有进度已保留，明天可以继续。" }, 409);
-        if (recorded.error.message.includes("already locked")) return reply(req, { error: "这道题已经按第一次选择锁定，不能更换答案。" }, 409);
-        throw recorded.error;
+        const message = String(recorded.error.message || "");
+        if (message.includes("junior_daily_question_limit")) return reply(req, { error: "今天的题量已到上限，这道题尚未计入成绩。原有进度已保留，明天可以继续。" }, 409);
+        if (message.includes("locked") || message.includes("replay")) return reply(req, { error: "这道题已经按第一次选择锁定，不能更换答案或题目版本。" }, 409);
+        if (/unavailable|changed|contract|revision|snapshot|ready|denied|invalid|demo/i.test(message)) {
+          return reply(req, { error: "这道题或学习计划已发生变化，答案没有被替换。请重新打开学习计划后继续。" }, 409);
+        }
+        throw new RequestError(503, "本题提交暂时未能确认，请重试；系统会核对第一次答案，避免重复记录。");
       }
-      const lock = Array.isArray(recorded.data) ? recorded.data[0] as Record<string, unknown> | undefined : undefined;
-      if (!lock) throw new RequestError(500, "首次答案未能安全锁定，请稍后重试。");
-      return respondWithFeedback(juniorQuestionFeedbackShape(questionResult.data, stepId, Number(lock.selected_option), {
-          uncertain: lock.uncertain === true, durationSec: Number(lock.duration_sec) || 0,
-        }), false);
+      const locked = recorded.data as Record<string, unknown> | null;
+      const snapshot = locked?.questionSnapshot && typeof locked.questionSnapshot === "object" && !Array.isArray(locked.questionSnapshot)
+        ? locked.questionSnapshot as Record<string, unknown> : null;
+      const correctOption = Number(snapshot?.correctOption);
+      if (!locked?.answeredAt || String(locked.stepId) !== stepId || Number(locked.selectedOption) !== selectedOption
+        || !snapshot || String(snapshot.questionId || "") !== String(locked.questionId || "")
+        || String(snapshot.revisionToken || "") !== String(revisionToken || "")
+        || !Array.isArray(snapshot.options) || snapshot.options.length !== 4
+        || !Number.isInteger(correctOption) || correctOption < 0 || correctOption > 3
+        || locked.correct !== (selectedOption === correctOption) || typeof snapshot.explanation !== "string") {
+        throw new RequestError(503, "已保存的答题结果暂时无法核验，请重试；首次答案不会被更改。");
+      }
+      const feedback = juniorQuestionFeedbackShape({
+        correct_option: correctOption, explanation: snapshot.explanation,
+        scaffold: snapshot.scaffold, question_revision_token: snapshot.revisionToken,
+      }, stepId, Number(locked.selectedOption), { uncertain: locked.uncertain === true, durationSec: Number(locked.durationSec) || 0 });
+      const replayed = locked.replayed === true;
+      // New clients render confirmed feedback immediately and prepare the next
+      // question in a separate background request. Old tabs keep the combined
+      // response contract. Never send answers before the transaction commits.
+      if (body.data?.feedbackOnly === true) {
+        return reply(req, { feedback, payload: null, replayed, continuation: { status: "pending" } });
+      }
+      let nextPayload: Record<string, unknown>;
+      try {
+        nextPayload = await juniorSessionPayload(identity.studentId, planId);
+      } catch {
+        return reply(req, { feedback, payload: null, replayed,
+          continuation: { status: "unavailable", message: "答案已保存，下一题暂时无法打开。你可以查看本题解析，再重试或返回学习计划。" } });
+      }
+      let dashboard;
+      if (nextPayload.completed) {
+        try { dashboard = await studentDashboard(identity.studentId); } catch { /* A dashboard outage cannot hide the confirmed answer. */ }
+      }
+      return reply(req, { feedback, payload: nextPayload, replayed, continuation: { status: "ready" }, ...(dashboard ? { dashboard } : {}) });
     }
 
     if (body.action === "student_dashboard" && identity.role === "student" && identity.studentId) return reply(req, { dashboard: await studentDashboard(identity.studentId) });

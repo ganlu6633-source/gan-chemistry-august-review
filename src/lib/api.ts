@@ -1,5 +1,5 @@
 import type { CreateVideoRecommendationInput, FuturePlanPreviewPayload, GuardianDashboardData, JuniorAdaptivePayload, JuniorStepSubmissionResult, LearningAttempt, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, RecordVideoEngagementInput, SessionIdentity, StudentDashboardData, TeacherDashboardData, TeacherObservation, VideoRecommendation, VideoRecommendationFilter } from '../domain/types'
-import { ACCESS_FUNCTION, functionUrl, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
+import { ACCESS_FUNCTION, functionUrl, JUNIOR_FUNCTION_REGION, SUPABASE_PUBLISHABLE_KEY, TEACHER_FUNCTION } from './config'
 import { readAccessSession } from './session'
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -80,8 +80,39 @@ export interface ApiRequestOptions {
   signal?: AbortSignal
 }
 
+const REGIONAL_JUNIOR_ACTIONS = new Set([
+  'junior_open_session', 'junior_submit_step', 'preview_junior_open_session', 'preview_junior_submit_step',
+])
+
+async function fetchAccessAction(action: string, request: RequestInit): Promise<Response> {
+  const defaultUrl = functionUrl(ACCESS_FUNCTION)
+  if (!REGIONAL_JUNIOR_ACTIONS.has(action) || !JUNIOR_FUNCTION_REGION || JUNIOR_FUNCTION_REGION === 'any') {
+    return fetch(defaultUrl, request)
+  }
+  const regionalUrl = new URL(defaultUrl)
+  regionalUrl.searchParams.set('forceFunctionRegion', JUNIOR_FUNCTION_REGION)
+  request.signal?.throwIfAborted()
+  let response: Response
+  try {
+    response = await fetch(regionalUrl.toString(), request)
+  } catch (reason) {
+    // A lost response may already have committed. Reuse the exact serialized
+    // body and its immutable step identity; never retry cancellation or 4xx.
+    request.signal?.throwIfAborted()
+    const errorName = reason instanceof Error || reason instanceof DOMException ? reason.name : ''
+    if (errorName === 'AbortError') throw reason
+    if (!(reason instanceof TypeError) && errorName !== 'NetworkError') throw reason
+    return fetch(defaultUrl, request)
+  }
+  if (response.status >= 500 && response.status <= 599) {
+    request.signal?.throwIfAborted()
+    return fetch(defaultUrl, request)
+  }
+  return response
+}
+
 export async function accessApi<T>(session: SessionIdentity, action: string, data?: unknown, options?: ApiRequestOptions): Promise<T> {
-  const response = await fetch(functionUrl(ACCESS_FUNCTION), {
+  const response = await fetchAccessAction(action, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -192,9 +223,12 @@ export interface JuniorStepAnswerInput {
   revisionToken?: string | null
 }
 
-/** Persist one immutable first answer and receive the server-selected next original. */
-export async function submitJuniorAdaptiveStep(session: SessionIdentity, input: JuniorStepAnswerInput) {
-  return accessApi<JuniorStepSubmissionResult>(session, 'junior_submit_step', input)
+/** Confirm an immutable answer first; the subsequent replay can prepare the next
+ * original without delaying feedback or creating a second answer record. */
+export async function submitJuniorAdaptiveStep(session: SessionIdentity, input: JuniorStepAnswerInput,
+  options?: ApiRequestOptions & { feedbackOnly?: boolean }) {
+  return accessApi<JuniorStepSubmissionResult>(session, 'junior_submit_step',
+    { ...input, ...(options?.feedbackOnly !== undefined ? { feedbackOnly: options.feedbackOnly } : {}) }, options)
 }
 
 /** Read-only teacher simulation; no real attempt or answer lock is written. */

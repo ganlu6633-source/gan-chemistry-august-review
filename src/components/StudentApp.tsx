@@ -392,7 +392,26 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }
 
   if (activeJuniorPlan) {
-    return <JuniorAdaptiveSession session={session} initialPayload={activeJuniorPlan} previewStudentId={previewMode ? dashboard.profile.id : undefined} onExit={() => setActiveJuniorPlan(null)} onComplete={(next) => { setDashboard(next); onDashboard(next); setActiveJuniorPlan(null); setView('growth') }} />
+    return <JuniorAdaptiveSession session={session} initialPayload={activeJuniorPlan} previewStudentId={previewMode ? dashboard.profile.id : undefined} onExit={(completed) => {
+      // A dashboard fetch may fail after the server has confirmed completion.
+      // Reflect only that confirmed plan locally; an ordinary exit is not evidence.
+      if (completed?.completed && completed.session.status === 'completed'
+        && completed.plan.id === activeJuniorPlan.plan.id
+        && completed.plan.studentId === dashboard.profile.id) {
+        const next = { ...dashboard, plans: dashboard.plans.map((plan) => plan.id === completed.plan.id ? {
+          ...plan, isComplete: true, juniorSessionStatus: 'completed' as const,
+          attemptCount: Math.max(1, plan.attemptCount), roundsRemaining: 0,
+          firstScore: plan.firstScore ?? completed.session.correctCount,
+          latestScore: completed.session.correctCount,
+          latestCompletedAt: completed.plan.latestCompletedAt ?? plan.latestCompletedAt,
+          questionCount: Math.max(plan.questionCount, completed.session.answeredCount),
+        } : plan) }
+        setDashboard(next)
+        onDashboard(next)
+        setView('growth')
+      }
+      setActiveJuniorPlan(null)
+    }} onComplete={(next) => { setDashboard(next); onDashboard(next); setActiveJuniorPlan(null); setView('growth') }} />
   }
 
   if (activeFuturePreview) {

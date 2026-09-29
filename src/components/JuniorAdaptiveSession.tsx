@@ -4,7 +4,7 @@ import type { JuniorAdaptivePayload, JuniorQuestionFeedback, JuniorStepSubmissio
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildKnowledgeCardDrilldown } from '../domain/knowledgeDrilldown'
 import { juniorReviewPoint } from '../domain/juniorReviewPoint'
-import { accessApi, submitJuniorAdaptiveStep } from '../lib/api'
+import { accessApi, submitJuniorAdaptiveStep, type JuniorStepAnswerInput } from '../lib/api'
 import { ChemText } from './ChemText'
 import { InteractiveKnowledgeTree } from './InteractiveKnowledgeTree'
 
@@ -18,7 +18,7 @@ export function JuniorAdaptiveSession({
   session: SessionIdentity
   initialPayload: JuniorAdaptivePayload
   previewStudentId?: string
-  onExit: () => void
+  onExit: (completed?: JuniorAdaptivePayload) => void
   onComplete: (dashboard: StudentDashboardData) => void
 }) {
   const [payload, setPayload] = useState(initialPayload)
@@ -28,11 +28,29 @@ export function JuniorAdaptiveSession({
   const [feedback, setFeedback] = useState<JuniorQuestionFeedback | null>(null)
   const [startedAt, setStartedAt] = useState(Date.now())
   const [busy, setBusy] = useState(false)
+  const [preparing, setPreparing] = useState(false)
+  const [advanceRequested, setAdvanceRequested] = useState(false)
   const [error, setError] = useState('')
   const [reviewedBranches, setReviewedBranches] = useState<string[]>([])
   const answeredFeedback = useRef(new Map<string, JuniorQuestionFeedback>())
   const primaryAction = useRef<HTMLButtonElement>(null)
   const previewAnswers = useRef<Array<{ stepId: string; selectedOption: number; revisionToken?: string | null; uncertain: boolean; durationSec: number }>>([])
+  const lockedSubmission = useRef<JuniorStepAnswerInput | null>(null)
+  const submittingNow = useRef(false)
+  const preparingNow = useRef(false)
+  const advanceWhenReady = useRef(false)
+  const requestVersion = useRef(0)
+  const continuationAbort = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      requestVersion.current += 1
+      continuationAbort.current?.abort()
+    }
+  }, [])
 
   const question = payload.currentQuestion
   const currentCard = useMemo(() => payload.cards.find((card) => card.skillId === question?.skillId) ?? null, [payload.cards, question?.skillId])
@@ -47,63 +65,130 @@ export function JuniorAdaptiveSession({
   const unfinishedPractice = (pendingPayload ?? payload).optionPractice?.filter((branch) => branch.status !== 'consolidated') ?? []
   const pendingPractice = unfinishedPractice.filter((branch) => branch.status !== 'practicing')
 
-  async function submit(retryContinuation = false) {
-    if (!question || !payload.currentStepId || selected === null || busy || (feedback && !retryContinuation)) return
+  function leave() {
+    requestVersion.current += 1
+    continuationAbort.current?.abort()
+    const confirmed = pendingPayload ?? payload
+    if (confirmed.completed && confirmed.session.status === 'completed') onExit(confirmed)
+    else onExit()
+  }
+
+  function acceptContinuation(result: JuniorStepSubmissionResult) {
+    setPendingPayload(result.payload)
+    const simulatedDashboard = previewStudentId && result.dashboard && result.payload?.completed
+      ? { ...result.dashboard, plans: result.dashboard.plans.map((plan) => plan.id === payload.plan.id
+        ? { ...plan, isComplete: true, attemptCount: 1, latestScore: result.payload!.session.correctCount,
+          firstScore: result.payload!.session.correctCount, roundsRemaining: 0 }
+        : plan) } : result.dashboard
+    setCompletedDashboard(simulatedDashboard ?? null)
+    if (!result.payload) setError(result.continuation?.message ?? '本题解析仍可查看，下一题暂时无法打开。请重试或返回学习计划。')
+    else if (result.payload.pendingMessage) setError(result.payload.pendingMessage)
+  }
+
+  async function prepareNext() {
+    const submitted = lockedSubmission.current
+    if (!submitted || preparingNow.current || !mounted.current) return
+    preparingNow.current = true
+    const version = ++requestVersion.current
+    const controller = new AbortController()
+    continuationAbort.current = controller
+    setPreparing(true)
+    setError('')
+    try {
+      const result = previewStudentId
+        ? await accessApi<JuniorStepSubmissionResult>(session, 'preview_junior_submit_step', {
+          studentId: previewStudentId, planId: submitted.planId, answers: previewAnswers.current, feedbackOnly: false,
+        }, { signal: controller.signal })
+        : await submitJuniorAdaptiveStep(session, submitted, { feedbackOnly: false, signal: controller.signal })
+      if (!mounted.current || version !== requestVersion.current) return
+      acceptContinuation(result)
+      if (advanceWhenReady.current && result.payload) showNext(result.payload)
+    } catch {
+      if (!mounted.current || version !== requestVersion.current) return
+      setError(previewStudentId ? '本题解析仍可查看。下一题暂时无法打开，请重试或返回学习计划。'
+        : '答案已保存，解析仍可查看。下一题暂时无法打开，请重试或返回学习计划。')
+    } finally {
+      if (version === requestVersion.current) {
+        preparingNow.current = false
+        continuationAbort.current = null
+        advanceWhenReady.current = false
+        if (mounted.current) { setPreparing(false); setAdvanceRequested(false) }
+      }
+    }
+  }
+
+  async function submit() {
+    if (!question || !payload.currentStepId || selected === null || submittingNow.current || feedback) return
+    submittingNow.current = true
+    const version = ++requestVersion.current
     setBusy(true)
     setError('')
     try {
-      const submitted = {
+      const submitted = lockedSubmission.current ?? {
         planId: payload.plan.id,
         stepId: payload.currentStepId,
-        selectedOption: feedback?.selectedOption ?? selected,
-        uncertain: feedback?.uncertain ?? false,
-        durationSec: feedback?.durationSec ?? Math.min(3600, Math.max(0, Math.round((Date.now() - startedAt) / 1000))),
-        revisionToken: feedback?.revisionToken ?? question.revisionToken,
+        selectedOption: selected,
+        uncertain: false,
+        durationSec: Math.min(3600, Math.max(0, Math.round((Date.now() - startedAt) / 1000))),
+        revisionToken: question.revisionToken,
       }
+      lockedSubmission.current = submitted
       const nextPreviewAnswers = previewAnswers.current.some((answer) => answer.stepId === submitted.stepId)
         ? previewAnswers.current : [...previewAnswers.current, submitted]
       const result: JuniorStepSubmissionResult = previewStudentId
         ? await accessApi<JuniorStepSubmissionResult>(session, 'preview_junior_submit_step', {
-          studentId: previewStudentId, planId: payload.plan.id, answers: nextPreviewAnswers,
+          studentId: previewStudentId, planId: payload.plan.id, answers: nextPreviewAnswers, feedbackOnly: true,
         })
-        : await submitJuniorAdaptiveStep(session, submitted)
+        : await submitJuniorAdaptiveStep(session, submitted, { feedbackOnly: true })
+      if (!mounted.current || version !== requestVersion.current) return
       if (previewStudentId) previewAnswers.current = nextPreviewAnswers
+      lockedSubmission.current = { ...submitted, selectedOption: result.feedback.selectedOption,
+        uncertain: result.feedback.uncertain, durationSec: result.feedback.durationSec,
+        revisionToken: result.feedback.revisionToken ?? submitted.revisionToken }
       answeredFeedback.current.set(submitted.stepId, result.feedback)
       setFeedback(result.feedback)
       setSelected(result.feedback.selectedOption)
-      setPendingPayload(result.payload)
-      const simulatedDashboard = previewStudentId && result.dashboard && result.payload?.completed
-        ? { ...result.dashboard, plans: result.dashboard.plans.map((plan) => plan.id === payload.plan.id
-          ? { ...plan, isComplete: true, attemptCount: 1, latestScore: result.payload!.session.correctCount,
-            firstScore: result.payload!.session.correctCount, roundsRemaining: 0 }
-          : plan) } : result.dashboard
-      setCompletedDashboard(simulatedDashboard ?? null)
-      if (!result.payload) setError(result.continuation?.message ?? '答案已保存，下一题暂时无法打开。你可以查看本题解析，再重试或返回学习计划。')
-      else if (result.payload.pendingMessage) setError(result.payload.pendingMessage)
+      if (result.continuation?.status === 'pending' && !result.payload) void prepareNext()
+      else acceptContinuation(result)
     } catch (reason) {
-      setError(feedback ? '答案已保存，解析仍可查看。下一题暂时无法打开，请重试或返回学习计划。'
-        : reason instanceof Error ? reason.message : '这道题暂时无法提交，请稍后重试。')
+      if (mounted.current && version === requestVersion.current) setError(reason instanceof Error ? reason.message : '这道题暂时无法提交，请稍后重试。')
     } finally {
-      setBusy(false)
+      submittingNow.current = false
+      if (mounted.current) setBusy(false)
     }
   }
 
-  function next() {
-    if (!pendingPayload) return
-    if (pendingPayload.completed) {
-      setPayload(pendingPayload)
+  function showNext(nextPayload: JuniorAdaptivePayload) {
+    requestVersion.current += 1
+    preparingNow.current = false
+    advanceWhenReady.current = false
+    continuationAbort.current = null
+    lockedSubmission.current = null
+    setPreparing(false)
+    setAdvanceRequested(false)
+    if (nextPayload.completed) {
+      setPayload(nextPayload)
       setPendingPayload(null)
       setFeedback(null)
       return
     }
-    if (!pendingPayload.currentQuestion) { onExit(); return }
-    setPayload(pendingPayload)
+    if (!nextPayload.currentQuestion) { leave(); return }
+    setPayload(nextPayload)
     setPendingPayload(null)
     setSelected(null)
     setFeedback(null)
     setError('')
     setStartedAt(Date.now())
     window.setTimeout(() => primaryAction.current?.focus(), 0)
+  }
+
+  function next() {
+    if (pendingPayload) { showNext(pendingPayload); return }
+    if (preparingNow.current) {
+      if (!advanceWhenReady.current) { advanceWhenReady.current = true; setAdvanceRequested(true) }
+      return
+    }
+    void prepareNext()
   }
 
   useEffect(() => {
@@ -135,11 +220,11 @@ export function JuniorAdaptiveSession({
       {threeRoundPolicy && <p>首轮 8 题，错点最多补练 3 轮；每天合计最多 30 题。还没练稳的考点会留在后续复习中。</p>}
       {unfinishedPractice.length > 0 && <p>还有 {unfinishedPractice.length} 个错项考点待继续练习，进度已经保留。</p>}
       <div className="result-stats"><div><b>{payload.session.answeredCount}</b><span>完成题数</span></div><div><b>{payload.session.correctCount}</b><span>答对题数</span></div></div>
-      <div className="result-actions"><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => completedDashboard ? onComplete(completedDashboard) : onExit()}>查看今日成果<Trophy size={18} /></button></div>
+      <div className="result-actions"><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => completedDashboard ? onComplete(completedDashboard) : leave()}>查看今日成果<Trophy size={18} /></button></div>
     </section>
   }
 
-  if (!question) return <section className="learning-stage"><div className="inline-alert" role="alert">{payload.pendingMessage ?? '当前题目暂时无法打开，请返回学习计划或联系甘老师。'}</div><button className="secondary-button" onClick={onExit}>返回学习计划</button></section>
+  if (!question) return <section className="learning-stage"><div className="inline-alert" role="alert">{payload.pendingMessage ?? '当前题目暂时无法打开，请返回学习计划或联系甘老师。'}</div><button className="secondary-button" onClick={leave}>返回学习计划</button></section>
 
   if (needsRoundReview) {
     const pointName = question.optionPractice!.knowledgePoint
@@ -165,7 +250,7 @@ export function JuniorAdaptiveSession({
         <summary>还想看相关知识？展开完整知识树</summary>
         <InteractiveKnowledgeTree root={reviewTree} title={reviewCard.title} intro="点击需要的小节点，逐个看规则和例子。" />
       </details>}
-      <div className="stage-actions"><button className="secondary-button" onClick={onExit}>稍后继续 / 返回计划</button><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { setReviewedBranches((branches) => [...branches, reviewKey]); setStartedAt(Date.now()) }}>开始第 {recoveryRound} 轮补练<ChevronRight size={18} /></button></div>
+      <div className="stage-actions"><button className="secondary-button" onClick={leave}>稍后继续 / 返回计划</button><button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" onClick={() => { setReviewedBranches((branches) => [...branches, reviewKey]); setStartedAt(Date.now()) }}>开始第 {recoveryRound} 轮补练<ChevronRight size={18} /></button></div>
     </section>
   }
 
@@ -192,10 +277,10 @@ export function JuniorAdaptiveSession({
       <h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{question.stem}</ChemText></h1>
       <div className="option-list">{question.options.map((option, index) => {
         const letter = String.fromCharCode(65 + index)
-        return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><div className="junior-option-copy" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}><ChemText>{option}</ChemText></div></button>
+        return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy || lockedSubmission.current !== null} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><div className="junior-option-copy" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}><ChemText>{option}</ChemText></div></button>
       })}</div>
       {feedback && <div className={`answer-feedback ${answeredCorrectly ? 'good' : 'needs-work'}`}><b>{answeredCorrectly ? '回答正确' : `回答错误，正确选项是 ${String.fromCharCode(65 + feedback.correctOption)}`}</b><div className="answer-explanation">{explanation.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option ? <b className="answer-option-label">{item.option}</b> : null}<span className="answer-explanation-text"><ChemText>{item.text}</ChemText></span></p>)}</div>{!answeredCorrectly && feedback.scaffold ? <p><CircleHelp size={16} />提示：<ChemText>{feedback.scaffold}</ChemText></p> : null}</div>}
     </article>
-    <div className="stage-actions"><button className="secondary-button" disabled={busy} onClick={onExit}>稍后继续 / 返回计划</button>{feedback ? <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy} onClick={() => pendingPayload ? next() : void submit(true)}>{busy ? '正在准备下一题…' : !pendingPayload ? '重试获取下一题' : pendingPayload.completed ? '完成今天学习' : !pendingPayload.currentQuestion ? '返回学习计划' : '下一题'}<ChevronRight size={18} /></button> : <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null} onClick={() => void submit()}>{busy ? '正在提交答案…' : '提交答案'}</button>}</div>
+    <div className="stage-actions"><button className="secondary-button" disabled={busy} onClick={leave}>稍后继续 / 返回计划</button>{feedback ? <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || advanceRequested} onClick={next}>{advanceRequested ? '正在打开下一题…' : preparing ? '下一题（准备中…）' : !pendingPayload ? '重试获取下一题' : pendingPayload.completed ? '完成今天学习' : !pendingPayload.currentQuestion ? '返回学习计划' : '下一题'}<ChevronRight size={18} /></button> : <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null} onClick={() => void submit()}>{busy ? '正在提交答案…' : '提交答案'}</button>}</div>
   </section>
 }

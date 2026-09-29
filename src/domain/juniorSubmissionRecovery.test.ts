@@ -2,139 +2,148 @@ import { describe, expect, it, vi } from 'vitest'
 import ts from 'typescript'
 import accessSource from '../../supabase/functions/chemistry-access/index.ts?raw'
 
-// Execute the actual action body, rather than a second implementation of its
-// state machine. Only database/network boundaries are replaced in these tests.
+// Execute production action; only atomic SQL/network boundaries are mocked.
 const start = accessSource.indexOf('if (body.action === "junior_submit_step"')
 const action = accessSource.slice(start, accessSource.indexOf('if (body.action === "student_dashboard"', start))
 const shape = accessSource.slice(accessSource.indexOf('function juniorQuestionFeedbackShape('), accessSource.indexOf('function validKnowledgeTreeNode('))
-const dependencies = ['body', 'identity', 'req', 'supabase', 'validUuid', 'reply', 'isDemoStudent', 'juniorSessionPayload', 'studentDashboard', 'excludeHeldQuestions', 'juniorNativeQuestionIsSafe', 'RequestError', 'JUNIOR_TEXTBOOK_VERSION', 'JUNIOR_SOURCE_KIND']
-const execute = new Function(...dependencies, ts.transpileModule(`${shape}\nreturn (async () => { ${action} })();`, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
-}).outputText)
-
+const execute = new Function('body', 'identity', 'req', 'supabase', 'validUuid', 'reply', 'juniorSessionPayload', 'studentDashboard', 'RequestError', ts.transpileModule(`${shape}\nreturn (async () => { ${action} })();`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText)
 const planId = '11111111-1111-4111-8111-111111111111'
 const stepId = '22222222-2222-4222-8222-222222222222'
-const sessionId = 'session-owned-by-student'
 const revision = 'immutable-revision-1'
-const snapshot = { questionId: 'private-question-id', revisionToken: revision, options: ['A', 'B', 'C', 'D'], correctOption: 0, explanation: '已下发版本解析', scaffold: '已下发提示' }
-const baseStep = { question_id: snapshot.questionId, skill_id: 'K03', knowledge_id: 'K03', session_id: sessionId, question_snapshot: snapshot, answered_at: null }
-const saved = { ...baseStep, selected_option: 1, correct: false, uncertain: true, duration_sec: 8, answered_at: '2026-09-08T00:00:00Z' }
-const current = { completed: false, currentStepId: stepId, currentQuestion: { options: snapshot.options, skillId: 'K03', revisionToken: revision }, session: { id: sessionId } }
-const next = { completed: false, currentStepId: 'next-step', currentQuestion: { options: snapshot.options }, session: { id: sessionId } }
+const snapshot = { questionId: 'private-question-id', revisionToken: revision, options: ['A', 'B', 'C', 'D'], correctOption: 0, explanation: '已下发版本解析', scaffold: '已下发提示', sourceInfo: { locator: 'private/source.pdf' } }
+const saved = { stepId, questionId: snapshot.questionId, selectedOption: 1, correct: false, uncertain: true, durationSec: 8, answeredAt: '2026-09-29T00:00:00Z', questionSnapshot: snapshot, replayed: true }
+const next = { completed: false, currentStepId: 'next-step', currentQuestion: { options: snapshot.options }, session: { id: 'session-owned-by-student' } }
 type Row = Record<string, unknown>
-
 function setup({ locked = false, owned = true, demo = false } = {}) {
-  let step: Row = locked ? structuredClone(saved) : structuredClone(baseStep)
-  const queries: { table: string; filters: Record<string, unknown> }[] = []
-  const from = vi.fn((table: string) => {
-    const query = { table, filters: {} as Record<string, unknown> }
-    queries.push(query)
-    const builder = {
-      select: () => builder,
-      eq: (key: string, value: unknown) => { query.filters[key] = value; return builder },
-      maybeSingle: async () => {
-        if (table === 'chem_junior_daily_sessions') return { data: owned && query.filters.student_id === 'student-1' && query.filters.plan_day_id === planId ? { id: sessionId } : null, error: null }
-        if (table === 'chem_junior_session_steps') return { data: query.filters.id === stepId && query.filters.session_id === sessionId ? structuredClone(step) : null, error: null }
-        if (table === 'chem_questions') return { data: { correct_option: 0, explanation: '已下发版本解析', question_revision_token: revision }, error: null }
-        throw new Error(`Unexpected table ${table}`)
-      },
+  let committed: Row | null = locked ? structuredClone(saved) : null
+  let writes = 0
+  const rpc = vi.fn(async (name: string, args: Row): Promise<{ data: Row | null; error: { message: string } | null }> => {
+    expect(name).toBe('chem_junior_submit_answer')
+    expect(args.p_student_id).toBe('student-1')
+    expect(args.p_plan_id).toBe(planId)
+    expect(args.p_step_id).toBe(stepId)
+    if (!owned || demo) return { data: null, error: { message: demo ? 'junior_demo_denied' : 'junior_session_unavailable' } }
+    if (committed) {
+      if (args.p_selected_option !== committed.selectedOption || args.p_revision_token !== revision || args.p_uncertain !== committed.uncertain) return { data: null, error: { message: 'junior step already locked: replay mismatch' } }
+      return { data: { ...committed, replayed: true }, error: null }
     }
-    return builder
-  })
-  const rpc = vi.fn(async (_name: string, values: Row) => {
-    step = { ...baseStep, ...saved, selected_option: values.p_selected_option, uncertain: values.p_uncertain, duration_sec: values.p_duration_sec, correct: values.p_selected_option === 0 }
-    return { data: [step], error: null as { message: string } | null }
+    writes += 1
+    committed = { ...structuredClone(saved), selectedOption: args.p_selected_option, uncertain: args.p_uncertain, durationSec: args.p_duration_sec, correct: args.p_selected_option === 0, replayed: false }
+    return { data: structuredClone(committed), error: null }
   })
   const juniorSessionPayload = vi.fn<() => Promise<Row>>().mockResolvedValue(next)
   const studentDashboard = vi.fn<() => Promise<Row>>().mockResolvedValue({ plans: [] })
+  const from = vi.fn(() => { throw new Error('Submit must not rebuild the current question before atomic commit') })
   const run = (changes: Row = {}) => execute(
     { action: 'junior_submit_step', data: { planId, stepId, selectedOption: 1, durationSec: 4, uncertain: false, revisionToken: revision, ...changes } },
     { role: 'student', studentId: 'student-1' }, {}, { from, rpc },
-    (value: string) => /^[0-9a-f-]{36}$/i.test(value),
-    (_req: unknown, body: Row, status = 200) => ({ status, body }),
-    async () => demo, juniorSessionPayload, studentDashboard,
-    async (rows: Row[]) => rows, () => true,
+    (value: string) => /^[0-9a-f-]{36}$/i.test(value), (_req: unknown, body: Row, status = 200) => ({ status, body }), juniorSessionPayload, studentDashboard,
     class RequestError extends Error { constructor(public status: number, message: string) { super(message) } },
-    '科粤版', 'user_provided_local',
   ) as Promise<{ status: number; body: Row }>
-  return { run, rpc, juniorSessionPayload, studentDashboard, queries, setStep: (value: Row) => { step = value } }
+  return { run, rpc, from, juniorSessionPayload, studentDashboard, writeCount: () => writes }
 }
 
-describe('junior committed-answer recovery in the real action body', () => {
-  it('returns saved feedback when preparing the next question fails, then replays without a second write', async () => {
+describe('junior atomic committed-answer feedback in the real action body', () => {
+  it('returns committed feedback without starting or waiting for continuation', async () => {
     const env = setup()
-    env.juniorSessionPayload.mockResolvedValueOnce(current).mockRejectedValueOnce(new Error('private source path must not leak'))
+    env.juniorSessionPayload.mockImplementation(() => new Promise(() => {}))
+    const response = await env.run({ feedbackOnly: true })
+    expect(response.body).toMatchObject({ feedback: { stepId, correct: false, correctOption: 0, explanation: snapshot.explanation }, payload: null, replayed: false, continuation: { status: 'pending' } })
+    expect(env.rpc).toHaveBeenCalledTimes(1)
+    expect(env.writeCount()).toBe(1)
+    expect(env.from).not.toHaveBeenCalled()
+    expect(env.juniorSessionPayload).not.toHaveBeenCalled()
+    expect(env.studentDashboard).not.toHaveBeenCalled()
+  })
+  it('does not reveal an answer before atomic commit resolves', async () => {
+    const env = setup()
+    let commit!: (value: { data: Row; error: null }) => void
+    env.rpc.mockImplementationOnce(() => new Promise((resolve) => { commit = resolve }))
+    let done = false
+    const pending = env.run({ feedbackOnly: true }).then((value) => { done = true; return value })
+    await Promise.resolve()
+    expect(done).toBe(false)
+    commit({ data: saved, error: null })
+    expect((await pending).body.feedback).toBeDefined()
+  })
+  it('background continuation replays the first answer without rewriting its duration or uncertainty', async () => {
+    const env = setup()
+    const first = await env.run({ feedbackOnly: true })
+    const continued = await env.run({ feedbackOnly: false, durationSec: 90, uncertain: false })
+    expect(continued.body).toMatchObject({ payload: next, replayed: true, continuation: { status: 'ready' } })
+    expect(continued.body.feedback).toEqual(first.body.feedback)
+    expect(env.writeCount()).toBe(1)
+    expect(env.juniorSessionPayload).toHaveBeenCalledTimes(1)
+  })
+  it('preserves combined response compatibility for old clients', async () => {
+    const env = setup()
+    expect((await env.run()).body).toMatchObject({ payload: next, replayed: false, continuation: { status: 'ready' }, feedback: { correct: false } })
+    expect(env.writeCount()).toBe(1)
+  })
+  it('returns saved feedback after continuation fails and retries without a second write', async () => {
+    const env = setup()
+    env.juniorSessionPayload.mockRejectedValueOnce(new Error('private source path must not leak'))
     const first = await env.run()
-    expect(first.status).toBe(200)
-    expect(first.body).toMatchObject({ payload: null, replayed: false, continuation: { status: 'unavailable' }, feedback: { stepId, selectedOption: 1, correct: false, correctOption: 0, explanation: snapshot.explanation } })
+    expect(first.body).toMatchObject({ payload: null, continuation: { status: 'unavailable' }, feedback: { explanation: snapshot.explanation } })
     expect(JSON.stringify(first)).not.toContain('private source path')
-    expect(env.rpc).toHaveBeenCalledTimes(1)
-    const retry = await env.run({ uncertain: true, durationSec: 99 })
-    expect(retry.body).toMatchObject({ payload: next, replayed: true, feedback: { selectedOption: 1, uncertain: false, durationSec: 4 } })
-    expect(env.rpc).toHaveBeenCalledTimes(1)
+    expect((await env.run({ uncertain: false, durationSec: 99 })).body).toMatchObject({ payload: next, replayed: true, feedback: { uncertain: false, durationSec: 4 } })
+    expect(env.writeCount()).toBe(1)
   })
-
-  it('reads the owned immutable snapshot after retirement and never reads the current question or rewrites metadata', async () => {
+  it('replays immutable feedback without live question reads or leaking provenance', async () => {
     const env = setup({ locked: true })
-    const response = await env.run({ uncertain: false, durationSec: 999 })
+    const response = await env.run({ feedbackOnly: true, uncertain: true, durationSec: 999 })
     expect(response.body).toMatchObject({ replayed: true, feedback: { explanation: snapshot.explanation, uncertain: true, durationSec: 8, revisionToken: revision } })
-    expect(env.queries.some((query) => query.table === 'chem_questions')).toBe(false)
-    expect(env.queries[0].filters).toEqual({ student_id: 'student-1', plan_day_id: planId })
-    expect(env.queries[1].filters).toEqual({ id: stepId, session_id: sessionId })
-    expect(JSON.stringify(response.body.feedback)).not.toContain('private-question-id')
-    expect(env.rpc).not.toHaveBeenCalled()
+    for (const secret of ['private-question-id', 'private/source.pdf', 'questionSnapshot', 'sourceInfo']) expect(JSON.stringify(response.body)).not.toContain(secret)
+    expect(env.from).not.toHaveBeenCalled()
+    expect(env.writeCount()).toBe(0)
   })
-
-  it.each([{ selectedOption: 0 }, { revisionToken: 'different-version' }])('rejects changed option or revision on a locked step: %j', async (changes) => {
+  it.each([{ selectedOption: 0 }, { revisionToken: 'different-version' }, { uncertain: false }])('rejects changed first option/revision/uncertainty: %j', async (changes) => {
     const env = setup({ locked: true })
-    expect((await env.run(changes)).status).toBe(409)
-    expect(env.rpc).not.toHaveBeenCalled()
+    const response = await env.run({ uncertain: true, ...changes, feedbackOnly: true })
+    expect(response.status).toBe(409)
+    expect(response.body.feedback).toBeUndefined()
+    expect(env.writeCount()).toBe(0)
     expect(env.juniorSessionPayload).not.toHaveBeenCalled()
   })
-
-  it('does not expose feedback for a plan outside the authenticated student session', async () => {
-    const env = setup({ locked: true, owned: false })
-    const result = await env.run()
-    expect(result.status).toBe(409)
-    expect(result.body.feedback).toBeUndefined()
-    expect(env.queries).toHaveLength(1)
-    expect(env.rpc).not.toHaveBeenCalled()
+  it.each([{ owned: false }, { demo: true }])('does not reveal feedback when the atomic ownership/non-demo check denies: %j', async (flags) => {
+    const env = setup({ locked: true, ...flags })
+    const response = await env.run({ feedbackOnly: true })
+    expect(response.status).toBe(409)
+    expect(response.body.feedback).toBeUndefined()
+    expect(env.writeCount()).toBe(0)
+    expect(env.juniorSessionPayload).not.toHaveBeenCalled()
   })
-
-  it('rejects demo access before reading or writing private session contents', async () => {
-    const env = setup({ locked: true, demo: true })
-    expect((await env.run()).status).toBe(403)
-    expect(env.queries).toHaveLength(0)
-    expect(env.rpc).not.toHaveBeenCalled()
-  })
-
-  it('recovers a concurrent first lock when the atomic RPC reports already locked', async () => {
+  it.each(['junior_daily_question_limit', 'junior revision changed', 'snapshot contract invalid', 'source ready denied'])('keeps database rejection and returns no answer for %s', async (message) => {
     const env = setup()
-    env.juniorSessionPayload.mockResolvedValueOnce(current)
-    env.rpc.mockImplementationOnce(async () => {
-      env.setStep(structuredClone(saved))
-      return { data: [], error: { message: 'junior session step is already locked' } }
-    })
-    const result = await env.run()
-    expect(result.body).toMatchObject({ replayed: true, feedback: { durationSec: 8, uncertain: true } })
-    expect(env.rpc).toHaveBeenCalledTimes(1)
+    env.rpc.mockResolvedValueOnce({ data: null, error: { message } })
+    const response = await env.run({ feedbackOnly: true })
+    expect(response.status).toBe(409)
+    expect(response.body.feedback).toBeUndefined()
+    expect(env.juniorSessionPayload).not.toHaveBeenCalled()
   })
-
-  it('recovers a concurrent same-answer lock when resume has already advanced', async () => {
+  it('hides unexpected SQL diagnostics and safely retries an uncertain transport result', async () => {
     const env = setup()
-    env.juniorSessionPayload.mockImplementationOnce(async () => { env.setStep(structuredClone(saved)); return next })
-    const result = await env.run()
-    expect(result.body).toMatchObject({ replayed: true, feedback: { selectedOption: 1 } })
+    env.rpc.mockResolvedValueOnce({ data: null, error: { message: 'sensitive table /private/path secret' } })
+    await expect(env.run({ feedbackOnly: true })).rejects.toMatchObject({ status: 503, message: expect.not.stringContaining('sensitive') })
+    await expect(env.run({ feedbackOnly: true })).resolves.toMatchObject({ body: { feedback: { correct: false } } })
+    expect(env.writeCount()).toBe(1)
+  })
+  it.each([{ stepId: 'different-step' }, { selectedOption: 3 }, { correct: true }, { answeredAt: null }, { questionSnapshot: { ...snapshot, revisionToken: 'changed' } }, { questionSnapshot: { ...snapshot, correctOption: 5 } }, { questionSnapshot: { ...snapshot, options: ['A'] } }])('rejects inconsistent committed DTO before showing feedback: %j', async (broken) => {
+    const env = setup()
+    env.rpc.mockResolvedValueOnce({ data: { ...saved, ...broken }, error: null })
+    await expect(env.run({ feedbackOnly: true })).rejects.toMatchObject({ status: 503 })
+    expect(env.juniorSessionPayload).not.toHaveBeenCalled()
+  })
+  it.each([{ selectedOption: 4 }, { durationSec: -1 }, { durationSec: 3601 }, { stepId: '' }])('rejects bad input before SQL: %j', async (changes) => {
+    const env = setup()
+    expect((await env.run(changes)).status).toBe(400)
     expect(env.rpc).not.toHaveBeenCalled()
   })
-
-  it('preserves final feedback if the dashboard fails and leaves a completed payload for safe exit', async () => {
+  it('keeps final feedback and completed payload even when dashboard fails', async () => {
     const env = setup({ locked: true })
     env.juniorSessionPayload.mockResolvedValue({ ...next, completed: true, currentQuestion: null })
     env.studentDashboard.mockRejectedValue(new Error('dashboard unavailable'))
-    const result = await env.run()
-    expect(result.body).toMatchObject({ feedback: { selectedOption: 1 }, payload: { completed: true }, continuation: { status: 'ready' } })
-    expect(result.body.dashboard).toBeUndefined()
-    expect(env.rpc).not.toHaveBeenCalled()
+    expect((await env.run({ uncertain: true })).body).toMatchObject({ feedback: { selectedOption: 1 }, payload: { completed: true }, continuation: { status: 'ready' } })
+    expect(env.writeCount()).toBe(0)
   })
 })

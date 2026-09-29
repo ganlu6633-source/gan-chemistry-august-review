@@ -354,13 +354,14 @@ export interface JuniorAdaptivePayload {
   pendingMessage?: string
 }
 
-/** A committed answer is returned even when preparing the next question fails. */
+/** Feedback is available after the server confirms this answer. `pending`
+ * deliberately defers next-question preparation to a separate replay request. */
 export interface JuniorStepSubmissionResult {
   feedback: JuniorQuestionFeedback
   payload: JuniorAdaptivePayload | null
   dashboard?: StudentDashboardData
   replayed?: boolean
-  continuation?: { status: 'ready' | 'unavailable'; message?: string }
+  continuation?: { status: 'ready' | 'pending' | 'unavailable'; message?: string }
 }
 
 /**

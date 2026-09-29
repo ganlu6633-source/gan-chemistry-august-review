@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { KnowledgeCard, LearningPlanDay, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
+import type { JuniorAdaptivePayload, KnowledgeCard, LearningPlanDay, Question, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { StudentApp, type PlanPayload } from './StudentApp'
 
 const session: SessionIdentity = { role: 'student', token: 'student-session', displayName: '测试学生', expiresAt: '2099-01-01T00:00:00Z' }
@@ -58,6 +58,50 @@ describe('StudentApp plan opening resilience', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it.each([false, true])('updates only a server-confirmed junior completion when exiting without a dashboard (completed=%s)', async (completed) => {
+    const juniorPlan: LearningPlanDay = { ...plan, deliveryMode: 'junior_adaptive', questionCount: 8, roundLimit: 4,
+      hardQuestionCap: 30, juniorSessionStatus: 'active', title: '制氧气原题', skillIds: ['J_OXYGEN'] }
+    const anotherPlan = { ...juniorPlan, id: 'another-plan', date: '2026-09-01' }
+    const juniorDashboard: StudentDashboardData = { ...dashboard, profile: { ...dashboard.profile, gradeBand: '初三', isDemo: false }, plans: [juniorPlan, anotherPlan] }
+    const juniorPayload: JuniorAdaptivePayload = {
+      deliveryMode: 'junior_adaptive', plan: juniorPlan, cards: [], completed,
+      session: { id: 'junior-session', status: completed ? 'completed' : 'active', initialQuestionTarget: 8,
+        hardQuestionCap: 30, recoveryRoundLimit: 3, issuedCount: 8, answeredCount: completed ? 8 : 7, correctCount: 6 },
+      currentStepId: completed ? undefined : 'junior-step', currentQuestion: completed ? null : {
+        skillId: 'J_OXYGEN', gradeBand: '初三', level: 1, stem: '这道题还没有完成', options: ['甲', '乙', '丙', '丁'], revisionToken: 'revision-1',
+      },
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      const request = JSON.parse(String(init?.body))
+      if (request.action === 'junior_open_session') return jsonResponse({ payload: juniorPayload })
+      if (request.action === 'self_study_catalog') return jsonResponse({ catalog: { topics: [] } })
+      return jsonResponse({ error: '档案暂时不可用' }, 503)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const onDashboard = vi.fn()
+    render(<StudentApp session={session} initialDashboard={juniorDashboard} onDashboard={onDashboard} />)
+    chooseDate()
+    fireEvent.click(screen.getByRole('button', { name: /继续今日学习/ }))
+    if (completed) {
+      fireEvent.click(await screen.findByRole('button', { name: '查看今日成果' }))
+      expect(onDashboard).toHaveBeenCalledTimes(1)
+      const updated = onDashboard.mock.calls[0][0] as StudentDashboardData
+      expect(updated.plans[0]).toMatchObject({ id: plan.id, isComplete: true, juniorSessionStatus: 'completed',
+        attemptCount: 1, firstScore: 6, latestScore: 6, roundsRemaining: 0 })
+      expect(updated.plans[0].isResolved).toBe(false)
+      expect(updated.plans[0].latestCompletedAt).toBeNull()
+      expect(updated.plans[1]).toEqual(anotherPlan)
+      expect(updated.skillStates).toEqual(juniorDashboard.skillStates)
+      fireEvent.click(screen.getByRole('button', { name: '学习日历' }))
+      expect(screen.getByRole('button', { name: `${today} · 制氧气原题，学习已完成` })).toBeInTheDocument()
+    } else {
+      fireEvent.click(await screen.findByRole('button', { name: '稍后继续 / 返回计划' }))
+      expect(onDashboard).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: /继续今日学习/ })).toBeInTheDocument()
+    }
+    expect(fetchMock.mock.calls.every(call => !/^(?:junior_submit_step|submit_attempt|record_|save_)/.test(JSON.parse(String(call[1]?.body)).action))).toBe(true)
   })
 
   it('starts with four choices and opens a source-backed knowledge challenge catalog', async () => {

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IssuedJuniorQuestion, JuniorAdaptivePayload, JuniorQuestionFeedback, KnowledgeCard, LearningPlanDay, SessionIdentity } from '../domain/types'
 import { JuniorAdaptiveSession } from './JuniorAdaptiveSession'
@@ -45,11 +45,187 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
+function deferredResponse() {
+  let resolve!: (response: Response) => void
+  const promise = new Promise<Response>((accept) => { resolve = accept })
+  return { promise, resolve }
+}
+
 describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('reveals only confirmed feedback immediately while the next original is still preparing', async () => {
+    const confirm = deferredResponse()
+    const continuation = deferredResponse()
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValueOnce(confirm.promise).mockReturnValueOnce(continuation.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('first', '先看第一题'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(screen.getByRole('button', { name: '正在提交答案…' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('回答正确')).not.toBeInTheDocument()
+    expect(screen.queryByText('物质种类可以发生改变。')).not.toBeInTheDocument()
+    await act(async () => confirm.resolve(jsonResponse({ feedback, payload: null, continuation: { status: 'pending' } })))
+    expect(screen.getByText('回答正确')).toBeVisible()
+    expect(screen.getByText('物质种类可以发生改变。')).toBeVisible()
+    expect(screen.getByRole('button', { name: '稍后继续 / 返回计划' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '下一题（准备中…）' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).data.feedbackOnly).toBe(true)
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).data.feedbackOnly).toBe(false)
+    await act(async () => continuation.resolve(jsonResponse({ feedback, payload: payload(question('second', '后台准备好了'), 1) })))
+    expect(screen.getByRole('button', { name: '下一题' })).toBeEnabled()
+    expect(screen.getByRole('heading', { name: '先看第一题' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '后台准备好了' })).not.toBeInTheDocument()
+  })
+
+  it('queues one next click during preparation and advances exactly once when ready', async () => {
+    const continuation = deferredResponse()
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: null, continuation: { status: 'pending' } }))
+      .mockReturnValueOnce(continuation.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('first', '第一题'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(await screen.findByRole('button', { name: '下一题（准备中…）' }))
+    const queued = screen.getByRole('button', { name: '正在打开下一题…' })
+    expect(queued).toBeDisabled()
+    fireEvent.click(queued)
+    fireEvent.keyDown(window, { key: 'Enter' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await act(async () => continuation.resolve(jsonResponse({ feedback, payload: payload(question('second', '只前进到第二题'), 1) })))
+    expect(screen.getByRole('heading', { name: '只前进到第二题' })).toBeVisible()
+    expect(screen.queryByText('回答正确')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeDisabled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])('keeps the completed dashboard with a queued final next click (preview=%s)', async (preview) => {
+    const continuation = deferredResponse()
+    const nextDashboard = {
+      profile: { id: plan.studentId, displayName: '学生', gradeBand: '初三', enrollmentStartDate: plan.date, needsInitialDiagnostic: false },
+      plans: [plan], skillStates: [], skillDefinitions: [], todayQuestionCount: 8, achievements: [],
+    }
+    const onComplete = vi.fn()
+    const onExit = vi.fn()
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: null, continuation: { status: 'pending' } }))
+      .mockReturnValueOnce(continuation.promise))
+    render(<JuniorAdaptiveSession session={preview ? { ...session, role: 'teacher' } : session}
+      previewStudentId={preview ? plan.studentId : undefined} initialPayload={payload(question('last', '最后一题'), 7)} onExit={onExit} onComplete={onComplete} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(await screen.findByRole('button', { name: '下一题（准备中…）' }))
+    await act(async () => continuation.resolve(jsonResponse({ feedback, payload: payload(null, 8), dashboard: nextDashboard })))
+    fireEvent.click(screen.getByRole('button', { name: '查看今日成果' }))
+    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete.mock.calls[0][0]).toMatchObject(preview
+      ? { plans: [{ id: plan.id, isComplete: true, attemptCount: 1, latestScore: 8 }] }
+      : nextDashboard)
+    expect(onExit).not.toHaveBeenCalled()
+  })
+
+  it('passes only a confirmed completed payload to the exit fallback when the dashboard is unavailable', async () => {
+    const onExit = vi.fn()
+    const onComplete = vi.fn()
+    const complete = payload(null, 8)
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: null, continuation: { status: 'pending' } }))
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: complete })))
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('last', '最后一题'), 7)} onExit={onExit} onComplete={onComplete} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(await screen.findByRole('button', { name: '完成今天学习' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看今日成果' }))
+    expect(onExit).toHaveBeenCalledTimes(1)
+    expect(onExit).toHaveBeenCalledWith(complete)
+    expect(onComplete).not.toHaveBeenCalled()
+  })
+
+  it('keeps feedback after background failure and retries the confirmed answer without another first-stage submit', async () => {
+    const confirmed = { ...feedback, selectedOption: 1, correct: false, durationSec: 9, uncertain: true, revisionToken: 'revision-first' }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ feedback: confirmed, payload: null, continuation: { status: 'pending' } }))
+      .mockRejectedValueOnce(new Error('slow next failed'))
+      .mockResolvedValueOnce(jsonResponse({ feedback: confirmed, payload: payload(question('next', '重试后的下一题'), 1) }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('first', '已保存这道题'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /B\. 物质种类完全不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('答案已保存，解析仍可查看')
+    expect(screen.getByText('回答错误，正确选项是 A')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '重试获取下一题' }))
+    expect(await screen.findByRole('button', { name: '下一题' })).toBeEnabled()
+    for(const call of fetchMock.mock.calls.slice(1)) expect(JSON.parse(String(call[1]?.body))).toMatchObject({
+      action: 'junior_submit_step', data: { stepId: 'step-1', selectedOption: 1, durationSec: 9, uncertain: true, revisionToken: 'revision-first', feedbackOnly: false },
+    })
+  })
+
+  it('aborts continuation on exit and ignores a late next response even before the parent unmounts', async () => {
+    const continuation = deferredResponse()
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: null, continuation: { status: 'pending' } }))
+      .mockReturnValueOnce(continuation.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const onExit = vi.fn()
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('first', '离开前的题'))} onExit={onExit} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    fireEvent.click(await screen.findByRole('button', { name: '下一题（准备中…）' }))
+    fireEvent.click(screen.getByRole('button', { name: '稍后继续 / 返回计划' }))
+    expect(onExit).toHaveBeenCalledTimes(1)
+    expect(onExit).toHaveBeenCalledWith()
+    expect(fetchMock.mock.calls[1][1]?.signal?.aborted).toBe(true)
+    await act(async () => continuation.resolve(jsonResponse({ feedback, payload: payload(question('late', '不应覆盖离开的界面'), 1) })))
+    expect(screen.queryByRole('heading', { name: '不应覆盖离开的界面' })).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses identical replay-only preview transcripts for both feedback and preparation', async () => {
+    const continuation = deferredResponse()
+    const teacher: SessionIdentity = { ...session, role: 'teacher' }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: null, continuation: { status: 'pending' }, simulated: true }))
+      .mockReturnValueOnce(continuation.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const view = render(<JuniorAdaptiveSession session={teacher} previewStudentId="preview-child"
+      initialPayload={payload(question('first', '老师模拟第一题'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    expect(await screen.findByText('回答正确')).toBeVisible()
+    const requests=fetchMock.mock.calls.map(call=>JSON.parse(String(call[1]?.body)))
+    expect(requests.map(r=>r.action)).toEqual(['preview_junior_submit_step','preview_junior_submit_step'])
+    expect(requests.map(r=>r.data.feedbackOnly)).toEqual([true,false])
+    expect(requests[0].data.answers).toEqual(requests[1].data.answers)
+    expect(requests[1].data).toMatchObject({studentId:'preview-child',planId:'junior-plan'})
+    view.unmount()
+    expect(fetchMock.mock.calls[1][1]?.signal?.aborted).toBe(true)
+    await act(async()=>continuation.resolve(jsonResponse({feedback,payload:payload(null,8)})))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('pins the first submitted fields after a network failure and never reveals an unconfirmed answer', async () => {
+    const fetchMock=vi.fn<typeof fetch>().mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce(jsonResponse({feedback,payload:payload(question('next','安全重试后的下一题'),1)}))
+    vi.stubGlobal('fetch',fetchMock)
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(question('first','首个请求断网'))} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button',{name:/A\. 原子种类和数目不变/}))
+    fireEvent.click(screen.getByRole('button',{name:'提交答案'}))
+    expect(await screen.findByRole('alert')).toHaveTextContent('connection lost')
+    expect(screen.queryByText('回答正确')).not.toBeInTheDocument()
+    const b=screen.getByRole('button',{name:/B\. 物质种类完全不变/})
+    expect(b).toBeDisabled()
+    fireEvent.click(b)
+    fireEvent.click(screen.getByRole('button',{name:'提交答案'}))
+    expect(await screen.findByText('回答正确')).toBeVisible()
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)))
   })
 
   it('labels a real due review without describing an unseen question as review', () => {

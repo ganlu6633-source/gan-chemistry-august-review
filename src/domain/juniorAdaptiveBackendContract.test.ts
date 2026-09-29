@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import accessFunction from '../../supabase/functions/chemistry-access/index.ts?raw'
 import juniorBaseMigration from '../../supabase/migrations/20260823102000_add_junior_adaptive_daily_learning.sql?raw'
+import juniorFastPathMigration from '../../supabase/migrations/20260929100711_junior_answer_targeted_fast_path.sql?raw'
 
 const migrationModules = import.meta.glob('../../supabase/migrations/20260829*junior*.sql', {
   eager: true,
@@ -39,7 +40,7 @@ describe('2026-08-29 junior evidence backend contract', () => {
     expect(juniorAccess).toContain('textbookVersion: JUNIOR_TEXTBOOK_VERSION')
     expect(juniorAccess).toContain('sourceKind: JUNIOR_SOURCE_KIND')
     expect((juniorAccess.match(/JUNIOR_SOURCE_KIND/g) || []).length).toBeGreaterThanOrEqual(4)
-    expect(juniorAccess).toContain('supabase.rpc("chem_junior_practice_pool"')
+    expect(juniorAccess).toContain('supabase.rpc("chem_junior_practice_context"')
     expect(juniorAccess).not.toContain('"licensed_local"')
     expect(juniorEvidenceMigration).toContain("'科粤版'")
     expect(juniorEvidenceMigration).toContain("'user_provided_local'")
@@ -50,13 +51,18 @@ describe('2026-08-29 junior evidence backend contract', () => {
     const actual = accessSection('async function juniorSessionPayload', 'async function futurePlanPreviewPayload')
     const preview = accessSection('async function juniorPreviewPayload', 'async function authenticate')
     for (const section of [actual, preview]) {
-      expect(section).toContain('supabase.rpc("chem_junior_practice_pool"')
+      expect(section).toContain('supabase.rpc("chem_junior_practice_context"')
       expect(section).toContain('juniorNativeQuestionIsSafe(row)')
       expect(section).toContain('provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id)')
       expect(section).toContain('selectJuniorScheduledQuestion({ candidates, knowledgeSkillIds: skillIds')
       expect(section).toContain('juniorBoundKnowledgeCards(null,')
       expect(section).not.toContain('.in("knowledge_id", skillIds)')
     }
+    const context = sqlFunction(juniorFastPathMigration, 'chem_junior_practice_context')
+    expect(context).toContain('public.chem_junior_practice_pool(p_student_id,p_plan_id,p_session_id)')
+    expect(context).toContain('app_private.chem_junior_repetition_state(q,hist,p_session_id,pol,')
+    expect(context).toContain('where id=p_plan_id and student_id=p_student_id')
+    expect(context).toContain('where id=p_session_id and student_id=p_student_id and plan_day_id=p_plan_id')
   })
 
   it('admits a bounded junior source release without weakening any high-school count contract', () => {
@@ -123,8 +129,11 @@ describe('2026-08-29 junior evidence backend contract', () => {
       accessFunction.indexOf('body.action === "junior_submit_step"'),
       accessFunction.indexOf('body.action === "student_dashboard"'),
     )
-    expect(submitRoute).toContain('.select("question_id,skill_id,knowledge_id,session_id")')
-    expect(submitRoute).toContain('juniorQuestionFeedbackShape(questionResult.data, stepId')
+    expect(submitRoute).toContain('supabase.rpc("chem_junior_submit_answer"')
+    expect(submitRoute).toContain('p_student_id: identity.studentId, p_plan_id: planId, p_step_id: stepId')
+    expect(submitRoute).toContain('const feedback = juniorQuestionFeedbackShape({')
+    expect(submitRoute).toContain('correct_option: correctOption, explanation: snapshot.explanation')
+    expect(submitRoute).not.toMatch(/reply\(req,\s*\{\s*(?:locked|snapshot|questionSnapshot)/)
     expect(submitRoute).not.toContain('currentQuestion.id')
 
     const record = accessSection('async function studentLearningRecord', 'function isJuniorAdaptivePlan')
@@ -162,7 +171,47 @@ describe('2026-08-29 junior evidence backend contract', () => {
     ]) {
       expect(juniorAccess, `missing issued-question recheck for ${gate}`).toContain(gate)
     }
-    expect(accessFunction).toMatch(/body\.action\s*===\s*["']junior_submit_step["'][\s\S]*?\.eq\(["']usable_for_review["']\s*,\s*true\)[\s\S]*?\.eq\(["']render_mode["']\s*,\s*["']native["']\)/i)
+    // The per-question JS rereads moved into one locked transaction. Require
+    // the actual SQL guards, not an old HTTP-query implementation detail.
+    const submit = sqlFunction(juniorFastPathMigration, 'chem_junior_submit_answer', 'chem_junior_practice_context')
+    const record = sqlFunction(juniorFastPathMigration, 'chem_junior_record_step', 'chem_junior_issue_step')
+    expect(submit).toContain('perform public.chem_junior_record_step(sess.id,p_student_id,p_step_id,')
+    expect(submit).toContain('where student_id=p_student_id and plan_day_id=p_plan_id for update')
+    expect(submit).toContain('where id=p_step_id and session_id=sess.id for update')
+    expect(submit).toContain('st.question_snapshot->>\'revisionToken\' is distinct from p_revision_token')
+    for (const gate of [
+      "v_question.grade_band is distinct from '初三'", "v_question.source_kind is distinct from 'user_provided_local'",
+      "v_question.review_status is distinct from 'approved'", "v_question.scope_status is distinct from 'IN'",
+      'v_question.usable_for_review is distinct from true', "v_question.render_mode is distinct from 'native'",
+      'v_question.textbook_version is distinct from v_session.textbook_version',
+      'v_step.question_snapshot is distinct from v_snapshot',
+      'v_question.question_revision_token is distinct from p_revision_token',
+      'app_private.chem_junior_question_delivery_ready(v_question.id)',
+      'app_private.chem_junior_reserve_daily_question(p_student_id,',
+      'app_private.chem_junior_plan_date_allowed(',
+    ]) expect(record, `missing transactional guard: ${gate}`).toContain(gate)
+    expect(record.indexOf('app_private.chem_junior_reserve_daily_question')).toBeLessThan(record.indexOf('update public.chem_junior_session_steps'))
+  })
+
+  it('acknowledges the first answer before continuation without granting public direct SQL access', () => {
+    const route = accessSection('if (body.action === "junior_submit_step"', 'if (body.action === "student_dashboard"')
+    const commit = route.indexOf('supabase.rpc("chem_junior_submit_answer"')
+    const acknowledgement = route.indexOf('if (body.data?.feedbackOnly === true)')
+    const continuation = route.indexOf('await juniorSessionPayload(')
+    expect(commit).toBeGreaterThanOrEqual(0)
+    expect(acknowledgement).toBeGreaterThan(commit)
+    expect(continuation).toBeGreaterThan(acknowledgement)
+    expect(route.slice(0, acknowledgement)).not.toContain('await juniorSessionPayload(')
+    expect(route).not.toContain('supabase.from(')
+    const submit = sqlFunction(juniorFastPathMigration, 'chem_junior_submit_answer', 'chem_junior_practice_context')
+    expect(submit).toMatch(/security\s+definer\s+set\s+search_path=''/i)
+    expect(submit).toContain('from public,anon,authenticated')
+    expect(submit).toContain('to service_role')
+    expect(submit).toContain('if replayed then')
+    expect(submit).toContain("raise exception 'junior_answer_locked'")
+    expect(submit).toContain("or learner.grade_band is distinct from '初三'")
+    expect(submit).toContain("learner.metadata->'demo'")
+    expect(submit).toContain("program->'participating' is distinct from 'true'::jsonb")
   })
 
   it('issues and resumes junior steps only through atomic service-role database gates', () => {
