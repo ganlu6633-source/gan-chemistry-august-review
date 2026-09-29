@@ -24,6 +24,18 @@ declare
 begin
   -- Inspect every direct database route; Edge selection is validated by
   -- validate:edge and the shared ready-id RPC exercised below.
+  definition := pg_get_functiondef(
+    'app_private.chem_junior_question_delivery_ready(text)'::regprocedure
+  );
+  if position('app_private.chem_question_item_delivery_review_ready' in definition)=0 then
+    raise exception 'junior delivery helper bypasses the per-item review';
+  end if;
+  definition := pg_get_functiondef(
+    'app_private.chem_question_item_delivery_review_ready(text)'::regprocedure
+  );
+  if position('app_private.chem_question_item_visual_reviewed' in definition)=0 then
+    raise exception 'per-item delivery helper bypasses the exact visual review';
+  end if;
   for name in select unnest(array[
     'public.chem_junior_issue_step(uuid,uuid,text,smallint,text,text,jsonb)',
     'public.chem_junior_validate_issued_step(uuid,uuid,uuid)',
@@ -35,7 +47,8 @@ begin
     'public.chem_finalize_learning_attempt(uuid,uuid,uuid,text,integer,text,timestamptz,timestamptz,integer,jsonb,jsonb)'
   ]) loop
     definition := pg_get_functiondef(name::regprocedure);
-    if position('app_private.chem_teaching_ready_questions' in definition) = 0 then
+    if position('app_private.chem_teaching_ready_questions' in definition) = 0
+      and position('app_private.chem_junior_question_delivery_ready' in definition) = 0 then
       raise exception '% bypasses per-item readiness', name;
     end if;
   end loop;
