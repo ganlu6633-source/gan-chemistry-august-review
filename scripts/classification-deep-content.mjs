@@ -1,3 +1,5 @@
+import { applyReviewedKnowledgeNodeAids } from './knowledge-node-aid-corrections.mjs'
+
 const node = (label, rule, examples = [], children = [], caution) => ({
   label,
   rule,
@@ -10,13 +12,12 @@ const item = (label, rule, examples, caution) => ({
   label,
   rule,
   examples,
-  visualSteps: [label, '先看分类依据', '再按定义判断', '用例子与反例校验'],
   ...(caution ? { caution } : {}),
 })
 
 const section = (title, summary, items) => ({ title, summary, items })
 
-export const classificationDeepContent = {
+const baseClassificationDeepContent = {
   version: 4,
   intro: '先看完整分类总树，再按需要逐层展开。每一个标签都必须回答两个问题：按什么标准分，以及为什么这个物质符合定义。',
   overview: [
@@ -353,6 +354,8 @@ export const classificationDeepContent = {
   scopeNote: '本卡只保留福建高中化学范围内的分类知识；陌生物质只在题给结构或信息足够时作为情境，不要求额外背诵。',
   sourceBasis: '依据普通高中化学课程标准和福建现行考试范围，以苏教版必修教材顺序校准；定义、分类轴和典型例子再与本地一轮复习资料及现有题库交叉核对。',
 }
+
+export const classificationDeepContent = applyReviewedKnowledgeNodeAids(baseClassificationDeepContent, 'H1_CLASSIFY')
 
 export function validateClassificationDeepContent(content = classificationDeepContent) {
   const errors = []

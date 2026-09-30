@@ -128,7 +128,7 @@ function splitCompositeNode(card: KnowledgeCard, item: KnowledgeTreeNode): Point
   }
   if (card.skillId === 'H2_THERMO' && item.label === '核心关系') {
     return [
-      { title: '反应前的初始温度 T₁ 怎样取', rule: '分别测量酸溶液和碱溶液的反应前温度，取二者平均值作为 T₁。' },
+      { title: '反应前的初始温度 T₁ 怎样取', rule: '在两溶液质量相同且比热容近似相同的条件下，分别测量酸溶液和碱溶液的反应前温度，取二者平均值作为 T₁。' },
       { title: '反应后的温度 T₂ 怎样取', rule: '测量酸碱混合后的最高温度作为 T₂。' },
       { title: '温度差 ΔT 怎样算', rule: 'ΔT=T₂−T₁。先弄清 T₁、T₂，再代入。' },
       { title: '由温度差求热量 q', rule: '在题目给定的近似条件下，q=mcΔT。' },

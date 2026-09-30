@@ -23,7 +23,7 @@ export const knowledgeItemExamplesH1: Record<string, string[]> = {
   'H1_REDOX:5:2': ['酸性MnO₄⁻还原为Mn²⁺时，半反应写为MnO₄⁻+8H⁺+5e⁻=Mn²⁺+4H₂O，最后同时核对原子和电荷。'],
   'H1_REDOX:5:3': ['碱性MnO₄⁻还原为MnO₂时，可写MnO₄⁻+2H₂O+3e⁻=MnO₂+4OH⁻，最终式不留H⁺。'],
 
-  'H1_ELECTROLYTE:2:0': ['稀盐酸与NaOH反应先写HCl+NaOH=NaCl+H₂O，再拆成离子并消去旁观离子。'],
+  'H1_ELECTROLYTE:2:0': ["稀盐酸与NaOH溶液反应先写HCl+NaOH=NaCl+H₂O。先把产物和计量数写对，再考虑后续拆离子。"],
   'H1_ELECTROLYTE:2:2': ['Na⁺+OH⁻+H⁺+Cl⁻→Na⁺+Cl⁻+H₂O中，Na⁺和Cl⁻两侧不变，删后为H⁺+OH⁻=H₂O。'],
   'H1_ELECTROLYTE:2:3': ['写Ba²⁺+SO₄²⁻=BaSO₄↓后，左侧总电荷为0，右侧也为0，Ba、S、O原子数分别守恒。'],
   'H1_ELECTROLYTE:3:1': ['同一溶液含Ba²⁺与SO₄²⁻会生成BaSO₄沉淀，因此二者不能大量共存。'],
@@ -50,7 +50,7 @@ export const knowledgeItemExamplesH1: Record<string, string[]> = {
   'H1_MOLE:2:0': ['把1 mol NaCl配成总体积1 L的溶液，c=1 mol·L⁻¹；“加到1 L水中”不能直接这样算。'],
   'H1_MOLE:2:1': ['取100 mL、2 mol·L⁻¹溶液，加水定容到200 mL且无反应，浓度变为1 mol·L⁻¹。'],
   'H1_MOLE:2:2': ['配制100 mL、1.00 mol·L⁻¹ NaCl溶液，溶质需0.100 mol，最终用100 mL容量瓶定容。'],
-  'H1_MOLE:3:0': ['2H₂+O₂→2H₂O配平后，才可把H₂∶O₂∶H₂O的物质的量比写为2∶1∶2。'],
+  'H1_MOLE:3:0': ["氢气在氧气中点燃生成水，配平为2H₂+O₂→2H₂O，才能把H₂∶O₂∶H₂O的反应物质的量比写成2∶1∶2。"],
   'H1_MOLE:3:1': ['1 mol H₂与1 mol O₂按2∶1反应，H₂先耗尽，只消耗0.5 mol O₂。'],
   'H1_MOLE:3:2': ['在2H₂+O₂→2H₂O中，若2 mol H₂完全反应，可生成2 mol H₂O，再乘18 g·mol⁻¹得36 g。'],
   'H1_MOLE:3:3': ['在2Na+2H₂O→2NaOH+H₂中，2 mol Na最多产生1 mol H₂；Na原子数和电子转移数也可反查。'],

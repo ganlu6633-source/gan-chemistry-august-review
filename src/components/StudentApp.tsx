@@ -7,6 +7,7 @@ import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildRecoveryTargets, type KnowledgeConfidence } from '../domain/learningRecovery'
 import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { buildKnowledgeCardDrilldown, knowledgeSectionTree } from '../domain/knowledgeDrilldown'
+import { knowledgeSectionsWithFocusedAids } from '../domain/knowledgeNodeAids'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
 import { displayQuestionStem } from '../domain/questionDisplay'
 import { SKILLS } from '../data/catalog'
@@ -1293,10 +1294,12 @@ function compactVisualStep(value: string) {
 }
 
 function NodeLearningAid({ node }: { node: KnowledgeTreeNode }) {
-  const visualSteps = (node.visualSteps?.length ? node.visualSteps : [node.label, ...(node.examples?.slice(0, 2) ?? ['按定义判断'])]).map(compactVisualStep)
+  const examples = node.examples?.filter((example) => example.trim()) ?? []
+  const visualSteps = node.visualSteps?.map(compactVisualStep).filter(Boolean) ?? []
+  if (!examples.length && visualSteps.length < 2) return null
   return <aside className="point-learning-aid" aria-label={`${node.label}的示范与图像记忆`}>
-    <div className="point-demo"><b>马上看例子</b>{node.examples?.map((example) => <p key={example}><ChemText>{example}</ChemText></p>)}</div>
-    <figure className="memory-diagram"><figcaption>图像记忆</figcaption><div className="memory-flow">{visualSteps.map((step, index) => <Fragment key={`${node.label}-${step}-${index}`}><span><ChemText>{step}</ChemText></span>{index < visualSteps.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}</div></figure>
+    {examples.length > 0 && <div className="point-demo"><b>马上看例子</b>{examples.map((example) => <p key={example}><ChemText>{example}</ChemText></p>)}</div>}
+    {visualSteps.length >= 2 && <figure className="memory-diagram"><figcaption>图像记忆</figcaption><div className="memory-flow">{visualSteps.map((step, index) => <Fragment key={`${node.label}-${step}-${index}`}><span><ChemText>{step}</ChemText></span>{index < visualSteps.length - 1 ? <i aria-hidden="true">→</i> : null}</Fragment>)}</div></figure>}
   </aside>
 }
 
@@ -1494,7 +1497,8 @@ function QuickVisualSummary({ visual }: { visual: KnowledgeVisualSummary }) {
   </figure>
 }
 
-export function StructuredKnowledgeMap({ content, skillId, title, card }: { content: StructuredKnowledgeContent; skillId?: string; title?: string; card?: KnowledgeCard }) {
+export function StructuredKnowledgeMap({ content: sourceContent, skillId, title, card }: { content: StructuredKnowledgeContent; skillId?: string; title?: string; card?: KnowledgeCard }) {
+  const content = { ...sourceContent, sections: knowledgeSectionsWithFocusedAids(sourceContent, card?.skillId ?? skillId) }
   const offset = content.rootTree ? 2 : 1
   const visual = content.visualSummary ?? fallbackVisual(content)
   const root = content.rootTree ?? knowledgeSectionTree(content, title ?? visual.title, card)

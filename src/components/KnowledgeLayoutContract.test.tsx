@@ -85,7 +85,9 @@ describe('knowledge-card layout regression contract', () => {
     expect(container.querySelectorAll('.knowledge-branch-details')).toHaveLength(4)
     expect(container.querySelectorAll('.point-with-demo')).toHaveLength(5)
     expect(container.querySelectorAll('.point-learning-aid')).toHaveLength(5)
-    expect(container.querySelectorAll('.memory-flow')).toHaveLength(5)
+    // Only the three nodes with an authored diagram receive arrows. A prose
+    // example must not be turned into a made-up sequence for the other nodes.
+    expect(container.querySelectorAll('.memory-flow')).toHaveLength(3)
     expect(container.querySelector('.classification-map')).toHaveTextContent(longCopy)
     expect(container.querySelector('.worked-example-grid')).toHaveTextContent(longCopy)
     expect([...container.querySelectorAll<HTMLDetailsElement>('details')].every((detail) => detail.open)).toBe(true)

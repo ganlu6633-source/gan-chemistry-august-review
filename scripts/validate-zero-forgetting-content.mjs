@@ -52,7 +52,8 @@ for (const entry of zeroForgettingCards) {
       if (node.visualSteps?.length) visualAidCount += 1
       if (!node.label || !node.rule || node.rule.length < 18) errors.push(`${entry.skillId}: ${section.title} 第 ${itemIndex + 1} 项内容过短`)
       if (!node.examples?.length) errors.push(`${entry.skillId}: ${section.title}/${node.label} 缺少就地示范`)
-      if (!node.examples?.some((example) => example.startsWith('【示范：'))) errors.push(`${entry.skillId}: ${section.title}/${node.label} 缺少经过小节校准的完整示范`)
+      if (node.examples?.some((example) => example.startsWith('【示范：') && section.items.some((sibling) => sibling !== node && sibling.examples?.includes(example)))) errors.push(`${entry.skillId}: ${section.title}/${node.label} 仍把同节综合示范复制为小点例子`)
+      if (node.visualSteps?.[0] === node.label && section.items.some((sibling) => sibling !== node && sibling.visualSteps?.[0] === sibling.label && JSON.stringify(sibling.visualSteps.slice(1)) === JSON.stringify(node.visualSteps.slice(1)))) errors.push(`${entry.skillId}: ${section.title}/${node.label} 仍共用同节流程尾链`)
       if (!node.visualSteps?.length || node.visualSteps.length < 2) errors.push(`${entry.skillId}: ${section.title}/${node.label} 缺少图像记忆步骤`)
     })
   })

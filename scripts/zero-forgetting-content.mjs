@@ -3,6 +3,7 @@ import { knowledgeVisualSummaries } from './knowledge-visual-summaries.mjs'
 import { applyKnowledgeCompleteness } from './knowledge-completeness-patches.mjs'
 import { applyP1KnowledgeCompleteness } from './knowledge-completeness-p1-patches.mjs'
 import { applyCurriculumGapPatches } from './knowledge-curriculum-gap-patches.mjs'
+import { applyReviewedKnowledgeNodeAids } from './knowledge-node-aid-corrections.mjs'
 
 const item = (label, rule, examples = [], caution) => ({ label, rule, ...(examples.length ? { examples } : {}), ...(caution ? { caution } : {}) })
 const section = (title, summary, items) => ({ title, summary, items })
@@ -22,17 +23,9 @@ const card = (skillId, intro, overview, sections, workedExamples, checkpoints) =
     intro,
     overview,
     visualSummary: knowledgeVisualSummaries[skillId],
-    sections: sections.map((knowledgeSection, sectionIndex) => ({
-      ...knowledgeSection,
-      items: knowledgeSection.items.map((knowledgeItem) => {
-        const demo = localDemos[sectionIndex]
-        return {
-          ...knowledgeItem,
-          examples: [...(knowledgeItem.examples ?? []), `【示范：${demo.substance}】${demo.path}`],
-          visualSteps: [knowledgeItem.label, ...demo.labels].slice(0, 5),
-        }
-      }),
-    })),
+    // Chapter demonstrations belong in workedExamples. Each small point has
+    // its own reviewed illustration and route, applied after all additions.
+    sections,
     workedExamples: allWorkedExamples,
     checkpoints,
     scopeNote: '只保留福建高中化学范围内必须理解和能够迁移的内容；更高学段理论、竞赛机理和旧选考制度内容不进入学生卡。',
@@ -249,7 +242,7 @@ const baseZeroForgettingCards = [
         item('质量—物质的量', 'n=m/M，m=nM。写公式前先统一g与g·mol⁻¹。', ['36 g H₂O：n=36/18=2 mol。']),
       ]),
       section('基础题的固定四步', '每一步都能防一个常见错误。', [
-        item('1. 圈对象', '题目问的是分子、原子、离子、电子、质子、中子，还是离子晶体的化学式单位；对象名称必须写全。', ['²³Na：质子数11，中子数23−11=12；中性原子的电子数11。', 'NaCl晶体按NaCl化学式单位计数，不写“NaCl分子”。']),
+        { ...item('1. 圈对象', '题目问的是分子、原子、离子、电子、质子、中子，还是离子晶体的化学式单位；对象名称必须写全。', ['²³Na：质子数11，中子数23−11=12；中性原子的电子数11。因此1 mol ²³Na原子含11 mol质子、12 mol中子。', 'NaCl晶体中不存在独立的NaCl分子，应按NaCl化学式单位计数。']), visualSteps: ['题目要求NaCl晶体的粒子数', '计数对象：NaCl化学式单位', '避免写成NaCl分子'] },
         item('2. 找桥梁', '已知质量就先用n=m/M；已知粒子数就先用n=N/N_A。'),
         item('3. 处理倍数', '根据化学式下标或离子电荷关系换成目标粒子的物质的量。'),
         item('4. 查单位和数量级', 'n用mol、M用g·mol⁻¹，微粒数通常是10²³量级。'),
@@ -1246,6 +1239,6 @@ const baseZeroForgettingCards = [
 
 export const zeroForgettingCards = applyCurriculumGapPatches(
   applyP1KnowledgeCompleteness(applyKnowledgeCompleteness(baseZeroForgettingCards)),
-)
+).map((entry) => applyReviewedKnowledgeNodeAids(entry, entry.skillId))
 
 export default zeroForgettingCards

@@ -89,8 +89,11 @@ describe('knowledge drill-down data', () => {
   })
 
   it('shows a repeated section demo on its parent while retaining each leaf’s own illustration', () => {
-    const source = (zeroForgettingCards as Array<StructuredKnowledgeContent & { skillId: string }>)
-      .find((item) => item.skillId === 'H2_THERMO')!
+    const demo = '【示范：反应热综合】先明确体系，再区分能量差。'
+    const source: StructuredKnowledgeContent = { version: 2, intro: '反应热', sections: [{ title: '旧缓存小节', items: [
+      { label: '体系', rule: '明确研究对象。', examples: ['燃烧的H₂、O₂和生成的水构成体系。', demo] },
+      { label: '环境', rule: '体系以外的部分。', examples: ['周围吸收热量的水是环境。', demo] },
+    ] }] }
     const card: KnowledgeCard = { ...legacyCard, id: 'KC_H2_THERMO', skillId: 'H2_THERMO', structuredContent: source }
     const section = knowledgeSectionTree(source, '反应热', card).children?.[0]
     const shared = section?.examples?.[0]

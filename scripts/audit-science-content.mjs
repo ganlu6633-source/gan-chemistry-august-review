@@ -157,7 +157,7 @@ for (const card of zeroForgettingCards) {
   for (const section of card.sections) {
     for (const point of section.items) {
       pointCount += 1
-      if (point.examples?.some((example) => example.startsWith('【示范：'))) pointWithExampleCount += 1
+      if (point.examples?.some((example) => example.trim().length > 12)) pointWithExampleCount += 1
       if (point.visualSteps?.length >= 2) pointWithVisualCount += 1
     }
   }

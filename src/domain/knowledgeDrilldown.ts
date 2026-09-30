@@ -1,9 +1,7 @@
 import type { KnowledgeCard, KnowledgeTreeNode, StructuredKnowledgeContent } from './types'
 import { isStructuredKnowledgeContent } from './knowledgeContent'
 import { getKnowledgeReviewPoints } from './knowledgeReviewPoints'
-import { knowledgeItemExamplesH1 } from '../data/knowledgeItemExamplesH1'
-import { knowledgeItemExamplesH2 } from '../data/knowledgeItemExamplesH2'
-import { knowledgeItemExamplesH3 } from '../data/knowledgeItemExamplesH3'
+import { knowledgeSectionsWithFocusedAids } from './knowledgeNodeAids'
 import { knowledgeFinePointExamples } from '../data/knowledgeFinePointExamples'
 import { knowledgeLegacyLeafExamples } from '../data/knowledgeLegacyLeafExamples'
 import { knowledgeExampleSource } from './knowledgeExampleApplicability'
@@ -29,6 +27,7 @@ export function knowledgeSectionTree(content: StructuredKnowledgeContent, title?
     ? getKnowledgeReviewPoints(card)
     : []
   const exampleSource = card ? knowledgeExampleSource(card, content) : null
+  const focusedSections = knowledgeSectionsWithFocusedAids(content, card?.skillId)
 
   return {
     label: title?.trim() || content.visualSummary?.title || content.sections[0]?.title || content.intro,
@@ -47,14 +46,9 @@ export function knowledgeSectionTree(content: StructuredKnowledgeContent, title?
         rule: sectionRule(content, section.summary),
         ...(sharedDemonstrations.length ? { examples: sharedDemonstrations } : {}),
         children: section.items.map((item, itemIndex) => {
-          const directExamples = (item.examples ?? []).filter((example) => !sharedDemonstrations.includes(example))
-          const exampleKey = card ? `${card.skillId}:${sectionIndex}:${itemIndex}` : ''
-          const extraExamples = exampleSource === 'generated' ? (knowledgeItemExamplesH1[exampleKey]
-            ?? knowledgeItemExamplesH2[exampleKey]
-            ?? knowledgeItemExamplesH3[exampleKey]
-            ?? []) : []
-          const examples = uniqueExamples([...directExamples, ...extraExamples])
-          const point = { ...item, examples: examples.length ? examples : undefined }
+          const focusedItem = focusedSections[sectionIndex].items[itemIndex]
+          const examples = uniqueExamples(focusedItem.examples ?? [])
+          const point = { ...focusedItem, examples: examples.length ? examples : undefined }
           if (item.children?.length || !card) return point
           const prefix = `${card.id}:s${sectionIndex}:i${itemIndex}:p`
           const finePoints = reviewedPoints.filter((point) => point.id.startsWith(prefix))

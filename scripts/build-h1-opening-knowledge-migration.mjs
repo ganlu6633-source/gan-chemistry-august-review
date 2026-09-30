@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { applyReviewedKnowledgeNodeAids } from './knowledge-node-aid-corrections.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourcePath = path.join(repoRoot, 'content', 'knowledge', 'h1_opening_knowledge_cards.json')
@@ -11,7 +12,13 @@ const expectedIds = [
   'KC_H1_SOLUTION_CONCENTRATION_ZERO',
 ]
 
-const cards = JSON.parse(readFileSync(sourcePath, 'utf8'))
+const sourceCards = JSON.parse(readFileSync(sourcePath, 'utf8'))
+// Preserve the historical migration check. New output uses the current,
+// reviewed node aids instead of regenerating the old one-step/whole-flow bugs.
+const reviewedCards = sourceCards.map((card) => ({ ...card,
+  structured_content: applyReviewedKnowledgeNodeAids(card.structured_content, card.skill_id, card.id),
+}))
+const cards = process.argv.includes('--check') ? sourceCards : reviewedCards
 if (!Array.isArray(cards) || cards.length !== expectedIds.length) {
   throw new Error(`H1 opening source must contain exactly ${expectedIds.length} cards`)
 }

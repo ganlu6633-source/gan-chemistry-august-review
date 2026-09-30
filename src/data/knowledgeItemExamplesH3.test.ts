@@ -29,7 +29,10 @@ describe('high-three item-specific examples', () => {
           for (const example of examples) {
             expect(example.trim().length, key).toBeGreaterThan(12)
             expect(example, key).not.toMatch(/^【示范：/)
-            expect(item.examples ?? [], key).not.toContain(example)
+            // Current cards can use the same reviewed illustration as their
+            // cache fallback. A sibling's chapter demo is the actual defect.
+            expect(item.examples?.length, key).toBeGreaterThan(0)
+            expect(item.examples?.some((text) => text.startsWith('【示范：') && section.items.some((sibling) => sibling !== item && sibling.examples?.includes(text))), key).toBe(false)
             examplesInSection.push(example)
           }
         }
