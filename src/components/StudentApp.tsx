@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, MoreHorizontal, RotateCcw, Settings, ShieldCheck, Sparkles, Trophy, X } from 'lucide-react'
+import { Bell, BookOpen, Check, ChevronRight, CircleHelp, Clock3, KeyRound, Layers3, ListFilter, Map as MapIcon, MoreHorizontal, RotateCcw, Route, Settings, ShieldCheck, Sparkles, Trophy, X } from 'lucide-react'
 import type { FuturePlanPreviewPayload, JuniorAdaptivePayload, KnowledgeCard, KnowledgeTreeNode, KnowledgeVisualSummary, KnowledgeVisualTreeNode, LearningAttempt, LearningPlanDay, LearningRecordData, OptionPracticeProgress, Question, QuestionFeedback, SessionIdentity, StudentDashboardData, StructuredKnowledgeContent } from '../domain/types'
 import { selectFocusPlan } from '../domain/focusPlan'
 import { calendarPlanProgress, calendarPlanShortStatus, calendarPlanStatus, isKnowledgeOnlyFuturePlan, splitCalendarWeeks } from '../domain/learningCalendar'
@@ -24,6 +24,7 @@ import { SourceInformedChemVisual } from './SourceInformedChemVisuals'
 import { supportsSourceInformedChemVisual } from './sourceInformedChemVisualSupport'
 import { StudentVideoSection } from './VideoLearning'
 import { StudyLibrary, type StudyTopic } from './StudyLibrary'
+import { High3LearningRoute } from './High3LearningRoute'
 import { HIGH1_SEMESTER_REMAINING_DAYS } from '../data/high1SemesterRoadmap'
 
 type StudentView = 'choose' | 'today' | 'stage' | 'directory' | 'type' | 'reminders' | 'map' | 'growth' | 'settings'
@@ -196,6 +197,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
   }, [nextTeachingPlan, studyTopics])
 
   useEffect(() => {
+    if (!reviewPlan && view === 'stage' && dashboard.profile.gradeBand === '高三') return
     if (!reviewPlan && !['stage', 'directory', 'type', 'reminders'].includes(view)
       && !(view === 'choose' && !dashboard.profile.isDemo)) return
     const catalogKey = `${dashboard.profile.id}:${studyCatalogRevision}`
@@ -214,7 +216,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       .catch((reason) => { if (active) setStudyCatalogError(reason instanceof Error ? reason.message : '原题目录暂时无法读取。') })
       .finally(() => { if (active) setStudyCatalogLoading(false) })
     return () => { active = false }
-  }, [session, dashboard.profile.id, dashboard.profile.isDemo, studyCatalogRevision, view, previewMode, reviewPlan])
+  }, [session, dashboard.profile.id, dashboard.profile.isDemo, dashboard.profile.gradeBand, studyCatalogRevision, view, previewMode, reviewPlan])
 
   const loadKnowledgeTree = useCallback(async (skillId: string) => {
     const target = previewMode || dashboard.profile.isDemo ? { studentId: dashboard.profile.id, skillId } : { skillId }
@@ -495,7 +497,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       <aside className="side-nav desktop-student-nav" aria-label="学生导航">
         <button className={view === 'choose' ? 'active' : ''} onClick={() => setView('choose')}><BookOpen />学习大厅</button>
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}><Sparkles />学习日历</button>
-        <button className={view === 'stage' ? 'active' : ''} onClick={() => setView('stage')}><Layers3 />跟着进度走</button>
+        <button className={view === 'stage' ? 'active' : ''} onClick={() => setView('stage')}><Route />跟着进度走</button>
         <button className={view === 'directory' ? 'active' : ''} onClick={() => setView('directory')}><Layers3 />知识点任选</button>
         <button className={view === 'type' ? 'active' : ''} onClick={() => setView('type')}><ListFilter />题型训练场</button>
         <button className={view === 'reminders' ? 'active' : ''} onClick={() => setView('reminders')}><Bell />复习雷达</button>
@@ -511,7 +513,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
           <div className="page-title"><span className="eyebrow">{dashboard.profile.gradeBand} · 学习大厅</span><h1 id="study-choice-title">{dashboard.profile.displayName}，今天从哪儿开练？</h1><p>跟着计划走，或自己挑想学的；走哪条路，进步都算数。</p></div>
           <div className="study-choice-grid">
             <button type="button" onClick={() => setView('today')}><Clock3 /><b>学习日历</b><span>老师排好的题在这里；前几天漏做的，也能回来补上。</span><ChevronRight /></button>
-            <button type="button" onClick={() => setView('stage')}><Layers3 /><b>跟着进度走</b><span>看看学到了哪一站，从这一站挑原题练。</span><ChevronRight /></button>
+            <button type="button" onClick={() => setView('stage')}><Route /><b>跟着进度走</b><span>看看学到了哪一站，从这一站挑原题练。</span><ChevronRight /></button>
             <button type="button" onClick={() => setView('directory')}><BookOpen /><b>知识点任选</b><span>今天想攻哪一块？自己点名，做完就看解析。</span><ChevronRight /></button>
             <button type="button" onClick={() => setView('type')}><ListFilter /><b>题型训练场</b><span>想练哪类选择题，就从哪类开刷。</span><ChevronRight /></button>
             <button type="button" onClick={() => setView('reminders')}><Bell /><b>复习雷达</b><span>到时间该回看的、漏做的题组，这里帮你找出来。</span><ChevronRight /></button>
@@ -547,9 +549,11 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
             <div className="achievement-grid">{dashboard.achievements.slice(0, 3).map((item) => <article className="achievement-card" key={item.id}><div className="achievement-icon"><Trophy /></div><div><b><ChemText>{item.title}</ChemText></b><p><ChemText>{item.description}</ChemText></p></div></article>)}</div>
           </section>
         </>}
-        {view === 'stage' && <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'stage' && (dashboard.profile.gradeBand === '高三'
+          ? <High3LearningRoute dashboard={dashboard} today={today} onOpenPlan={openPlan} busy={busy} />
+          : <StudyLibrary key="stage" axis="stage" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />)}
         {view === 'directory' && <StudyLibrary key="knowledge" axis="knowledge" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} onLoadKnowledge={loadKnowledgeTree} busy={busy} />}
-        {view === 'type' && <StudyLibrary key="type" axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
+        {view === 'type' && <StudyLibrary key={`type-${dashboard.profile.gradeBand}`} axis="type" dashboard={dashboard} topics={studyTopics} loading={studyCatalogLoading} error={studyCatalogError} onStart={openSelfStudy} busy={busy} />}
         {view === 'reminders' && <StudyReminders dashboard={dashboard} reviews={recommendedReviews} catalogLoading={studyCatalogLoading} catalogError={studyCatalogError} onOpenPlan={openPlan} onOpenTopic={openSelfStudy} busy={busy || Boolean(dashboard.profile.isDemo)} />}
         {view === 'map' && <AbilityMap dashboard={dashboard} onOpenPlan={openPlan} busy={busy} />}
         {view === 'growth' && <GrowthPage dashboard={dashboard} session={session} previewMode={previewMode} />}
@@ -566,7 +570,7 @@ function MobileStudentNavigation({ view, onNavigate, showAccount }: { view: Stud
   const sheet = useRef<HTMLElement>(null)
   const primaryViews: StudentView[] = ['choose', 'today', 'directory']
   const entries = [
-    { view: 'stage', label: '跟着进度走', Icon: Layers3 },
+    { view: 'stage', label: '跟着进度走', Icon: Route },
     { view: 'type', label: '题型训练场', Icon: ListFilter },
     { view: 'reminders', label: '复习雷达', Icon: Bell },
     { view: 'map', label: '能力地图', Icon: MapIcon },

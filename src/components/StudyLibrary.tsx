@@ -3,6 +3,7 @@ import { BookOpen, ChevronRight, ExternalLink, Search, Trophy } from 'lucide-rea
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
 import { buildKnowledgeCardDrilldown, knowledgeSectionTree } from '../domain/knowledgeDrilldown'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
+import { HIGH3_TASK_TYPES, HIGH3_UNCLASSIFIED_TASK, high3TaskType } from '../domain/high3StudyNavigation'
 import type { KnowledgeCard, StudentDashboardData } from '../domain/types'
 import { InteractiveKnowledgeTree } from './InteractiveKnowledgeTree'
 import './StudyLibrary.css'
@@ -63,7 +64,12 @@ export function StudyLibrary({ axis, dashboard, topics, loading, error, onStart,
   busy: boolean
 }) {
   const [search, setSearch] = useState('')
+  const [selectedType, setSelectedType] = useState<string | null>(null)
   const grade = dashboard.profile.gradeBand
+  const usesTaskTypes = grade === '高三' && axis === 'type'
+  const taskTypes = [...HIGH3_TASK_TYPES, HIGH3_UNCLASSIFIED_TASK]
+  const chosenType = taskTypes.find((type) => type.id === selectedType)
+  const typeTopics = usesTaskTypes ? topics.filter((topic) => !selectedType || high3TaskType(topic.conceptKey).id === selectedType) : topics
 
   const lectureBySkill = useMemo(() => {
     const map = new Map<string, typeof LECTURE_SECTIONS[number]>()
@@ -73,11 +79,11 @@ export function StudyLibrary({ axis, dashboard, topics, loading, error, onStart,
     return map
   }, [grade])
   const groups = new Map<string, StudyTopic[]>()
-  topics.filter((topic) => `${topic.title} ${topic.skillTitle} ${lectureBySkill.get(topic.skillId)?.type || ''}`.includes(search.trim()))
+  typeTopics.filter((topic) => `${topic.title} ${topic.skillTitle} ${usesTaskTypes ? high3TaskType(topic.conceptKey).title : lectureBySkill.get(topic.skillId)?.type || ''}`.includes(search.trim()))
     .sort((a, b) => a.skillTitle.localeCompare(b.skillTitle, 'zh-CN') || a.sequence - b.sequence)
     .forEach((topic) => {
       const lecture = lectureBySkill.get(topic.skillId)
-      const label = axis === 'stage' ? lecture?.stage || (grade === '初三' ? '科粤版 · 当前单元' : '题库补充专题')
+      const label = usesTaskTypes ? high3TaskType(topic.conceptKey).title : axis === 'stage' ? lecture?.stage || (grade === '初三' ? '科粤版 · 当前单元' : '题库补充专题')
         : axis === 'type' ? `选择题 · ${lecture?.type || topic.skillTitle}` : topic.skillTitle
       const groupKey = axis === 'knowledge' ? `${topic.skillId}\u0000${label}` : label
       groups.set(groupKey, [...groups.get(groupKey) || [], topic])
@@ -94,18 +100,28 @@ export function StudyLibrary({ axis, dashboard, topics, loading, error, onStart,
   const perfect = new Set(challenges.filter((plan) => plan.latestScore === plan.questionCount).flatMap((plan) => plan.targetConceptKeys ?? []))
 
   return <section className="study-library">
-    <div className="page-title"><span className="eyebrow">{grade} · 原题练习</span><h1>{COPY[axis][0]}</h1><p>{COPY[axis][1]}</p></div>
-    <div className="self-study-progress"><Trophy size={20} /><span>已挑战 <b>{completed.size}/{new Set(topics.map((topic) => topic.conceptKey)).size}</b> 个知识点</span><span>满分通关 {perfect.size} 个 · 每次练 1—3 道同考点原题</span></div>
+    <div className="page-title"><span className="eyebrow">{grade} · 原题练习</span><h1>{COPY[axis][0]}</h1><p>{usesTaskTypes ? '今天想练读图、计算，还是实验判断？先选解题任务，再挑具体方向，照常四选一。' : COPY[axis][1]}</p></div>
+    {!usesTaskTypes && <div className="self-study-progress"><Trophy size={20} /><span>已挑战 <b>{completed.size}/{new Set(topics.map((topic) => topic.conceptKey)).size}</b> 个知识点</span><span>满分通关 {perfect.size} 个 · 每次练 1—3 道同考点原题</span></div>}
+    {usesTaskTypes && chosenType && <div className="task-type-selected"><button type="button" className="text-button" onClick={() => { setSelectedType(null); setSearch('') }}>← 换一种题型</button><p>{chosenType.detail}</p></div>}
     <label className="library-search"><Search size={18} aria-hidden="true" /><span className="sr-only">搜索知识点或题型</span><input type="search" placeholder="搜索知识点或题型" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
     {loading && <p className="empty-state">正在把题库搬过来…</p>}
     {error && <p className="inline-alert" role="alert">{error}</p>}
     {!loading && !error && groups.size === 0 && <p className="empty-state">{search.trim() ? '没找到对应的已审核选择题，换个词试试。' : '这部分原题正在逐题核对题面、公式、选项和解析；核对完成后会在这里开放。日期计划里已审核的题组仍可照常学习。'}</p>}
-    {[...groups].map(([groupKey, items]) => {
+    {usesTaskTypes && !selectedType && <div className="task-type-grid" aria-label="按解题任务选择题型">{taskTypes.map((type) => {
+      const items = topics.filter((topic) => high3TaskType(topic.conceptKey).id === type.id
+        && `${type.title} ${topic.title} ${topic.skillTitle}`.includes(search.trim()))
+      if (!items.length) return null
+      const directions = new Set(items.map((topic) => topic.conceptKey)).size
+      return <button type="button" className="task-type-card" key={type.id} onClick={() => { setSelectedType(type.id); setSearch('') }}>
+        <b>{type.title}</b><span>{type.detail}</span><small>{directions} 个训练方向 · {new Set(items.map((topic) => topic.skillId)).size} 个专题</small><ChevronRight size={18} aria-hidden="true" />
+      </button>
+    })}</div>}
+    {(!usesTaskTypes || selectedType) && [...groups].map(([groupKey, items]) => {
       const label = axis === 'knowledge' ? groupKey.split('\u0000')[1] : groupKey
       return <section className="library-group" key={groupKey}>
       {axis === 'knowledge' && onLoadKnowledge
         ? <KnowledgeTreeDisclosure label={label} skillId={groupKey.split('\u0000')[0]} onLoad={onLoadKnowledge} />
-        : <div className="library-group-head"><h2>{label}</h2><span>{items.length} 个知识点</span></div>}
+        : <div className="library-group-head"><h2>{label}</h2><span>{new Set(items.map((item) => item.conceptKey)).size} 个{usesTaskTypes ? '训练方向' : '知识点'}</span></div>}
       {items.length === 0 && <p className="library-no-questions">这块原题正在逐题校对，核准后就能开练；知识树可以先点开学习。</p>}
       <div className="library-grid">{items.map((topic) => {
       const lecture = lectureBySkill.get(topic.skillId)

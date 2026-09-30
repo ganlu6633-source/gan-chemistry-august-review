@@ -82,6 +82,12 @@ begin
          before_ctx:=public.chem_choice_training_context(sid,pid,null);
          if before_ctx->>'pendingReason'<>'source_changed' then raise exception 'withdrawn binding still deliverable'; end if;
          current_item:=ctx->'questions'->8; rejected:=false;
+         begin perform public.chem_choice_training_context(sid,pid,jsonb_build_array(jsonb_build_object(
+           'questionId',current_item->>'id','revisionToken',current_item->>'question_revision_token',
+           'selectedOption',(current_item->>'correct_option')::integer,'uncertain',false,'durationSec',2)));
+         exception when others then if sqlerrm='choice_binding_changed' then rejected:=true; else raise; end if; end;
+         if not rejected then raise exception 'withdrawn binding accepted simulated answer'; end if;
+         rejected:=false;
          begin perform public.chem_choice_training_lock_answer(sid,pid,current_item->>'id',current_item->>'question_revision_token',
            (current_item->>'correct_option')::integer,false,2);
          exception when others then if sqlerrm='choice_binding_changed' then rejected:=true; else raise; end if; end;

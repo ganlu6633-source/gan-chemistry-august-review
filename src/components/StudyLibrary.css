@@ -25,9 +25,59 @@
 .library-knowledge-content { margin: 12px 0 16px; }
 .library-knowledge-content > p { margin: 0 0 10px; }
 .library-no-questions { margin: 5px 4px 14px; color: #607985; font-size: 13px; }
+.route-progress { display: flex; align-items: center; gap: 10px; color: #176e69; margin: 10px 0 16px; }
+.route-progress-note { color: #607985; font-size: 13px; }
+.route-resume { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px; margin: 0 0 18px; border: 1px solid #b7ddd8; border-radius: 16px; background: #eaf7f4; }
+.route-resume > div { display: grid; gap: 5px; min-width: 0; }
+.route-resume small { color: #176e69; }
+.route-resume b { font-size: 17px; line-height: 1.5; }
+.route-resume button { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.route-stops { display: grid; gap: 12px; }
+.route-stop { min-width: 0; border: 1px solid #cbdfe4; border-radius: 16px; overflow: hidden; background: white; }
+.route-stop-toggle { display: flex; align-items: center; gap: 14px; width: 100%; border: 0; padding: 17px; background: transparent; color: #173e52; font: inherit; text-align: left; cursor: pointer; }
+.route-stop-toggle:hover, .route-stop-toggle:focus-visible { background: #f0f9f7; }
+.route-stop-number { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; background: #e2f2f0; color: #087d78; font-weight: 700; }
+.route-stop-title { display: grid; flex: 1; gap: 5px; min-width: 0; }
+.route-stop-title b { font-size: 18px; }
+.route-stop-title small { color: #607985; font-size: 12px; }
+.route-stop-toggle > svg { flex-shrink: 0; transition: transform .15s; }
+.route-stop-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.route-lessons { margin: 0; padding: 0 17px 10px 65px; list-style: none; }
+.route-lesson { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 0; border-top: 1px solid #e2edef; }
+.route-lesson > div { min-width: 0; }
+.route-lesson h3 { margin: 4px 0; font-size: 16px; line-height: 1.5; }
+.route-lesson p { margin: 0; color: #607985; font-size: 12px; line-height: 1.6; }
+.route-lesson button { flex-shrink: 0; }
+.route-lesson-status { font-size: 12px; color: #607985; }
+.route-lesson-completed .route-lesson-status { color: #087d78; }
+.route-lesson-in_progress .route-lesson-status { color: #96621a; }
+.task-type-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.task-type-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; position: relative; padding: 20px; background: white; border: 1px solid #cbdfe4; border-radius: 16px; color: #173e52; font: inherit; text-align: left; cursor: pointer; }
+.task-type-card:hover, .task-type-card:focus-visible { border-color: #0c8780; background: #f5fbfa; }
+.task-type-card b { font-size: 19px; line-height: 1.4; }
+.task-type-card > span, .task-type-card small { grid-column: 1 / -1; line-height: 1.5; color: #607985; }
+.task-type-card > span { font-size: 14px; }
+.task-type-card small { font-size: 12px; color: #087d78; }
+.task-type-card > svg { grid-row: 1; grid-column: 2; align-self: center; color: #087d78; }
+.task-type-selected { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.task-type-selected p { margin: 0; color: #607985; font-size: 14px; }
 @media (max-width: 820px) {
   .library-knowledge-toggle { align-items: flex-start; flex-direction: column; gap: 4px; }
   .library-knowledge-toggle > span { width: 100%; }
   .library-knowledge-toggle b { min-width: 0; line-height: 1.5; }
   .library-knowledge-toggle small { padding-left: 27px; }
+  .route-progress { flex-wrap: wrap; font-size: 14px; }
+  .route-progress-note { font-size: 12px; }
+  .route-resume { align-items: flex-start; flex-direction: column; gap: 10px; padding: 14px; }
+  .route-resume b { font-size: 16px; }
+  .route-stop-toggle { gap: 10px; padding: 14px; }
+  .route-stop-title b { font-size: 16px; }
+  .route-lessons { padding: 0 14px 6px; }
+  .route-lesson { align-items: flex-start; flex-direction: column; gap: 9px; padding: 13px 0; }
+  .route-lesson h3 { font-size: 15px; }
+  .route-lesson button { align-self: flex-end; }
+  .task-type-grid { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  .task-type-card { padding: 15px; gap: 6px; }
+  .task-type-card b { font-size: 17px; }
+  .task-type-card > span { font-size: 13px; }
 }
