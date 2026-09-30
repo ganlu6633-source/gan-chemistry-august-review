@@ -10352,7 +10352,10 @@
       "系数分别乘相对质量",
       "得到48∶32∶80"
     ],
-    "sectionTitle": "细点 6—10"
+    "sectionTitle": "细点 6—10",
+    "compatibleCardIds": [
+      "KC_J_KY_EQUATIONS_C61"
+    ]
   },
   {
     "cardId": "KC_J_KY_EQUATIONS",
@@ -10370,6 +10373,9 @@
       "先确认方程式已配平",
       "系数分别乘相对质量",
       "得到48∶32∶80"
+    ],
+    "compatibleCardIds": [
+      "KC_J_KY_EQUATIONS_C61"
     ]
   },
   {
@@ -10387,7 +10393,10 @@
       "得到质量比4∶32∶36",
       "再把题给实际质量代入"
     ],
-    "sectionTitle": "细点 6—10"
+    "sectionTitle": "细点 6—10",
+    "compatibleCardIds": [
+      "KC_J_KY_EQUATIONS_C61"
+    ]
   },
   {
     "cardId": "KC_J_KY_EQUATIONS",
@@ -10405,6 +10414,9 @@
       "写出并配平氢气燃烧反应",
       "得到质量比4∶32∶36",
       "再把题给实际质量代入"
+    ],
+    "compatibleCardIds": [
+      "KC_J_KY_EQUATIONS_C61"
     ]
   },
   {

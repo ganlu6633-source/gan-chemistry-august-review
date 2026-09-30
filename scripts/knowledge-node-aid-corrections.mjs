@@ -9,7 +9,7 @@ export const reviewedNodeAidCorrections = reviewedCorrections
 export function applyReviewedKnowledgeNodeAids(source, skillId, cardId) {
   const content = structuredClone(source)
   for (const patch of reviewedNodeAidCorrections) {
-    if (patch.skillId !== skillId || (cardId && patch.cardId !== cardId)) continue
+    if (patch.skillId !== skillId || (cardId && patch.cardId !== cardId && !patch.compatibleCardIds?.includes(cardId))) continue
     let node
     if (patch.rootTreePath) {
       node = content.rootTree

@@ -3,12 +3,30 @@ import type { StructuredKnowledgeContent } from './types'
 // @ts-expect-error Authored JavaScript content generator has no declarations.
 import { zeroForgettingCards } from '../../scripts/zero-forgetting-content.mjs'
 // @ts-expect-error Data-only correction overlay has no declarations.
-import { applyReviewedKnowledgeNodeAids } from '../../scripts/knowledge-node-aid-corrections.mjs'
+import { applyReviewedKnowledgeNodeAids, reviewedNodeAidCorrections } from '../../scripts/knowledge-node-aid-corrections.mjs'
 
 const cards = zeroForgettingCards as Array<StructuredKnowledgeContent & { skillId: string }>
 const card = (id: string) => cards.find((entry) => entry.skillId === id)!
 
 describe('reviewed knowledge aid generation', () => {
+  it('keeps the reviewed equation aid on the verified C61 card without accepting unrelated card identities', () => {
+    const patch = reviewedNodeAidCorrections.find((entry: { cardId: string; rootTreePath?: number[] }) => entry.cardId === 'KC_J_KY_EQUATIONS' && !entry.rootTreePath)
+    const source = {
+      version: 1, intro: '',
+      sections: Array.from({ length: patch.sectionIndex + 1 }, (_, index) => ({
+        title: index === patch.sectionIndex ? patch.sectionTitle : '其他章节',
+        items: Array.from({ length: patch.itemIndex + 1 }, (_, itemIndex) => ({
+          label: itemIndex === patch.itemIndex ? patch.expectedLabel : '其他节点',
+          rule: itemIndex === patch.itemIndex ? patch.expectedRule : '其他规则',
+          examples: ['原来的例子。'],
+        })),
+      })),
+    }
+    const revised = applyReviewedKnowledgeNodeAids(source, patch.skillId, 'KC_J_KY_EQUATIONS_C61')
+    expect(revised.sections[patch.sectionIndex].items[patch.itemIndex].examples).toEqual(patch.examples)
+    expect(applyReviewedKnowledgeNodeAids(source, patch.skillId, 'UNRELATED_CARD')).toEqual(source)
+  })
+
   it('explains each process operation without borrowing the next operation', () => {
     const items = card('H3_PROCESS').sections.flatMap((section) => section.items)
     const grind = items.find((item) => item.label === '粉碎/研磨')!
