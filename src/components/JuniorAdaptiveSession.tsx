@@ -4,6 +4,7 @@ import type { JuniorAdaptivePayload, JuniorQuestionFeedback, JuniorStepSubmissio
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildKnowledgeCardDrilldown } from '../domain/knowledgeDrilldown'
 import { juniorReviewPoint } from '../domain/juniorReviewPoint'
+import { displayQuestionStem } from '../domain/questionDisplay'
 import { accessApi, submitJuniorAdaptiveStep, type JuniorStepAnswerInput } from '../lib/api'
 import { ChemText } from './ChemText'
 import { InteractiveKnowledgeTree } from './InteractiveKnowledgeTree'
@@ -274,7 +275,7 @@ export function JuniorAdaptiveSession({
       <span className="difficulty-pill">L{question.level} 练习</span>
       {question.learningPurpose === 'spaced_review' && <p className="junior-review-purpose"><RotateCcw size={15} aria-hidden="true" />到期复习{question.lastAnsweredDate ? ` · 上次练习 ${question.lastAnsweredDate}` : ''}</p>}
       {question.optionPractice && <p>{question.optionPractice.knowledgePoint} · 第 {question.optionPractice.position}/{question.optionPractice.total} 题</p>}
-      <h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{question.stem}</ChemText></h1>
+      <h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{displayQuestionStem(question.stem, question.options)}</ChemText></h1>
       <div className="option-list">{question.options.map((option, index) => {
         const letter = String.fromCharCode(65 + index)
         return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy || lockedSubmission.current !== null} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><div className="junior-option-copy" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}><ChemText>{option}</ChemText></div></button>

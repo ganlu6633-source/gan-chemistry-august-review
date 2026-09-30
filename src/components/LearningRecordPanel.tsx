@@ -3,6 +3,7 @@ import { BookOpenCheck, CheckCircle2, ChevronDown, CircleDashed, CircleDot, Cloc
 import { ABILITY_MAP_BLUEPRINTS } from '../data/abilityMap'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import type { GradeBand, LearningRecordData, LearningRecordQuestionEvidence, LearningRecordSkill } from '../domain/types'
+import { displayQuestionStem } from '../domain/questionDisplay'
 import { ChemText } from './ChemText'
 import { QuestionSourceMedia } from './QuestionSourceMedia'
 
@@ -165,10 +166,10 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
 
 function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
   const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && Boolean(question.questionId) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
-  const nativeStem = <p className="record-question-stem"><ChemText>{question.stem}</ChemText></p>
+  const nativeStem = <p className="record-question-stem"><ChemText>{displayQuestionStem(question.stem, question.options ?? [])}</ChemText></p>
   const explanationParagraphs = splitAnswerExplanation(question.explanation || '')
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">
-    <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p><ChemText>{question.stem}</ChemText></p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
+    <summary><span>{question.correct ? '✓' : '↻'}</span><div><b>真实作答 {index + 1} · {question.correct ? '本题答对' : '本题需要回看'}</b><p><ChemText>{displayQuestionStem(question.stem, question.options ?? [])}</ChemText></p></div><time>{formatDateTime(question.answeredAt)}</time><ChevronDown /></summary>
     <div className="record-question-body">
       <QuestionHistoryStatus question={question} />
       {showsLicensedReviewSource ? <QuestionSourceMedia question={{ id: question.questionId!, stem: question.stem, options: question.options, sourceInfo: question.sourceInfo, assetRefs: (question.assetRefs ?? []).filter((asset) => asset.kind !== 'analysis_image'), renderMode: question.renderMode }} enabled deferLoad readOnly showSource={false} nativeContent={nativeStem} /> : <>{question.imageUrl && <img src={question.imageUrl} alt="这道题的题图" />}{nativeStem}</>}

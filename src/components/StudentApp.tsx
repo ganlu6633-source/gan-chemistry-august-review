@@ -8,6 +8,7 @@ import { buildRecoveryTargets, type KnowledgeConfidence } from '../domain/learni
 import { getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { buildKnowledgeCardDrilldown, knowledgeSectionTree } from '../domain/knowledgeDrilldown'
 import { isStructuredKnowledgeContent } from '../domain/knowledgeContent'
+import { displayQuestionStem } from '../domain/questionDisplay'
 import { SKILLS } from '../data/catalog'
 import { LECTURE_SECTIONS, lectureUrl } from '../data/lectureCatalog'
 import { accessApi, loadFuturePlanPreview, loadLearningRecord, loadQuestionAsset, loadQuestionFeedback, openJuniorAdaptiveSession, previewQuestionFeedback, saveKnowledgeRating, submitAttempt, teacherApi, type LoadedQuestionAsset, type QuestionAssetAccessContext } from '../lib/api'
@@ -1223,7 +1224,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
         setError(reason instanceof Error ? reason.message : '这一轮暂时没有保存成功，请稍后再试。')
       } finally { setBusy(false) }
     }
-    const nativeStem = <h1><ChemText>{question.stem}</ChemText></h1>
+    const nativeStem = <h1><ChemText>{displayQuestionStem(question.stem, question.options)}</ChemText></h1>
     const questionSkillTitle = payload.cards.find((card) => card.skillId === question.skillId)?.title
       ?? SKILLS.find((skill) => skill.id === question.skillId)?.title ?? '针对性练习'
     const explanationParagraphs = splitAnswerExplanation(resolvedExplanation)

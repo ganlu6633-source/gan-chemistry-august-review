@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, BookOpen, Check, Clock3, Sparkles } from 'lucide-react'
 import type { SessionIdentity } from '../domain/types'
+import { displayQuestionStem } from '../domain/questionDisplay'
 import { accessApi } from '../lib/api'
 import { ChemText } from './ChemText'
 import './GuestTrialApp.css'
@@ -136,7 +137,7 @@ export function GuestTrialApp({ session, onLogout, onRegister }: {
 
       {!loading && question && <section className="guest-trial-panel guest-trial-question">
         <div className="guest-trial-question-head"><span className="eyebrow">第 {practice!.answeredCount + 1} 题 · 单项选择</span><span>先想一想，再作答</span></div>
-        <h2><ChemText>{question.stem}</ChemText></h2>
+        <h2><ChemText>{displayQuestionStem(question.stem, question.options)}</ChemText></h2>
         <div className="guest-trial-options" role="group" aria-label="选择一个答案">
           {question.options.map((option, index) => <button
             type="button" key={`${question.id}-${index}`} className={selectedOption === index ? 'is-selected' : ''}
