@@ -18,7 +18,8 @@ class AuditDocxFormulaObjectsTests(unittest.TestCase):
             <w:p><w:r><w:t>硫酸根</w:t></w:r><w:r><w:instrText>EQ \\o</w:instrText></w:r>
               <w:r><w:instrText>\\al(2,-)</w:instrText></w:r></w:p>
             <w:p><m:oMath><m:r><m:t>2</m:t></m:r></m:oMath></w:p>
-            <w:p><w:r><w:drawing/></w:r></w:p>
+            <w:p><w:r><w:t>C(s)+CO₂(g)</w:t></w:r><w:r><w:drawing/></w:r>
+              <w:r><w:t>2CO(g)</w:t></w:r></w:p>
           </w:body></w:document>'''
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "example.docx"
@@ -29,10 +30,12 @@ class AuditDocxFormulaObjectsTests(unittest.TestCase):
             self.assertEqual(result["counts"]["eq_fields"], 1)
             self.assertEqual(result["counts"]["omml_formulas"], 1)
             self.assertEqual(result["counts"]["drawings"], 1)
+            self.assertEqual(result["counts"]["inline_reaction_drawing_candidates"], 1)
             self.assertNotIn("visible_text_preview", result["items"][0])
             self.assertEqual(result["items"][0]["paragraph"], 2)
             preview = audit_docx(source, include_preview=True)
             self.assertEqual(preview["items"][0]["visible_text_preview"], "硫酸根")
+            self.assertEqual(preview["items"][2]["reaction_drawing_contexts"][0]["after"], "2CO(g)")
 
     def test_missing_document_part_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

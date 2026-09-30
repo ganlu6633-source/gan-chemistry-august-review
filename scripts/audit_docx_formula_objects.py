@@ -23,6 +23,8 @@ W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 M = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
 V = "{urn:schemas-microsoft-com:vml}"
 EQ_FIELD = re.compile(r"\bEQ\s+(?:\\|\S)", re.IGNORECASE)
+CHEMICAL_LEFT = re.compile(r"[A-Z][A-Za-z0-9₀-₉+()\[\]·.\s]{0,34}(?:[)\]0-9₀-₉])\s*$")
+CHEMICAL_RIGHT = re.compile(r"^\s*\d*\s*[A-Z][a-z]?")
 
 
 def _sha256(data: bytes) -> str:
@@ -45,6 +47,21 @@ def _scan_part(name: str, xml: bytes, include_preview: bool) -> list[dict]:
         if not (eq_count or omml_count or drawing_count or picture_count or vml_count):
             continue
         text = "".join(node.text or "" for node in paragraph.iter(W + "t"))
+        # Word often stores a reaction arrow as a tiny drawing between the
+        # reactants and products.  A plain text export silently joins or
+        # separates the two sides and may invent the wrong arrow direction.
+        nodes = list(paragraph.iter())
+        inline_reaction_drawings = 0
+        reaction_contexts: list[dict[str, str]] = []
+        for index, node in enumerate(nodes):
+            if node.tag not in (W + "drawing", W + "pict"):
+                continue
+            before = "".join(previous.text or "" for previous in nodes[:index] if previous.tag == W + "t")[-60:]
+            after = "".join(following.text or "" for following in nodes[index + 1:] if following.tag == W + "t")[:60]
+            if CHEMICAL_LEFT.search(before) and CHEMICAL_RIGHT.search(after):
+                inline_reaction_drawings += 1
+                if include_preview:
+                    reaction_contexts.append({"before": before[-50:], "after": after[:50]})
         item = {
             "part": name,
             "paragraph": ordinal,
@@ -54,12 +71,15 @@ def _scan_part(name: str, xml: bytes, include_preview: bool) -> list[dict]:
             "drawing_count": drawing_count,
             "picture_count": picture_count,
             "vml_shape_count": vml_count,
+            "inline_reaction_drawing_candidates": inline_reaction_drawings,
             "visible_text_characters": len(text.strip()),
             "review_required": True,
         }
         if include_preview:
             item["visible_text_preview"] = text.strip()[:100]
             item["field_instruction_preview"] = (instructions or " ".join(simple_fields))[:160]
+            if reaction_contexts:
+                item["reaction_drawing_contexts"] = reaction_contexts
         found.append(item)
     return found
 
@@ -91,6 +111,7 @@ def audit_docx(path: Path, include_preview: bool = False) -> dict:
             "drawings": sum(item["drawing_count"] for item in items),
             "pictures": sum(item["picture_count"] for item in items),
             "vml_shapes": sum(item["vml_shape_count"] for item in items),
+            "inline_reaction_drawing_candidates": sum(item["inline_reaction_drawing_candidates"] for item in items),
         },
         "items": items,
     }
