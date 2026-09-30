@@ -19,6 +19,9 @@ _UNFINISHED_CONCLUSION = re.compile(r"(?:，?则|该条件下|反应为|方程�
 _REACTION_TABLE_LABEL = re.compile(r"反应[ⅠⅡⅢⅣIVX\d]+[：:]")
 _REACTION_ARROW_OR_EQUALITY = re.compile(r"(?:→|⟶|⇌|⇄|↔|=|＝)")
 _FLATTENED_AVOGADRO_EXPONENT = re.compile(r"(?:6[.]02|1[.]505)\s*[×xX]\s*10(?:23|22|24)(?!\d)")
+_MISSING_EXPRESSION_BEFORE_EQUALS = re.compile(r"溶液中\s*[=＝]\s*_{2,}")
+_TRUNCATED_AMMONIUM_CONCENTRATION = re.compile(r"c\s*[（(]\s*NH\s*[）)]")
+_TRUNCATED_SULFATE_CONCENTRATION = re.compile(r"c\s*[（(]\s*SO\s*[）)]")
 _LOST_CHEMICAL_TERMS = {
     "known_species_missing": re.compile(r"已知[：:]\s*为"),
     "preparation_reaction_missing": re.compile(r"可利用反应\s*制备"),
@@ -50,6 +53,17 @@ def candidate_flags(stem: str, options: list[str], explanation: str = "") -> lis
         flags.add('replacement_character_in_question')
     if any(_FLATTENED_AVOGADRO_EXPONENT.search(value) for value in (stem, *options, explanation)):
         flags.add('flattened_scientific_exponent')
+    if any(_MISSING_EXPRESSION_BEFORE_EQUALS.search(value) for value in (stem, *options, explanation)):
+        flags.add('missing_expression_before_equals')
+    joined = "\n".join((stem, *options, explanation))
+    if _TRUNCATED_AMMONIUM_CONCENTRATION.search(joined) and any(
+        clue in joined for clue in ("氨水", "铵", "NH₄", "NH4", "氯化铵")
+    ):
+        flags.add('ammonium_ion_formula_truncated')
+    if _TRUNCATED_SULFATE_CONCENTRATION.search(joined) and any(
+        clue in joined for clue in ("BaSO₄", "BaSO4", "硫酸根", "Ksp")
+    ):
+        flags.add('sulfate_ion_formula_truncated')
     question_lines = stem.splitlines()
     bare_steps = sum(bool(_BARE_STEP.fullmatch(line)) for line in question_lines)
     if bare_steps >= 2:

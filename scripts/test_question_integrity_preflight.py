@@ -152,6 +152,34 @@ class QuestionIntegrityPreflightTests(unittest.TestCase):
             [],
         )
 
+    def test_flags_native_word_formula_gaps_found_in_water_equilibrium_sources(self):
+        ammonium = candidate_flags(
+            "氨水与盐酸混合后，溶液中c(NH)＝c(Cl⁻)，求体积比。",
+            ["甲", "乙", "丙", "丁"],
+        )
+        self.assertIn("ammonium_ion_formula_truncated", ammonium)
+        sulfate = candidate_flags(
+            "BaSO₄沉淀平衡后，用c(SO)求剩余Ba²⁺。",
+            ["甲", "乙", "丙", "丁"],
+        )
+        self.assertIn("sulfate_ion_formula_truncated", sulfate)
+        self.assertIn(
+            "sulfate_ion_formula_truncated",
+            candidate_flags("BaSO₄沉淀平衡后，原稿误写成c（SO）。", ["甲", "乙", "丙", "丁"]),
+        )
+        missing_ratio = candidate_flags(
+            "向溶液中加入Na₂CO₃，当有沉淀生成时溶液中＝________。",
+            ["甲", "乙", "丙", "丁"],
+        )
+        self.assertIn("missing_expression_before_equals", missing_ratio)
+        self.assertEqual(
+            candidate_flags(
+                "氨水与盐酸混合后c(NH₄⁺)＝c(Cl⁻)，硫酸钡平衡中c(SO₄²⁻)>0。",
+                ["甲", "乙", "丙", "丁"],
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
