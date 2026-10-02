@@ -4,6 +4,7 @@ import { applyKnowledgeCompleteness } from './knowledge-completeness-patches.mjs
 import { applyP1KnowledgeCompleteness } from './knowledge-completeness-p1-patches.mjs'
 import { applyCurriculumGapPatches } from './knowledge-curriculum-gap-patches.mjs'
 import { applyReviewedKnowledgeNodeAids } from './knowledge-node-aid-corrections.mjs'
+import { applyH1IonsRedoxFinePoints } from './h1-ions-redox-fine-points.mjs'
 
 const item = (label, rule, examples = [], caution) => ({ label, rule, ...(examples.length ? { examples } : {}), ...(caution ? { caution } : {}) })
 const section = (title, summary, items) => ({ title, summary, items })
@@ -1239,6 +1240,6 @@ const baseZeroForgettingCards = [
 
 export const zeroForgettingCards = applyCurriculumGapPatches(
   applyP1KnowledgeCompleteness(applyKnowledgeCompleteness(baseZeroForgettingCards)),
-).map((entry) => applyReviewedKnowledgeNodeAids(entry, entry.skillId))
+).map((entry) => applyH1IonsRedoxFinePoints(applyReviewedKnowledgeNodeAids(entry, entry.skillId)))
 
 export default zeroForgettingCards

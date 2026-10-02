@@ -29,7 +29,9 @@ describe('student login speed', () => {
     fireEvent.change(screen.getByLabelText('登录码'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /进入我的化学世界/ }))
 
-    expect(await screen.findByRole('heading', { name: /测试学生，今天从哪儿开练/ })).toBeInTheDocument()
+    // Cold transforms of the lazy student module can exceed Testing Library's
+    // one-second default. This contract checks request reuse, not render timing.
+    expect(await screen.findByRole('heading', { name: /测试学生，今天从哪儿开练/ }, { timeout: 5000 })).toBeInTheDocument()
     expect(actions.filter((action) => action === 'login')).toHaveLength(1)
     expect(actions.filter((action) => action === 'student_dashboard')).toHaveLength(0)
   })

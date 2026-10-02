@@ -204,6 +204,8 @@ export interface KnowledgeCard {
 export interface KnowledgeTreeNode {
   label: string
   rule: string
+  /** Stable self-rating slot for an authored leaf below a section item (50–99). */
+  reviewPointIndex?: number
   examples?: string[]
   visualSteps?: string[]
   caution?: string

@@ -1,0 +1,544 @@
+[
+  {
+    "skillId": "H1_ELECTROLYTE",
+    "children": [
+      {
+        "sectionIndex": 1,
+        "itemIndex": 1,
+        "sectionTitle": "离子反应为什么能够发生",
+        "expectedLabel": "生成气体或弱电解质",
+        "expectedRule": "生成气体逸出，或生成水、弱酸、弱碱等难电离物质，推动反应进行。",
+        "children": [
+          {
+            "label": "生成气体为什么影响共存",
+            "rule": "在题给条件下，离子反应生成逸出的气体时，相关离子通常不能大量共存。",
+            "examples": [
+              "教学例子：酸性溶液中，CO₃²⁻与足量H⁺反应：CO₃²⁻+2H⁺=CO₂↑+H₂O。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "生成弱电解质为什么影响共存",
+            "rule": "离子结合形成水或弱酸、弱碱等难电离物质时，相关离子通常不能大量共存。",
+            "examples": [
+              "教学例子：H⁺与OH⁻生成水：H⁺+OH⁻=H₂O。水不能再按强电解质拆成离子。"
+            ],
+            "reviewPointIndex": 51
+          }
+        ]
+      },
+      {
+        "sectionIndex": 2,
+        "itemIndex": 1,
+        "sectionTitle": "离子方程式“写—拆—删—查”",
+        "expectedLabel": "拆：只拆该拆的",
+        "expectedRule": "水溶液中的可溶强电解质拆成离子；沉淀、气体、弱电解质、单质和氧化物通常保留化学式。",
+        "children": [
+          {
+            "label": "可溶性强电解质盐怎样拆",
+            "rule": "水溶液中的可溶性强电解质盐按实际离子和计量数拆开。",
+            "examples": [
+              "教学例子：Na₂SO₄溶液中的Na₂SO₄写成2Na⁺+SO₄²⁻，不能漏掉Na⁺的系数2。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "难溶盐为什么不拆",
+            "rule": "难溶盐即使属于强电解质，在所写离子反应中作为固体或沉淀时仍保留化学式；强电解质身份不等于一定拆开。",
+            "examples": [
+              "教学例子：BaSO₄是难溶盐，可列为强电解质；Ba²⁺+SO₄²⁻=BaSO₄↓中的BaSO₄不拆。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "强酸怎样拆",
+            "rule": "水溶液中的常见强酸按电离出的离子拆开；具体状态与题给反应条件优先。",
+            "examples": [
+              "教学例子：稀盐酸中的HCl拆成H⁺和Cl⁻。这里拆的是溶质HCl，不能把整个盐酸混合物当一种化合物。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "可溶性强碱怎样拆",
+            "rule": "水溶液中的可溶性强碱按实际离子和计量数拆开。",
+            "examples": [
+              "教学例子：NaOH溶液中的NaOH写成Na⁺+OH⁻；可溶性强碱Ba(OH)₂写成Ba²⁺+2OH⁻。"
+            ],
+            "reviewPointIndex": 53
+          },
+          {
+            "label": "弱电解质为什么不拆",
+            "rule": "弱酸、弱碱等弱电解质在通常的离子方程式中保留化学式。",
+            "examples": [
+              "教学例子：醋酸与NaOH反应写CH₃COOH+OH⁻=CH₃COO⁻+H₂O，CH₃COOH不拆成H⁺和CH₃COO⁻。"
+            ],
+            "reviewPointIndex": 54
+          },
+          {
+            "label": "气体在离子式中怎样写",
+            "rule": "气体在通常的离子方程式中保留实际化学式。",
+            "examples": [
+              "教学例子：酸与碳酸盐反应生成CO₂时，写CO₂↑，不把CO₂按离子拆开。"
+            ],
+            "reviewPointIndex": 55
+          },
+          {
+            "label": "水在离子式中怎样写",
+            "rule": "水在通常的离子方程式中保留H₂O，不拆成H⁺和OH⁻。",
+            "examples": [
+              "教学例子：强酸与强碱的中和反应写H⁺+OH⁻=H₂O；不能把右侧的水重新拆开。"
+            ],
+            "reviewPointIndex": 56
+          },
+          {
+            "label": "单质在离子式中怎样写",
+            "rule": "单质在通常的离子方程式中保留单质的实际化学式。",
+            "examples": [
+              "教学例子：Cl₂+2I⁻=2Cl⁻+I₂中，反应物Cl₂和生成物I₂均保留分子式。"
+            ],
+            "reviewPointIndex": 57
+          }
+        ]
+      },
+      {
+        "sectionIndex": 2,
+        "itemIndex": 3,
+        "sectionTitle": "离子方程式“写—拆—删—查”",
+        "expectedLabel": "查：四重检查",
+        "expectedRule": "检查反应事实、原子守恒、电荷守恒和系数最简；氧化还原还要查电子守恒。",
+        "children": [
+          {
+            "label": "离子式先查反应事实",
+            "rule": "方程式中的反应物、产物与反应条件必须符合实际反应；守恒正确不能代替反应事实正确。",
+            "examples": [
+              "教学例子：Fe与足量稀盐酸反应通常生成Fe²⁺，不能因为能配平就写成生成Fe³⁺的式子。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "离子式怎样查原子守恒",
+            "rule": "分别数每一种元素的原子数，方程式两边必须相同。",
+            "examples": [
+              "教学例子：2H⁺+CO₃²⁻=CO₂↑+H₂O两边均有2H、1C、3O。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "离子式怎样查电荷守恒",
+            "rule": "把每个离子的电荷乘以系数，再求每一侧的总电荷；两边必须相等。",
+            "examples": [
+              "教学例子：Ba²⁺+SO₄²⁻=BaSO₄↓左侧总电荷+2−2=0，右侧为0。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "离子式怎样查系数与旁观离子",
+            "rule": "约去反应前后形式和数目均相同的旁观离子后，系数通常化为最简整数比。",
+            "examples": [
+              "教学例子：HCl与NaOH的离子式约去Na⁺、Cl⁻，得到H⁺+OH⁻=H₂O，不能继续保留Na⁺、Cl⁻。"
+            ],
+            "reviewPointIndex": 53
+          },
+          {
+            "label": "氧化还原离子式还要查什么",
+            "rule": "氧化还原反应中，总失电子数必须等于总得电子数；不能把两边电子数相加当转移总数。",
+            "examples": [
+              "教学例子：2Fe²⁺+Cl₂=2Fe³⁺+2Cl⁻中，失、得电子均为2e⁻，转移数是2e⁻。"
+            ],
+            "reviewPointIndex": 54
+          }
+        ]
+      },
+      {
+        "sectionIndex": 3,
+        "itemIndex": 0,
+        "sectionTitle": "离子共存题的判断顺序",
+        "expectedLabel": "先读隐含条件",
+        "expectedRule": "无色、透明、强酸性、强碱性、由水电离的H⁺浓度等条件先翻译成粒子限制。",
+        "children": [
+          {
+            "label": "澄清透明是否排除有色离子",
+            "rule": "澄清透明描述溶液中没有使其浑浊的悬浮物，不等于溶液无色；单凭这一条件不能排除有色离子。",
+            "examples": [
+              "教学例子：CuSO₄溶液可以是蓝色且澄清透明，所以“澄清透明”不能直接排除Cu²⁺。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "无色溶液怎样排除有色离子",
+            "rule": "题目明确要求无色时，通常不能大量存在会使该溶液显色的离子；还要符合所给介质等条件。",
+            "examples": [
+              "教学例子：无色溶液中不能大量存在通常显蓝色的Cu²⁺；不能把“透明”单独当作无色限制。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "强酸性条件先排查什么",
+            "rule": "强酸性溶液中有较多H⁺，先检查给定离子是否会与H⁺显著反应。",
+            "examples": [
+              "教学例子：强酸性溶液中的CO₃²⁻会被H⁺转化，不能与大量H⁺共存。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "强碱性条件先排查什么",
+            "rule": "强碱性溶液中有较多OH⁻，先检查给定离子是否会与OH⁻显著反应。",
+            "examples": [
+              "教学例子：Cu²⁺与OH⁻生成Cu(OH)₂沉淀，不能在该条件下同时大量存在。"
+            ],
+            "reviewPointIndex": 53
+          }
+        ]
+      },
+      {
+        "sectionIndex": 3,
+        "itemIndex": 1,
+        "sectionTitle": "离子共存题的判断顺序",
+        "expectedLabel": "再逐对排查反应",
+        "expectedRule": "依次查沉淀、气体、弱电解质、氧化还原和题目给出的特殊反应。",
+        "children": [
+          {
+            "label": "怎样查沉淀型不能共存",
+            "rule": "两种离子在所给条件下生成难溶沉淀时，不能同时大量共存。",
+            "examples": [
+              "教学例子：Ba²⁺与SO₄²⁻生成BaSO₄沉淀，因此这对离子不能大量共存。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "怎样查气体型不能共存",
+            "rule": "两种离子在所给条件下反应生成气体逸出时，通常不能同时大量共存。",
+            "examples": [
+              "教学例子：H⁺与足量HCO₃⁻反应生成CO₂和水：H⁺+HCO₃⁻=CO₂↑+H₂O。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "怎样查弱电解质型不能共存",
+            "rule": "两种离子显著结合形成弱电解质时，不能在该条件下同时大量共存。",
+            "examples": [
+              "教学例子：H⁺与CH₃COO⁻主要结合生成CH₃COOH；不能只查有无沉淀、气体而漏掉弱酸。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "共存题还需留意其他反应",
+            "rule": "沉淀、气体、弱电解质之外，还要核对题给氧化还原或特殊反应条件。",
+            "examples": [
+              "教学例子：Fe³⁺能氧化I⁻：2Fe³⁺+2I⁻=2Fe²⁺+I₂，二者不能据“无沉淀、无气体”就判为大量共存。"
+            ],
+            "reviewPointIndex": 53
+          }
+        ]
+      }
+    ],
+    "appendSections": [
+      {
+        "title": "先认清电解质的判断对象",
+        "items": [
+          {
+            "label": "先确认是不是化合物",
+            "rule": "电解质和非电解质的判断对象是化合物；化合物由两种或两种以上元素组成且属于纯净物。",
+            "examples": [
+              "教学例子：NaCl晶体是一种化合物；NaCl溶液含盐和水，是混合物。"
+            ],
+            "visualSteps": [
+              "先判纯净物还是混合物",
+              "纯净物再看是否由多种元素组成"
+            ]
+          },
+          {
+            "label": "能导电的单质不是电解质",
+            "rule": "单质不属于电解质或非电解质；单质能导电不能改变其分类对象。",
+            "examples": [
+              "教学例子：铜能靠自由电子导电，但铜是单质，既不是电解质也不是非电解质。"
+            ],
+            "visualSteps": [
+              "先确认铜是单质",
+              "单质不进入电解质分类"
+            ]
+          },
+          {
+            "label": "盐酸为什么不是电解质",
+            "rule": "盐酸是HCl的水溶液，属于混合物，不能称为电解质或非电解质；HCl这种化合物属于电解质。",
+            "examples": [
+              "教学例子：盐酸能导电，但分类时盐酸是混合物，氯化氢HCl才是所判断的电解质。"
+            ],
+            "visualSteps": [
+              "盐酸含HCl与水，是混合物",
+              "判断电解质的是化合物HCl"
+            ]
+          },
+          {
+            "label": "氯化钠溶液为什么不是电解质",
+            "rule": "氯化钠溶液是混合物，不属于电解质或非电解质；其中的NaCl这种化合物属于电解质。",
+            "examples": [
+              "教学例子：盐水能导电是因为有可移动离子，但不能因此把整个NaCl溶液判为电解质。"
+            ],
+            "visualSteps": [
+              "盐水含NaCl与水，是混合物",
+              "化合物NaCl才属于电解质"
+            ]
+          }
+        ],
+        "summary": "先确认分类对象，再分开判断每个易错点；不把导电能力当作物质分类的通行证。"
+      }
+    ]
+  },
+  {
+    "skillId": "H1_REDOX",
+    "children": [
+      {
+        "sectionIndex": 1,
+        "itemIndex": 0,
+        "sectionTitle": "把四组概念接成一条线",
+        "expectedLabel": "化合价升高的一侧",
+        "expectedRule": "元素失电子，被氧化，发生氧化反应；含该元素并提供电子的反应物叫还原剂；生成物叫氧化产物。",
+        "children": [
+          {
+            "label": "化合价升高时电子怎样变化",
+            "rule": "元素化合价升高对应失电子。",
+            "examples": [
+              "教学例子：Fe²⁺变成Fe³⁺时，Fe由+2升到+3，每个Fe失去1个电子。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "哪一方被氧化",
+            "rule": "失电子、化合价升高的反应物被氧化。",
+            "examples": [
+              "教学例子：Zn+Cu²⁺=Zn²⁺+Cu中，Zn由0价升到+2价，所以Zn被氧化。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "哪一侧发生氧化反应",
+            "rule": "失电子、化合价升高的一侧发生氧化反应。",
+            "examples": [
+              "教学例子：Fe²⁺→Fe³⁺+e⁻是氧化半反应，电子写在生成物侧。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "还原剂是谁",
+            "rule": "在该反应中提供电子的反应物是还原剂。",
+            "examples": [
+              "教学例子：Zn+Cu²⁺=Zn²⁺+Cu中，Zn提供电子，Zn是还原剂。"
+            ],
+            "reviewPointIndex": 53
+          },
+          {
+            "label": "氧化产物从哪一方来",
+            "rule": "还原剂失电子后形成的对应生成物是氧化产物。",
+            "examples": [
+              "教学例子：Zn+Cu²⁺=Zn²⁺+Cu中，Zn被氧化形成Zn²⁺，Zn²⁺是氧化产物。"
+            ],
+            "reviewPointIndex": 54
+          }
+        ]
+      },
+      {
+        "sectionIndex": 1,
+        "itemIndex": 1,
+        "sectionTitle": "把四组概念接成一条线",
+        "expectedLabel": "化合价降低的一侧",
+        "expectedRule": "元素得电子，被还原，发生还原反应；接受电子的反应物叫氧化剂；生成物叫还原产物。",
+        "children": [
+          {
+            "label": "化合价降低时电子怎样变化",
+            "rule": "元素化合价降低对应得电子。",
+            "examples": [
+              "教学例子：Cu²⁺变成Cu时，Cu由+2降到0，每个Cu得到2个电子。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "哪一方被还原",
+            "rule": "得电子、化合价降低的反应物被还原。",
+            "examples": [
+              "教学例子：Zn+Cu²⁺=Zn²⁺+Cu中，Cu²⁺由+2价降到0价，所以Cu²⁺被还原。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "哪一侧发生还原反应",
+            "rule": "得电子、化合价降低的一侧发生还原反应。",
+            "examples": [
+              "教学例子：Cl₂+2e⁻→2Cl⁻是还原半反应，电子写在反应物侧。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "氧化剂是谁",
+            "rule": "在该反应中接受电子的反应物是氧化剂。",
+            "examples": [
+              "教学例子：Zn+Cu²⁺=Zn²⁺+Cu中，Cu²⁺接受电子，Cu²⁺是氧化剂。"
+            ],
+            "reviewPointIndex": 53
+          },
+          {
+            "label": "还原产物从哪一方来",
+            "rule": "氧化剂得电子后形成的对应生成物是还原产物。",
+            "examples": [
+              "教学例子：Zn+Cu²⁺=Zn²⁺+Cu中，Cu²⁺被还原形成Cu，Cu是还原产物。"
+            ],
+            "reviewPointIndex": 54
+          }
+        ]
+      },
+      {
+        "sectionIndex": 2,
+        "itemIndex": 0,
+        "sectionTitle": "电子转移与表示",
+        "expectedLabel": "电子数怎么算",
+        "expectedRule": "单个原子的化合价变化数×发生变化的原子个数×该物质计量数，得到转移电子数。",
+        "children": [
+          {
+            "label": "单个变价原子转移多少电子",
+            "rule": "单个原子得失电子的数目等于其化合价变化的绝对值。",
+            "examples": [
+              "教学例子：Fe由+2变+3时，每个Fe失1e⁻；Mn由+4变+2时，每个Mn得2e⁻。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "怎样按实际变价原子数算电子",
+            "rule": "总电子数按实际发生变价的原子数计算；化学式下标和系数都要核对，未变价原子不能算入。",
+            "examples": [
+              "教学例子：1 mol Cl₂变成Cl⁻，有2 mol Cl原子各得1 mol电子，合计得到2 mol电子。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "整条方程式的电子数怎样取",
+            "rule": "总失电子数等于总得电子数，转移电子总数取其中一侧，不能把得与失两侧相加。",
+            "examples": [
+              "教学例子：2Fe²⁺+Cl₂=2Fe³⁺+2Cl⁻按所写计量数转移2e⁻，按2 mol Fe²⁺反应转移2 mol电子，而不是4 mol。"
+            ],
+            "reviewPointIndex": 52
+          }
+        ]
+      },
+      {
+        "sectionIndex": 5,
+        "itemIndex": 1,
+        "sectionTitle": "歧化、归中与缺项配平",
+        "expectedLabel": "归中：高低价态相向靠拢",
+        "expectedRule": "同一元素的较高价态和较低价态共同生成中间价态，叫归中。先分别画“高价降低”和“低价升高”的箭头，再按电子得失相等确定两种反应物的比例。",
+        "children": [
+          {
+            "label": "归中反应中高价物质是什么角色",
+            "rule": "在已确认能够发生的归中反应中，高价态元素得电子变成中间价态，其所在反应物作氧化剂。",
+            "examples": [
+              "教学例子：SO₂+2H₂S=3S+2H₂O中，SO₂的S由+4降到0，所以SO₂是氧化剂。"
+            ],
+            "reviewPointIndex": 50
+          },
+          {
+            "label": "归中反应中低价物质是什么角色",
+            "rule": "在已确认能够发生的归中反应中，低价态元素失电子变成中间价态，其所在反应物作还原剂。",
+            "examples": [
+              "教学例子：SO₂+2H₂S=3S+2H₂O中，H₂S的S由−2升到0，所以H₂S是还原剂。"
+            ],
+            "reviewPointIndex": 51
+          },
+          {
+            "label": "硫的归中反应中氧化产物从哪来",
+            "rule": "SO₂与H₂S的归中反应中，H₂S的低价硫失电子形成S，该部分S是氧化产物。",
+            "examples": [
+              "教学例子：SO₂+2H₂S=3S+2H₂O中，2份H₂S的S由−2升到0，因此生成2份氧化产物S。"
+            ],
+            "reviewPointIndex": 52
+          },
+          {
+            "label": "硫的归中反应中还原产物从哪来",
+            "rule": "SO₂与H₂S的归中反应中，SO₂的高价硫得电子形成S，该部分S是还原产物。",
+            "examples": [
+              "教学例子：SO₂+2H₂S=3S+2H₂O中，1份SO₂的S由+4降到0，因此生成1份还原产物S。"
+            ],
+            "reviewPointIndex": 54
+          },
+          {
+            "label": "硫的归中反应中两类产物比例是多少",
+            "rule": "SO₂+2H₂S=3S+2H₂O中，氧化产物S与还原产物S的物质的量比为2∶1；若题目问还原产物∶氧化产物，则为1∶2。",
+            "examples": [
+              "教学例子：3 mol生成的S中，2 mol来自H₂S，1 mol来自SO₂，所以按题干“还原产物∶氧化产物”的顺序，应选1∶2。"
+            ],
+            "reviewPointIndex": 55
+          },
+          {
+            "label": "硫的归中反应转移多少电子",
+            "rule": "按所写SO₂+2H₂S=3S+2H₂O计量数，高价S得4e⁻，两个低价S共失4e⁻，转移数取4e⁻。",
+            "examples": [
+              "教学例子：1 mol SO₂与2 mol H₂S完全发生该反应时，转移4 mol电子；不能把得4 mol和失4 mol相加成8 mol。"
+            ],
+            "reviewPointIndex": 53
+          }
+        ]
+      }
+    ],
+    "appendSections": [
+      {
+        "title": "浓盐酸制氯气：只数真正变价的那一部分",
+        "items": [
+          {
+            "label": "制氯气时哪些氯原子变价",
+            "rule": "MnO₂+4HCl(浓)在加热条件下生成MnCl₂、Cl₂和2H₂O；4个HCl中的2个Cl进入Cl₂，化合价由−1升到0。",
+            "examples": [
+              "教学例子：按MnO₂+4HCl(浓)→MnCl₂+Cl₂+2H₂O的计量数，变价的是形成Cl₂的2个Cl，进入MnCl₂的另2个Cl仍为−1价。"
+            ],
+            "visualSteps": [
+              "2个Cl进入Cl₂：−1→0",
+              "另2个Cl进入MnCl₂：仍为−1"
+            ]
+          },
+          {
+            "label": "反应的HCl与作还原剂的HCl是否一样多",
+            "rule": "参与反应的HCl不全作还原剂；只有提供电子、氯变价的那部分HCl作还原剂。",
+            "examples": [
+              "教学例子：1 mol MnO₂消耗4 mol HCl，其中只有2 mol HCl中的Cl⁻被氧化，所以作还原剂的HCl为2 mol。"
+            ],
+            "visualSteps": [
+              "总共消耗4份HCl",
+              "其中2份HCl中的Cl⁻提供电子"
+            ]
+          },
+          {
+            "label": "制氯气的氧化剂是谁",
+            "rule": "该反应中MnO₂的Mn由+4降到+2，接受电子，因此MnO₂是氧化剂。",
+            "examples": [
+              "教学例子：MnO₂+4HCl(浓)加热制氯气时，MnO₂被还原成MnCl₂，不能把被氧化的HCl叫氧化剂。"
+            ],
+            "visualSteps": [
+              "Mn由+4降到+2，得电子",
+              "MnO₂接受电子，是氧化剂"
+            ]
+          },
+          {
+            "label": "氧化剂与还原剂的比例怎么数",
+            "rule": "该反应的氧化剂∶还原剂物质的量比为MnO₂∶实际作还原剂的HCl=1∶2；总反应物MnO₂∶HCl的计量比为1∶4。",
+            "examples": [
+              "教学例子：消耗1 mol MnO₂和4 mol HCl时，作氧化剂的MnO₂为1 mol，作还原剂的HCl为2 mol，所以剂的比例为1∶2。"
+            ],
+            "visualSteps": [
+              "MnO₂作氧化剂：1份",
+              "HCl实际作还原剂：2份"
+            ]
+          },
+          {
+            "label": "浓盐酸制氯气转移多少电子",
+            "rule": "按MnO₂+4HCl(浓)→MnCl₂+Cl₂+2H₂O的计量数，Mn由+4降到+2得2e⁻；2个Cl由−1升到0共失2e⁻，转移电子数为2e⁻。",
+            "examples": [
+              "教学例子：1 mol MnO₂在该反应中完全反应，转移2 mol电子；4 mol HCl并不意味着转移4 mol电子。"
+            ],
+            "visualSteps": [
+              "Mn得2e⁻，两个变价Cl共失2e⁻",
+              "取一侧：转移2e⁻，不相加"
+            ]
+          }
+        ],
+        "summary": "在浓盐酸、加热条件下，逐项分清氯的去向、还原剂的实际用量、剂的比例和电子数。"
+      }
+    ]
+  }
+]

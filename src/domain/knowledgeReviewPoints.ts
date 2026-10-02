@@ -14,6 +14,39 @@ export type KnowledgeReviewPoint = {
 
 type PointPart = Pick<KnowledgeReviewPoint, 'title' | 'rule'>
 
+export type KnowledgeReviewLeaf = { node: KnowledgeTreeNode; pointIndex: number }
+
+/**
+ * Keep the existing section/item address, reserving p50–p99 for child leaves.
+ * Authored slots survive sibling reordering and additions. Older trees without
+ * slots use the first available slot in leaf order. A malformed or oversized
+ * set falls back to the original item rather than inventing invalid identities.
+ */
+export function getKnowledgeReviewLeaves(item: KnowledgeTreeNode): KnowledgeReviewLeaf[] {
+  if (!item.children?.length) return []
+  const leaves: KnowledgeTreeNode[] = []
+  const visit = (node: KnowledgeTreeNode) => {
+    if (node.children?.length) node.children.forEach(visit)
+    else leaves.push(node)
+  }
+  item.children.forEach(visit)
+  if (leaves.length > 50) return []
+  const used = new Set<number>()
+  for (const leaf of leaves) {
+    const index = leaf.reviewPointIndex
+    if (index === undefined) continue
+    if (!Number.isInteger(index) || index < 50 || index > 99 || used.has(index)) return []
+    used.add(index)
+  }
+  return leaves.map((node) => {
+    if (node.reviewPointIndex !== undefined) return { node, pointIndex: node.reviewPointIndex }
+    let pointIndex = 50
+    while (used.has(pointIndex)) pointIndex += 1
+    used.add(pointIndex)
+    return { node, pointIndex }
+  })
+}
+
 /** Older approved cards predate structured sections. These points are transcribed from their audited core/detail. */
 const LEGACY_POINTS: Record<string, PointPart[]> = {
   KC_H1_MATERIAL_ATOM: [
@@ -159,6 +192,20 @@ export function getKnowledgeReviewPoints(card: KnowledgeCard): KnowledgeReviewPo
       title: card.title, rule: card.core, examples: card.microExample ? [card.microExample] : [] }]
   }
   return card.structuredContent.sections.flatMap((section, sectionIndex) => section.items.flatMap((item, itemIndex) => {
+    const leaves = getKnowledgeReviewLeaves(item)
+    if (leaves.length) {
+      // The old p0 record remains stored; it is not evidence for any new leaf.
+      return leaves.map(({ node, pointIndex }) => ({
+        id: `${card.id}:s${sectionIndex}:i${itemIndex}:p${pointIndex}`,
+        cardId: card.id,
+        skillId: card.skillId,
+        section: section.title,
+        title: node.label,
+        rule: node.rule,
+        examples: node.examples ?? [],
+        caution: node.caution,
+      }))
+    }
     const parts = splitCompositeNode(card, item) ?? [{ title: item.label, rule: item.rule }]
     return parts.map((part, partIndex) => ({
       id: `${card.id}:s${sectionIndex}:i${itemIndex}:p${partIndex}`,

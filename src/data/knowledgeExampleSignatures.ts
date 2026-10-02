@@ -16,8 +16,8 @@ export function knowledgeExampleSignature(content: StructuredKnowledgeContent): 
 export const generatedKnowledgeSignatures: Record<string, number> = {
   H1_ELECTROLYTE_INTRO: 1418597640,
   H1_PERIODIC: 3995865924,
-  H1_REDOX: 3213484190,
-  H1_ELECTROLYTE: 3823424917,
+  H1_REDOX: 326172647,
+  H1_ELECTROLYTE: 885535001,
   H1_MOLE_INTRO: 2362341879,
   H1_MOLE: 2803360476,
   H1_NACL: 181350203,

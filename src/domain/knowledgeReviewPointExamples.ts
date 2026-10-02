@@ -1,5 +1,6 @@
 import type { KnowledgeCard } from './types'
 import type { KnowledgeReviewPoint } from './knowledgeReviewPoints'
+import { getKnowledgeReviewLeaves } from './knowledgeReviewPoints'
 import { isStructuredKnowledgeContent } from './knowledgeContent'
 import { knowledgeExampleSource } from './knowledgeExampleApplicability'
 import { knowledgeFinePointExamples } from '../data/knowledgeFinePointExamples'
@@ -16,6 +17,10 @@ export function knowledgeReviewPointExamples(card: KnowledgeCard, point: Knowled
   const [, sectionIndex, itemIndex, partIndex] = match
   const item = card.structuredContent.sections[Number(sectionIndex)]?.items[Number(itemIndex)]
   if (!item) return []
+  if (Number(partIndex) >= 50) {
+    const leaf = getKnowledgeReviewLeaves(item).find(({ pointIndex }) => pointIndex === Number(partIndex))
+    return leaf?.node.label === point.title ? leaf.node.examples ?? [] : []
+  }
   const source = knowledgeExampleSource(card, card.structuredContent)
   const itemKey = `${card.skillId}:${sectionIndex}:${itemIndex}`
   if (point.title !== item.label) {
