@@ -4,6 +4,7 @@ import type { KnowledgeCard, StructuredKnowledgeContent } from '../domain/types'
 import { getKnowledgeReviewLeaves, getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { knowledgeFinePointExamples } from './knowledgeFinePointExamples'
 import openingCards from '../../content/knowledge/h1_opening_knowledge_cards.json'
+import ionsRedoxFinePoints from '../../content/knowledge/h1-ions-redox-fine-points-20261002.json'
 // @ts-expect-error The authored content generator is an ESM JavaScript module without declarations.
 import { zeroForgettingCards } from '../../scripts/zero-forgetting-content.mjs'
 
@@ -57,7 +58,7 @@ describe('examples for reviewed fine knowledge points', () => {
     }
   })
 
-  it('keeps each of the 46 authored ion/redox leaves on its own example', () => {
+  it('keeps each of the 48 authored ion/redox child leaves on its own example', () => {
     const contents = (zeroForgettingCards as GeneratedContent[])
       .filter((content) => ['H1_ELECTROLYTE', 'H1_REDOX'].includes(content.skillId))
     expect(contents).toHaveLength(2)
@@ -89,16 +90,16 @@ describe('examples for reviewed fine knowledge points', () => {
         }
       }))
     }
-    expect(leafCount).toBe(46)
+    expect(leafCount).toBe(48)
   })
 
-  it('appends five independent electrolyte points without moving the released addresses', () => {
+  it('keeps the released electrolyte points at their original addresses', () => {
     const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_ELECTROLYTE')!
     const card: KnowledgeCard = { id: 'KC_H1_ELECTROLYTE', skillId: content.skillId, title: content.skillId,
       core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
       reviewStatus: 'approved', structuredContent: content }
     const splitItem = content.sections[2].items[1]
-    expect(getKnowledgeReviewLeaves(splitItem).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61])
+    expect(getKnowledgeReviewLeaves(splitItem).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62])
     expect(splitItem.children?.slice(0, 8).map((node) => node.label)).toEqual([
       '可溶性强电解质盐怎样拆', '难溶盐为什么不拆', '强酸怎样拆', '可溶性强碱怎样拆',
       '弱电解质为什么不拆', '气体在离子式中怎样写', '水在离子式中怎样写', '单质在离子式中怎样写',
@@ -121,5 +122,56 @@ describe('examples for reviewed fine knowledge points', () => {
       expect(matches[0].examples[0]).toMatch(/^教学例子：/)
     }
     for (const node of content.sections[6].items.slice(4)) expect(node.visualSteps?.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('adds nine option-specific points independently while preserving the 58 released addresses', () => {
+    const additions = [
+      ['H1_ELECTROLYTE', 's2:i1:p62', '多原子酸根为什么要保持整体'],
+      ['H1_ELECTROLYTE', 's6:i7:p0', '电离需要先通电吗'],
+      ['H1_ELECTROLYTE', 's6:i8:p0', 'Na₂O入水后有哪些真实离子'],
+      ['H1_REDOX', 's7:i0:p0', '同素异形体转化算氧化还原吗'],
+      ['H1_REDOX', 's7:i1:p0', '同种产物怎样按来源数份额'],
+      ['H1_REDOX', 's7:i2:p0', '化学方程式什么时候能拆成离子式'],
+      ['H1_REDOX', 's7:i3:p0', '怎样用元素守恒确定缺失产物'],
+      ['H1_REDOX', 's7:i4:p0', '酸化试剂会不会参与氧化还原'],
+      ['H1_REDOX', 's5:i1:p56', '归中反应的氧化剂与还原剂比例'],
+    ]
+    const authoredAddresses: string[] = []
+    for (const patch of ionsRedoxFinePoints) {
+      const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === patch.skillId)!
+      const card: KnowledgeCard = { id: `KC_${patch.skillId}`, skillId: patch.skillId, title: patch.skillId,
+        core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
+        reviewStatus: 'approved', structuredContent: content }
+      const points = getKnowledgeReviewPoints(card)
+      for (const parent of patch.children) {
+        for (const node of parent.children) authoredAddresses.push(`${card.id}:s${parent.sectionIndex}:i${parent.itemIndex}:p${node.reviewPointIndex}`)
+      }
+      for (const section of patch.appendSections) {
+        const sectionIndex = content.sections.findIndex((entry) => entry.title === section.title)
+        section.items.forEach((_node, itemIndex) => authoredAddresses.push(`${card.id}:s${sectionIndex}:i${itemIndex}:p0`))
+      }
+      for (const [skill, address, title] of additions.filter(([skill]) => skill === patch.skillId)) {
+        const found = points.filter((point) => point.id === `KC_${skill}:${address}`)
+        expect(found).toHaveLength(1)
+        expect(found[0].title).toBe(title)
+        expect(found[0].examples).toHaveLength(1)
+        expect(found[0].examples[0]).toMatch(/^教学例子：/)
+      }
+    }
+    expect(authoredAddresses).toHaveLength(67)
+    expect(new Set(authoredAddresses).size).toBe(67)
+    const newAddresses = additions.map(([skill, address]) => `KC_${skill}:${address}`)
+    expect(authoredAddresses.filter((address) => !newAddresses.includes(address))).toHaveLength(58)
+    const redox = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+    expect(redox.sections[7].items[1].examples?.[0]).toContain('按来源N原子数折合4份')
+    expect(redox.sections[7].items[3].examples?.[0]).toContain('ZnCO₃+2C（高温）→Zn+3X↑')
+    expect(redox.sections[7].items[4].rule).toContain('稀硫酸')
+    const agentRatio = redox.sections[5].items[1].children?.find((node) => node.reviewPointIndex === 56)
+    expect(agentRatio?.rule).toContain('较高价态物质作氧化剂、较低价态物质作还原剂')
+    expect(agentRatio?.rule).toContain('真正参与变价的物质份额或平衡计量数')
+    expect(agentRatio?.rule).toContain('比值以本题方程式为准')
+    expect(agentRatio?.rule).not.toContain('1∶2')
+    expect(agentRatio?.examples?.[0]).toContain('氧化剂∶还原剂=1∶2')
+    expect(agentRatio?.caution).toContain('氧化产物S∶还原产物S的2∶1')
   })
 })
