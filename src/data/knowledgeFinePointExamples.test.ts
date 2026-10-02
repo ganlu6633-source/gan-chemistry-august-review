@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import type { KnowledgeCard, StructuredKnowledgeContent } from '../domain/types'
 import { getKnowledgeReviewLeaves, getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { knowledgeFinePointExamples } from './knowledgeFinePointExamples'
@@ -11,6 +12,29 @@ import { zeroForgettingCards } from '../../scripts/zero-forgetting-content.mjs'
 type GeneratedContent = StructuredKnowledgeContent & { skillId: string }
 type OpeningRecord = { id: string; skill_id: string; title: string; core: string;
   structured_content: StructuredKnowledgeContent }
+
+const postCoreAddresses = [
+  ['H1_ELECTROLYTE', 's2:i1:p63', '离子个数的系数能写进下标吗'],
+  ['H1_REDOX', 's7:i8:p0', '生成物能称为这一次反应的氧化剂或还原剂吗'],
+  ['H1_REDOX', 's7:i9:p0', '前一步用了原料，剩余量怎样表示'],
+  ['H1_REDOX', 's7:i10:p0', '后一步两种原料分别来自哪里'],
+  ['H1_REDOX', 's7:i11:p0', '余料与中间物是否正好满足下一步计量比'],
+  ['H1_REDOX', 's7:i12:p0', '被氧化与被还原元素的质量怎样分别数'],
+] as const
+
+function generatedPoint(skill: string, address: string) {
+  const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === skill)!
+  const card: KnowledgeCard = { id: `KC_${skill}`, skillId: skill, title: skill,
+    core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
+    reviewStatus: 'approved', structuredContent: content }
+  const points = getKnowledgeReviewPoints(card).filter((point) => point.id === `${card.id}:${address}`)
+  expect(points).toHaveLength(1)
+  return points[0]
+}
+
+function generatedNode(skill: string, itemIndex: number) {
+  return (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === skill)!.sections[7].items[itemIndex]
+}
 
 function compositePartKeys(card: KnowledgeCard): string[] {
   const groups = new Map<string, string[]>()
@@ -58,7 +82,7 @@ describe('examples for reviewed fine knowledge points', () => {
     }
   })
 
-  it('keeps each of the 48 authored ion/redox child leaves on its own example', () => {
+  it('keeps each of the 49 authored ion/redox child leaves on its own example', () => {
     const contents = (zeroForgettingCards as GeneratedContent[])
       .filter((content) => ['H1_ELECTROLYTE', 'H1_REDOX'].includes(content.skillId))
     expect(contents).toHaveLength(2)
@@ -90,7 +114,7 @@ describe('examples for reviewed fine knowledge points', () => {
         }
       }))
     }
-    expect(leafCount).toBe(48)
+    expect(leafCount).toBe(49)
   })
 
   it('keeps the released electrolyte points at their original addresses', () => {
@@ -99,7 +123,7 @@ describe('examples for reviewed fine knowledge points', () => {
       core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
       reviewStatus: 'approved', structuredContent: content }
     const splitItem = content.sections[2].items[1]
-    expect(getKnowledgeReviewLeaves(splitItem).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62])
+    expect(getKnowledgeReviewLeaves(splitItem).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])
     expect(splitItem.children?.slice(0, 8).map((node) => node.label)).toEqual([
       '可溶性强电解质盐怎样拆', '难溶盐为什么不拆', '强酸怎样拆', '可溶性强碱怎样拆',
       '弱电解质为什么不拆', '气体在离子式中怎样写', '水在离子式中怎样写', '单质在离子式中怎样写',
@@ -124,7 +148,7 @@ describe('examples for reviewed fine knowledge points', () => {
     for (const node of content.sections[6].items.slice(4)) expect(node.visualSteps?.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('adds twelve option-specific points independently while preserving the 58 released addresses', () => {
+  it('keeps the twelve released option-specific points and six later additions at independent addresses', () => {
     const additions = [
       ['H1_ELECTROLYTE', 's2:i1:p62', '多原子酸根为什么要保持整体'],
       ['H1_ELECTROLYTE', 's6:i7:p0', '电离需要先通电吗'],
@@ -161,9 +185,9 @@ describe('examples for reviewed fine knowledge points', () => {
         expect(found[0].examples[0]).toMatch(/^教学例子：/)
       }
     }
-    expect(authoredAddresses).toHaveLength(70)
-    expect(new Set(authoredAddresses).size).toBe(70)
-    const newAddresses = additions.map(([skill, address]) => `KC_${skill}:${address}`)
+    expect(authoredAddresses).toHaveLength(76)
+    expect(new Set(authoredAddresses).size).toBe(76)
+    const newAddresses = [...additions, ...postCoreAddresses].map(([skill, address]) => `KC_${skill}:${address}`)
     expect(authoredAddresses.filter((address) => !newAddresses.includes(address))).toHaveLength(58)
     const redox = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
     expect(redox.sections[7].items[1].examples?.[0]).toContain('按来源N原子数折合4份')
@@ -194,5 +218,95 @@ describe('examples for reviewed fine knowledge points', () => {
     expect(independent[2]!.rule).toContain('理论生成量')
     expect(independent[2]!.examples[0]).toContain('原题明确给出1体积水可溶约2体积Cl₂')
     expect(independent[2]!.rule).not.toContain('置换反应')
+  })
+
+  it('restores the complete frozen 70-point input by removing only the six appended nodes', () => {
+    const restored = structuredClone(ionsRedoxFinePoints)
+    const electrolyte = restored.find((patch) => patch.skillId === 'H1_ELECTROLYTE')!
+    const splitting = electrolyte.children.find((entry) => entry.sectionIndex === 2 && entry.itemIndex === 1)!
+    expect(splitting.children.at(-1)?.reviewPointIndex).toBe(63)
+    splitting.children.pop()
+    const redox = restored.find((patch) => patch.skillId === 'H1_REDOX')!
+    const section = redox.appendSections.find((entry) => entry.title === '逐项判断氧化还原的条件与数量')!
+    expect(section.items).toHaveLength(13)
+    section.items.splice(8, 5)
+    // The digest is the full canonical JSON from released commit ce34ec5,
+    // including every previous rule, example, address, guard and section field.
+    expect(createHash('sha256').update(JSON.stringify(restored)).digest('hex'))
+      .toBe('6713f8f035c47b0725f17281396abe434709b7d1fe1643c3b90d405b8639aad8')
+  })
+
+  it('exposes six distinct ratings with their own examples and focused diagrams', () => {
+    const points = postCoreAddresses.map(([skill, address, title]) => {
+      const point = generatedPoint(skill, address)
+      expect(point.title).toBe(title)
+      expect(point.examples).toHaveLength(1)
+      return point
+    })
+    expect(new Set(points.map((point) => point.id)).size).toBe(6)
+    expect(new Set(points.flatMap((point) => point.examples)).size).toBe(6)
+    const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_ELECTROLYTE')!
+    const ionNode = content.sections[2].items[1].children!.find((node) => node.reviewPointIndex === 63)!
+    const nodes = [ionNode, ...[8, 9, 10, 11, 12].map((index) => generatedNode('H1_REDOX', index))]
+    expect(new Set(nodes.map((node) => JSON.stringify(node.visualSteps))).size).toBe(6)
+    for (const node of nodes) {
+      expect(node.visualSteps).toHaveLength(3)
+      expect(node.children).toBeUndefined()
+    }
+    expect(generatedNode('H1_REDOX', 9).visualSteps?.join(' ')).not.toContain('计量比')
+    expect(generatedNode('H1_REDOX', 10).visualSteps?.join(' ')).not.toContain('n−x=2x')
+    expect(generatedNode('H1_REDOX', 12).visualSteps?.join(' ')).not.toContain('SO₂')
+  })
+
+  it('requires the real ion species even when a fictitious ion passes atom and charge sums', () => {
+    const point = generatedPoint('H1_ELECTROLYTE', 's2:i1:p63')
+    expect(point.rule).toContain('实际电离产生的离子')
+    expect(point.rule).toContain('不能把系数移进离子的下标或电荷')
+    expect(point.examples[0]).toContain('Al³⁺和3Cl⁻')
+    expect(point.examples[0]).toContain('不能改写为Cl₃³⁻')
+    // AlCl3 -> Al3+ + Cl3^3- superficially has Al:1, Cl:3 and charge:0.
+    // That arithmetic is insufficient: chloride must remain three Cl- ions.
+    expect(point.examples[0]).toContain('原子数和总电荷看似守恒')
+    expect(point.examples[0]).toContain('错误的离子')
+    expect(point.rule).not.toContain('守恒就正确')
+  })
+
+  it('assigns agents to reactants within the stated reaction without banning SO2 as a reductant elsewhere', () => {
+    const point = generatedPoint('H1_REDOX', 's7:i8:p0')
+    const node = generatedNode('H1_REDOX', 8)
+    expect(point.rule).toContain('反应物')
+    expect(point.examples[0]).toContain('2H₂S+3O₂=2SO₂+2H₂O')
+    expect(point.examples[0]).toContain('2H₂S+SO₂=3S+2H₂O')
+    expect(point.examples[0]).toContain('S由+4降到0，SO₂作氧化剂')
+    expect(node.caution).toContain('不把这个结论扩成SO₂在任何反应都不能作还原剂')
+    expect(point.examples[0]).not.toContain('SO₂永远')
+  })
+
+  it('separates subtraction, intermediate origin and ideal stoichiometric matching instead of reusing one long chain', () => {
+    const remaining = generatedPoint('H1_REDOX', 's7:i9:p0')
+    const intermediate = generatedPoint('H1_REDOX', 's7:i10:p0')
+    const matching = generatedPoint('H1_REDOX', 's7:i11:p0')
+    expect(remaining.examples[0]).toContain('原有3 mol H₂S')
+    expect(remaining.examples[0]).toContain('剩下2 mol')
+    expect(remaining.examples[0]).not.toContain('n−x=2x')
+    expect(intermediate.examples[0]).toContain('题给第一步2H₂S+3O₂=2SO₂+2H₂O')
+    expect(intermediate.examples[0]).toContain('消耗x mol H₂S会生成x mol SO₂')
+    expect(intermediate.examples[0]).not.toContain('x=n/3')
+    expect(matching.examples[0]).toContain('题给第二步2H₂S+SO₂=3S+2H₂O')
+    expect(matching.examples[0]).toContain('n−x=2x，所以x=n/3')
+    expect(matching.rule).toContain('理想计量')
+    expect(generatedNode('H1_REDOX', 11).caution).toContain('题目给出的两步反应和计量模型')
+    expect(matching.rule).not.toContain('实际装置100%')
+  })
+
+  it('counts only the changing H atoms for elemental mass, independently of compound masses and doubled electron totals', () => {
+    const point = generatedPoint('H1_REDOX', 's7:i12:p0')
+    expect(point.rule).toContain('不计其所在化合物的整份质量')
+    expect(point.examples[0]).toContain('NaBH₄+2H₂O=NaBO₂+4H₂')
+    expect(point.examples[0]).toContain('NaBH₄的4个H由−1升到0')
+    expect(point.examples[0]).toContain('2H₂O的4个H由+1降到0')
+    expect(point.examples[0]).toContain('4Ar(H)∶4Ar(H)=1∶1')
+    expect(generatedNode('H1_REDOX', 12).caution).toContain('不把得失电子两侧相加')
+    expect(point.examples[0]).not.toContain('NaBH₄质量∶H₂O质量')
   })
 })
