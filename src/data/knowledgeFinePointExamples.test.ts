@@ -57,7 +57,7 @@ describe('examples for reviewed fine knowledge points', () => {
     }
   })
 
-  it('keeps each of the 44 authored ion/redox leaves on its own example', () => {
+  it('keeps each of the 46 authored ion/redox leaves on its own example', () => {
     const contents = (zeroForgettingCards as GeneratedContent[])
       .filter((content) => ['H1_ELECTROLYTE', 'H1_REDOX'].includes(content.skillId))
     expect(contents).toHaveLength(2)
@@ -89,7 +89,7 @@ describe('examples for reviewed fine knowledge points', () => {
         }
       }))
     }
-    expect(leafCount).toBe(44)
+    expect(leafCount).toBe(46)
   })
 
   it('appends five independent electrolyte points without moving the released addresses', () => {
@@ -98,7 +98,7 @@ describe('examples for reviewed fine knowledge points', () => {
       core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
       reviewStatus: 'approved', structuredContent: content }
     const splitItem = content.sections[2].items[1]
-    expect(getKnowledgeReviewLeaves(splitItem).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59])
+    expect(getKnowledgeReviewLeaves(splitItem).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61])
     expect(splitItem.children?.slice(0, 8).map((node) => node.label)).toEqual([
       '可溶性强电解质盐怎样拆', '难溶盐为什么不拆', '强酸怎样拆', '可溶性强碱怎样拆',
       '弱电解质为什么不拆', '气体在离子式中怎样写', '水在离子式中怎样写', '单质在离子式中怎样写',
@@ -109,6 +109,7 @@ describe('examples for reviewed fine knowledge points', () => {
     const points = getKnowledgeReviewPoints(card)
     const additions = [
       ['s2:i1:p58', '难溶碱为什么不拆'], ['s2:i1:p59', '氧化物在离子式中怎样写'],
+      ['s2:i1:p60', '碳酸氢根为什么不能继续拆'], ['s2:i1:p61', '硫酸氢盐在水溶液中怎样拆'],
       ['s6:i4:p0', '溶液导电是否来自物质自身电离'], ['s6:i5:p0', '电解质一定处处都导电吗'],
       ['s6:i6:p0', '强电解质溶液一定更导电吗'],
     ]

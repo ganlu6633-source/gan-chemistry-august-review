@@ -28,7 +28,8 @@ if (duplicates.length) errors.push(`模块重复：${[...new Set(duplicates)].jo
 if (classificationVisualSummary.kind !== 'tree' || !classificationVisualSummary.tree || (classificationVisualSummary.axes?.length ?? 0) < 4) errors.push('H1_CLASSIFY: 物质分类总树或横向分类轴不完整')
 
 for (const entry of zeroForgettingCards) {
-  if (entry.version !== 2) errors.push(`${entry.skillId}: version 必须为 2`)
+  const expectedVersion = entry.skillId === 'H1_REDOX' ? 3 : 2
+  if (entry.version !== expectedVersion) errors.push(`${entry.skillId}: version 必须为 ${expectedVersion}`)
   if (entry.intro.length < 45) errors.push(`${entry.skillId}: intro 过短`)
   if (entry.overview.length < 4) errors.push(`${entry.skillId}: overview 少于 4 条`)
   if (!entry.visualSummary?.kind || !entry.visualSummary?.title) errors.push(`${entry.skillId}: 缺少30秒关系图`)

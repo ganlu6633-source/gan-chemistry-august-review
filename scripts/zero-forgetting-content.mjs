@@ -20,7 +20,7 @@ const card = (skillId, intro, overview, sections, workedExamples, checkpoints) =
   const allWorkedExamples = [...localDemos, ...workedExamples].filter((demo, index, source) => source.findIndex((candidate) => candidate.substance === demo.substance) === index)
   return {
     skillId,
-    version: 2,
+    version: skillId === 'H1_REDOX' ? 3 : 2,
     intro,
     overview,
     visualSummary: knowledgeVisualSummaries[skillId],
@@ -134,8 +134,8 @@ const baseZeroForgettingCards = [
     '氧化还原看起来名词很多，其实所有判断都从同一件事出发：反应前后有没有元素化合价变化。化合价变化只是表面证据，电子转移才是本质。',
     [
       '有元素化合价升降，就是氧化还原反应；没有升降就不是。',
-      '升价=失电子=被氧化=发生氧化反应；相应反应物是还原剂，生成氧化产物。',
-      '降价=得电子=被还原=发生还原反应；相应反应物是氧化剂，生成还原产物。',
+      '升价=失电子=被氧化=发生氧化反应；发生变化的反应物是还原剂，生成氧化产物。',
+      '降价=得电子=被还原=发生还原反应；发生变化的反应物是氧化剂，生成还原产物。',
       '同一反应中失电子总数一定等于得电子总数，这是配平和计算的总开关。',
     ],
     [
@@ -166,7 +166,7 @@ const baseZeroForgettingCards = [
       ]),
     ],
     [
-      worked('2Na+Cl₂→2NaCl', 'Na由0升到+1并失电子，被氧化、发生氧化反应，Na是还原剂；就Na元素的变化看，NaCl是氧化产物。Cl由0降到-1并得电子，被还原、发生还原反应，Cl₂是氧化剂；就Cl元素的变化看，NaCl也是还原产物。同一生成物可以同时承接两条变价链。2个Na共失2e⁻，1个Cl₂共得2e⁻。', ['升价→失电子→被氧化→发生氧化反应', '还原剂→氧化产物', '降价→得电子→被还原→发生还原反应', '氧化剂→还原产物', '得失电子相等']),
+      worked('2Na+Cl₂→2NaCl', 'Na由0升到+1并失电子，被氧化、发生氧化反应，Na是还原剂；就Na元素的变化看，NaCl是氧化产物。Cl由0降到-1并得电子，被还原、发生还原反应，Cl₂是氧化剂；就Cl元素的变化看，NaCl也是还原产物。同一生成物可以同时承接两条变价链。2个Na共失2e⁻，1个Cl₂共得2e⁻。', ['升失氧', '降得还', '得失电子相等']),
       worked('酸性MnO₄⁻氧化Fe²⁺', 'Mn：+7→+2，得5e⁻｜Fe：+2→+3，每个失1e⁻｜电子守恒定1∶5｜酸性介质补8H⁺、4H₂O｜最后查原子、电荷、电子。', ['先定1∶5', '再补H和O', '查三守恒']),
       worked('FeS₂被O₂氧化', 'FeS₂中Fe由+2升到+3，每个Fe失1e⁻；两个S都由-1升到+6，共失14e⁻，所以1个FeS₂共失15e⁻。O₂中两个O由0降到-2，共得4e⁻；最小公倍数60，先定4FeS₂和15O₂，再按酸性介质补H₂O、H⁺并检查原子与电荷，得到4FeS₂+15O₂+2H₂O=4Fe³⁺+8SO₄²⁻+4H⁺。', ['标出反应前后化合价', '确定升降与电子数', '最小公倍数定系数', '用守恒校验']),
     ],

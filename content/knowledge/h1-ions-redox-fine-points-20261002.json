@@ -115,6 +115,24 @@
             ],
             "caution": "不要在通常的水溶液离子式中写出游离的O²⁻。",
             "reviewPointIndex": 59
+          },
+          {
+            "reviewPointIndex": 60,
+            "label": "碳酸氢根为什么不能继续拆",
+            "rule": "NaHCO₃等可溶性碳酸氢盐在通常水溶液中按金属离子与HCO₃⁻拆开；HCO₃⁻不能因为含氢就继续写成H⁺与CO₃²⁻。",
+            "caution": "不能将NaHCO₃错当成Na₂CO₃；二者与酸反应的H⁺系数也不同。",
+            "examples": [
+              "教学例子：NaHCO₃与盐酸反应写HCO₃⁻+H⁺=CO₂↑+H₂O，不写CO₃²⁻+2H⁺=CO₂↑+H₂O。"
+            ]
+          },
+          {
+            "reviewPointIndex": 61,
+            "label": "硫酸氢盐在水溶液中怎样拆",
+            "rule": "NaHSO₄、NH₄HSO₄在通常水溶液中按对应阳离子、H⁺、SO₄²⁻拆开；不能照搬碳酸氢盐保留HCO₃⁻的规则。题给状态为熔融时应另按实际状态判断。",
+            "caution": "本叶点判断水溶液中的拆法；不要把水溶液拆法机械用于熔融NaHSO₄。",
+            "examples": [
+              "教学例子：NaHSO₄溶液与NaOH溶液反应写H⁺+OH⁻=H₂O；水溶液中的NaHSO₄拆出Na⁺、H⁺、SO₄²⁻。"
+            ]
           }
         ]
       },
