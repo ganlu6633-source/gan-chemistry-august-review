@@ -124,7 +124,7 @@ describe('examples for reviewed fine knowledge points', () => {
     for (const node of content.sections[6].items.slice(4)) expect(node.visualSteps?.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('adds nine option-specific points independently while preserving the 58 released addresses', () => {
+  it('adds twelve option-specific points independently while preserving the 58 released addresses', () => {
     const additions = [
       ['H1_ELECTROLYTE', 's2:i1:p62', '多原子酸根为什么要保持整体'],
       ['H1_ELECTROLYTE', 's6:i7:p0', '电离需要先通电吗'],
@@ -135,6 +135,9 @@ describe('examples for reviewed fine knowledge points', () => {
       ['H1_REDOX', 's7:i3:p0', '怎样用元素守恒确定缺失产物'],
       ['H1_REDOX', 's7:i4:p0', '酸化试剂会不会参与氧化还原'],
       ['H1_REDOX', 's5:i1:p56', '归中反应的氧化剂与还原剂比例'],
+      ['H1_REDOX', 's7:i5:p0', '氧化还原反应的本质是什么'],
+      ['H1_REDOX', 's7:i6:p0', '怎样判断是不是置换反应'],
+      ['H1_REDOX', 's7:i7:p0', '理论产气量与实际收集量一样吗'],
     ]
     const authoredAddresses: string[] = []
     for (const patch of ionsRedoxFinePoints) {
@@ -158,8 +161,8 @@ describe('examples for reviewed fine knowledge points', () => {
         expect(found[0].examples[0]).toMatch(/^教学例子：/)
       }
     }
-    expect(authoredAddresses).toHaveLength(67)
-    expect(new Set(authoredAddresses).size).toBe(67)
+    expect(authoredAddresses).toHaveLength(70)
+    expect(new Set(authoredAddresses).size).toBe(70)
     const newAddresses = additions.map(([skill, address]) => `KC_${skill}:${address}`)
     expect(authoredAddresses.filter((address) => !newAddresses.includes(address))).toHaveLength(58)
     const redox = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
@@ -173,5 +176,23 @@ describe('examples for reviewed fine knowledge points', () => {
     expect(agentRatio?.rule).not.toContain('1∶2')
     expect(agentRatio?.examples?.[0]).toContain('氧化剂∶还原剂=1∶2')
     expect(agentRatio?.caution).toContain('氧化产物S∶还原产物S的2∶1')
+  })
+
+  it('separates reaction essence, displacement and collection losses for independent self-ratings', () => {
+    const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+    const card: KnowledgeCard = { id: 'KC_H1_REDOX', skillId: 'H1_REDOX', title: '氧化还原',
+      core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
+      reviewStatus: 'approved', structuredContent: content }
+    const leaves = getKnowledgeReviewPoints(card)
+    const independent = [5, 6, 7].map((index) => leaves.find((point) => point.id === `${card.id}:s7:i${index}:p0`))
+    expect(independent.every(Boolean)).toBe(true)
+    expect(new Set(independent.map((point) => point!.id)).size).toBe(3)
+    expect(independent[0]!.rule).toContain('电子转移')
+    expect(independent[0]!.rule).not.toContain('实际收集量')
+    expect(independent[1]!.rule).toContain('单质与一种化合物')
+    expect(independent[1]!.rule).not.toContain('理论生成量')
+    expect(independent[2]!.rule).toContain('理论生成量')
+    expect(independent[2]!.examples[0]).toContain('原题明确给出1体积水可溶约2体积Cl₂')
+    expect(independent[2]!.rule).not.toContain('置换反应')
   })
 })
