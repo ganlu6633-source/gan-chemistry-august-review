@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import type { KnowledgeCard, StructuredKnowledgeContent } from '../domain/types'
+import type { KnowledgeCard, KnowledgeTreeNode, StructuredKnowledgeContent } from '../domain/types'
 import { getKnowledgeReviewLeaves, getKnowledgeReviewPoints } from '../domain/knowledgeReviewPoints'
 import { knowledgeFinePointExamples } from './knowledgeFinePointExamples'
 import openingCards from '../../content/knowledge/h1_opening_knowledge_cards.json'
@@ -82,7 +82,7 @@ describe('examples for reviewed fine knowledge points', () => {
     }
   })
 
-  it('keeps each of the 49 authored ion/redox child leaves on its own example', () => {
+  it('keeps each of the 56 authored ion/redox child leaves on its own example', () => {
     const contents = (zeroForgettingCards as GeneratedContent[])
       .filter((content) => ['H1_ELECTROLYTE', 'H1_REDOX'].includes(content.skillId))
     expect(contents).toHaveLength(2)
@@ -114,7 +114,7 @@ describe('examples for reviewed fine knowledge points', () => {
         }
       }))
     }
-    expect(leafCount).toBe(49)
+    expect(leafCount).toBe(56)
   })
 
   it('keeps the released electrolyte points at their original addresses', () => {
@@ -175,7 +175,14 @@ describe('examples for reviewed fine knowledge points', () => {
       }
       for (const section of patch.appendSections) {
         const sectionIndex = content.sections.findIndex((entry) => entry.title === section.title)
-        section.items.forEach((_node, itemIndex) => authoredAddresses.push(`${card.id}:s${sectionIndex}:i${itemIndex}:p0`))
+        section.items.forEach((node, itemIndex) => {
+          const leaves = getKnowledgeReviewLeaves(node)
+          if (leaves.length) {
+            for (const leaf of leaves) authoredAddresses.push(`${card.id}:s${sectionIndex}:i${itemIndex}:p${leaf.pointIndex}`)
+          } else {
+            authoredAddresses.push(`${card.id}:s${sectionIndex}:i${itemIndex}:p0`)
+          }
+        })
       }
       for (const [skill, address, title] of additions.filter(([skill]) => skill === patch.skillId)) {
         const found = points.filter((point) => point.id === `KC_${skill}:${address}`)
@@ -185,9 +192,17 @@ describe('examples for reviewed fine knowledge points', () => {
         expect(found[0].examples[0]).toMatch(/^教学例子：/)
       }
     }
-    expect(authoredAddresses).toHaveLength(76)
-    expect(new Set(authoredAddresses).size).toBe(76)
-    const newAddresses = [...additions, ...postCoreAddresses].map(([skill, address]) => `KC_${skill}:${address}`)
+    expect(authoredAddresses).toHaveLength(83)
+    expect(new Set(authoredAddresses).size).toBe(83)
+    const newAddresses = [...additions, ...postCoreAddresses,
+      ['H1_REDOX', 's5:i1:p66', '等量H₂S在不同反应中，怎样比较电子数？'],
+      ['H1_REDOX', 's6:i5:p67', '等量产物下，怎样比较反应物的用量？'],
+      ['H1_REDOX', 's2:i0:p68', '等量O₂在不同反应中，怎样比较电子数？'],
+      ['H1_REDOX', 's2:i0:p69', '已知产物的量，怎样换算转移电子的量？'],
+      ['H1_REDOX', 's2:i0:p70', '怎样用电子守恒求未知系数？'],
+      ['H1_REDOX', 's2:i0:p71', '已知电子的量，怎样反求产物的量？'],
+      ['H1_REDOX', 's2:i0:p72', '同一侧有几种元素变价，电子数怎样合计？'],
+    ].map(([skill, address]) => `KC_${skill}:${address}`)
     expect(authoredAddresses.filter((address) => !newAddresses.includes(address))).toHaveLength(58)
     const redox = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
     expect(redox.sections[7].items[1].examples?.[0]).toContain('按来源N原子数折合4份')
@@ -220,8 +235,18 @@ describe('examples for reviewed fine knowledge points', () => {
     expect(independent[2]!.rule).not.toContain('置换反应')
   })
 
-  it('restores the complete frozen 70-point input by removing only the six appended nodes', () => {
+  it('restores the complete frozen 70-point input after removing only the later append-only updates', () => {
     const restored = structuredClone(ionsRedoxFinePoints)
+    const currentRedox = restored.find((patch) => patch.skillId === 'H1_REDOX')!
+    const currentSulfur = currentRedox.children.find((entry) => entry.sectionIndex === 5 && entry.itemIndex === 1)!
+    expect(currentSulfur.children.at(-1)?.reviewPointIndex).toBe(66)
+    currentSulfur.children.pop()
+    const currentChlorine = currentRedox.appendSections.find((entry) => entry.title === '浓盐酸制氯气：只数真正变价的那一部分')!
+    expect((currentChlorine.items.at(-1) as KnowledgeTreeNode).children?.[0].reviewPointIndex).toBe(67)
+    currentChlorine.items.pop()
+    const currentElectrons = currentRedox.children.find((entry) => entry.sectionIndex === 2 && entry.itemIndex === 0)!
+    expect(currentElectrons.children.slice(3).map((node) => node.reviewPointIndex)).toEqual([68, 69, 70, 71, 72])
+    currentElectrons.children.splice(3, 5)
     const electrolyte = restored.find((patch) => patch.skillId === 'H1_ELECTROLYTE')!
     const splitting = electrolyte.children.find((entry) => entry.sectionIndex === 2 && entry.itemIndex === 1)!
     expect(splitting.children.at(-1)?.reviewPointIndex).toBe(63)
@@ -234,6 +259,187 @@ describe('examples for reviewed fine knowledge points', () => {
     // including every previous rule, example, address, guard and section field.
     expect(createHash('sha256').update(JSON.stringify(restored)).digest('hex'))
       .toBe('6713f8f035c47b0725f17281396abe434709b7d1fe1643c3b90d405b8639aad8')
+  })
+
+  it('restores every released 76-point field and address by removing only the seven new nodes', () => {
+    const restored = structuredClone(ionsRedoxFinePoints)
+    const redox = restored.find((patch) => patch.skillId === 'H1_REDOX')!
+    const sulfur = redox.children.find((entry) => entry.sectionIndex === 5 && entry.itemIndex === 1)!
+    expect(sulfur.children.at(-1)?.reviewPointIndex).toBe(66)
+    sulfur.children.pop()
+    const chlorine = redox.appendSections.find((entry) => entry.title === '浓盐酸制氯气：只数真正变价的那一部分')!
+    expect(chlorine.items).toHaveLength(6)
+    expect((chlorine.items.at(-1) as KnowledgeTreeNode).children?.[0].reviewPointIndex).toBe(67)
+    chlorine.items.pop()
+    const electrons = redox.children.find((entry) => entry.sectionIndex === 2 && entry.itemIndex === 0)!
+    expect(electrons.children.slice(3).map((node) => node.reviewPointIndex)).toEqual([68, 69, 70, 71, 72])
+    electrons.children.splice(3, 5)
+    // Full authored input from released HEAD 5d7129b: no old rule, example,
+    // section, guard, parent or address may change while adding this leaf.
+    expect(createHash('sha256').update(JSON.stringify(restored)).digest('hex'))
+      .toBe('a36ff5d8f8324d19de97056b5aa13755202f6c99b57d8bc5f1db7895f048d536')
+  })
+
+  it('separates the equal-H2S two-reaction comparison from the old whole-equation four-electron leaf', () => {
+    const old = generatedPoint('H1_REDOX', 's5:i1:p53')
+    const comparison = generatedPoint('H1_REDOX', 's5:i1:p66')
+    expect(comparison.id).not.toBe(old.id)
+    expect(comparison.title).toBe('等量H₂S在不同反应中，怎样比较电子数？')
+    expect(comparison.rule).toContain('先统一该反应物的实际用量')
+    expect(comparison.rule).toContain('每1 mol H₂S失去6 mol电子')
+    expect(comparison.rule).toContain('每1 mol H₂S失去2 mol电子')
+    expect(comparison.rule).toContain('Ⅰ∶Ⅱ的电子转移数为6∶2=3∶1')
+    expect(comparison.rule).not.toContain('1∶3')
+    expect(comparison.examples).toHaveLength(1)
+    expect(comparison.examples[0]).toContain('2H₂S(g)+3O₂(g)=2SO₂(g)+2H₂O(g)')
+    expect(comparison.examples[0]).toContain('2H₂S(g)+SO₂(g)=3S(l)+2H₂O(g)')
+    expect(comparison.examples[0]).toContain('两反应均消耗1 mol H₂S')
+    expect(comparison.examples).not.toEqual(old.examples)
+    expect(old.rule).toBe('按所写SO₂+2H₂S=3S+2H₂O计量数，高价S得4e⁻，两个低价S共失4e⁻，转移数取4e⁻。')
+    expect(old.examples).toEqual(['教学例子：1 mol SO₂与2 mol H₂S完全发生该反应时，转移4 mol电子；不能把得4 mol和失4 mol相加成8 mol。'])
+    const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+    const parent = content.sections[5].items[1]
+    expect(getKnowledgeReviewLeaves(parent).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 54, 55, 53, 56, 66])
+    const node = parent.children!.find((leaf) => leaf.reviewPointIndex === 66)!
+    expect(node.children).toBeUndefined()
+    expect(node.caution).toContain('4 mol电子，对应消耗2 mol H₂S')
+    expect(node.visualSteps).toEqual([
+      '先把两反应统一到消耗1 mol H₂S',
+      'Ⅰ：S由−2到+4，失6 mol电子',
+      'Ⅱ：S由−2到0，失2 mol电子',
+      '按Ⅰ∶Ⅱ求6∶2=3∶1',
+    ])
+    expect(node.visualSteps).not.toEqual(parent.visualSteps)
+  })
+
+  it('rates equal-product reactant amounts separately from chlorine electron counting and equal-H2S counting', () => {
+    const amounts = generatedPoint('H1_REDOX', 's6:i5:p67')
+    const electrons = generatedPoint('H1_REDOX', 's6:i4:p0')
+    const h2s = generatedPoint('H1_REDOX', 's5:i1:p66')
+    expect(new Set([amounts.id, electrons.id, h2s.id]).size).toBe(3)
+    expect(amounts.title).toBe('等量产物下，怎样比较反应物的用量？')
+    expect(amounts.rule).toContain('先统一产物的物质的量')
+    expect(amounts.rule).toContain('MnO₂需1 mol，KMnO₄需2/5 mol')
+    expect(amounts.rule).toContain('MnO₂∶KMnO₄=1∶(2/5)=5∶2')
+    expect(amounts.rule).not.toContain('电子转移数')
+    expect(amounts.examples).toHaveLength(1)
+    expect(amounts.examples[0]).toContain('MnO₂+4HCl(浓)（加热）→MnCl₂+Cl₂↑+2H₂O')
+    expect(amounts.examples[0]).toContain('2KMnO₄+16HCl(浓)（常温）→2KCl+2MnCl₂+5Cl₂↑+8H₂O')
+    expect(amounts.examples[0]).toContain('KMnO₄∶MnO₂，则为2∶5')
+    expect(amounts.examples).not.toEqual(electrons.examples)
+    expect(amounts.examples).not.toEqual(h2s.examples)
+    const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+    const parent = content.sections[6].items[5]
+    expect(getKnowledgeReviewLeaves(parent).map((leaf) => leaf.pointIndex)).toEqual([67])
+    const node = parent.children![0]
+    expect(node.children).toBeUndefined()
+    expect(node.caution).toContain('不能直接拿不同方程式中MnO₂的系数1与KMnO₄的系数2求1∶2')
+    expect(node.visualSteps).toEqual([
+      '先把两反应统一到生成1 mol Cl₂',
+      '①：MnO₂∶Cl₂=1∶1，需1 mol MnO₂',
+      '②：KMnO₄∶Cl₂=2∶5，需2/5 mol KMnO₄',
+      '按MnO₂∶KMnO₄求1∶(2/5)=5∶2',
+    ])
+    // The wrapper is navigational; only its child has a familiarity rating.
+    const card: KnowledgeCard = { id: 'KC_H1_REDOX', skillId: 'H1_REDOX', title: '氧化还原',
+      core: content.intro, detail: '', steps: [], commonMistakes: [], microExample: '',
+      reviewStatus: 'approved', structuredContent: content }
+    expect(getKnowledgeReviewPoints(card).some((point) => point.id === 'KC_H1_REDOX:s6:i5:p0')).toBe(false)
+  })
+
+  it('compares electron amounts at the same oxygen yield without comparing unequal whole-equation yields', () => {
+    const oxygen = generatedPoint('H1_REDOX', 's2:i0:p68')
+    const h2s = generatedPoint('H1_REDOX', 's5:i1:p66')
+    expect(oxygen.id).not.toBe(h2s.id)
+    expect(oxygen.rule).toContain('H₂O₂生成1 mol O₂')
+    expect(oxygen.rule).toContain('由−1升到0，失去2 mol电子')
+    expect(oxygen.rule).toContain('由−2升到0，失去4 mol电子')
+    expect(oxygen.rule).toContain('2∶4=1∶2')
+    expect(oxygen.examples[0]).toContain('2H₂O₂（MnO₂催化）→2H₂O+O₂↑')
+    expect(oxygen.examples[0]).toContain('2KClO₃（MnO₂催化、加热）→2KCl+3O₂↑')
+    const node = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+      .sections[2].items[0].children!.find((leaf) => leaf.reviewPointIndex === 68)!
+    expect(node.caution).toContain('两条整式生成的O₂量不同')
+    expect(node.visualSteps).toEqual([
+      '先把两反应统一到生成1 mol O₂',
+      'H₂O₂：2 mol O由−1到0，失2 mol电子',
+      'KClO₃：2 mol O由−2到0，失4 mol电子',
+      '按③∶④求2∶4=1∶2',
+    ])
+    expect(node.visualSteps?.join(' ')).not.toContain('H₂S')
+    expect(node.visualSteps?.join(' ')).not.toContain('MnO₂∶KMnO₄')
+  })
+
+  it('rates product-to-electrons and electrons-to-product as separate directed conversions', () => {
+    const forward = generatedPoint('H1_REDOX', 's2:i0:p69')
+    const product = generatedPoint('H1_REDOX', 's2:i0:p71')
+    expect(forward.id).not.toBe(product.id)
+    expect(forward.rule).toContain('n(e⁻)=n(产物)×每条方程式转移的电子数/该产物的系数')
+    expect(forward.examples).toHaveLength(2)
+    expect(forward.examples[0]).toContain('NaBH₄+2H₂O=NaBO₂+4H₂↑')
+    expect(forward.examples[0]).toContain('n(e⁻)=1×4/4=1 mol')
+    expect(forward.examples[0]).toContain('n(e⁻)=2×4/4=2 mol')
+    expect(forward.examples[1]).toContain('K₂H₃IO₆+9HI=2KI+4I₂+6H₂O')
+    expect(forward.examples[1]).toContain('n(e⁻)=0.05×7/4=0.0875 mol')
+    expect(forward.examples.join(' ')).not.toContain('12.7 g')
+    expect(product.rule).toContain('n(产物)=n(e⁻)×该产物的系数/每条方程式转移的电子数')
+    expect(product.examples[0]).toContain('2MnO₄⁻+5H₂O₂+6H⁺=2Mn²⁺+5O₂↑+8H₂O')
+    expect(product.examples[0]).toContain('n(O₂)=10×5/10=5 mol')
+    expect(product.examples[0]).not.toContain('2H₂O₂=2H₂O')
+    expect(forward.rule).not.toContain('n(产物)=n(e⁻)')
+    expect(product.rule).not.toContain('n(e⁻)=n(产物)')
+    const nodes = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+      .sections[2].items[0].children!.filter((node) => [69, 71].includes(node.reviewPointIndex!))
+    expect(new Set(nodes.map((node) => JSON.stringify(node.visualSteps))).size).toBe(2)
+    expect(nodes.every((node) => node.children === undefined)).toBe(true)
+    for (const node of nodes) expect(node.visualSteps).toHaveLength(4)
+  })
+
+  it('totals all changing elements on one electron side without dropping copper or adding both sides', () => {
+    const combined = generatedPoint('H1_REDOX', 's2:i0:p72')
+    const oldWholeEquation = generatedPoint('H1_REDOX', 's2:i0:p52')
+    expect(combined.id).not.toBe(oldWholeEquation.id)
+    expect(combined.title).toBe('同一侧有几种元素变价，电子数怎样合计？')
+    expect(combined.rule).toContain('两个Cu由+1降到0共得2e⁻')
+    expect(combined.rule).toContain('两个O由0降到−2共得4e⁻')
+    expect(combined.rule).toContain('同一得电子侧共得6e⁻')
+    expect(combined.rule).toContain('S由−2升到+4失6e⁻')
+    expect(combined.examples[0]).toContain('Cu₂S+O₂（高温）→2Cu+SO₂')
+    expect(combined.examples[0]).toContain('0.4/6=1/15 mol')
+    expect(combined.examples[0]).not.toContain('2.408')
+    const node = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+      .sections[2].items[0].children!.find((leaf) => leaf.reviewPointIndex === 72)!
+    expect(node.caution).toContain('会漏掉Cu得到的2份')
+    expect(node.caution).toContain('误算消耗O₂为0.4/4=0.1 mol')
+    expect(node.caution).toContain('不能再相加成12份')
+    expect(node.visualSteps).toEqual([
+      '先选同一得电子侧：Cu和O都降价',
+      '两个Cu各由+1到0，共得2e⁻',
+      '两个O各由0到−2，共得4e⁻',
+      '同侧2+4=6e⁻；与S失6e⁻相等，转移数取6',
+    ])
+  })
+
+  it('solves the unknown coefficient from electron balance independently of charge and atom conditions', () => {
+    const coefficient = generatedPoint('H1_REDOX', 's2:i0:p70')
+    const atomCount = generatedPoint('H1_REDOX', 's2:i0:p51')
+    expect(coefficient.id).not.toBe(atomCount.id)
+    expect(coefficient.rule).toContain('xR²⁺+yH⁺+O₂=mR³⁺+nH₂O')
+    expect(coefficient.rule).toContain('x×1=4，x=4')
+    expect(coefficient.examples[0]).toContain('O₂前的系数为1')
+    expect(coefficient.examples[0]).toContain('x×1=2×2，得x=4')
+    const content = (zeroForgettingCards as GeneratedContent[]).find((entry) => entry.skillId === 'H1_REDOX')!
+    const parent = content.sections[2].items[0]
+    expect(getKnowledgeReviewLeaves(parent).map((leaf) => leaf.pointIndex)).toEqual([50, 51, 52, 68, 69, 70, 71, 72])
+    const node = parent.children!.find((leaf) => leaf.reviewPointIndex === 70)!
+    expect(node.visualSteps).toEqual([
+      'R²⁺→R³⁺：每个失1e⁻，x个失xe⁻',
+      '一个O₂有两个O，各由0到−2得2e⁻',
+      '得电子总数为2×2=4e⁻',
+      '令失电子=得电子：x×1=4，得x=4',
+    ])
+    expect(node.visualSteps?.join(' ')).not.toContain('电荷守恒')
+    expect(node.visualSteps?.join(' ')).not.toContain('2x+y')
   })
 
   it('exposes six distinct ratings with their own examples and focused diagrams', () => {
