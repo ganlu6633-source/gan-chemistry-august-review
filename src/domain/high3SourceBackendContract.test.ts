@@ -17,7 +17,7 @@ describe('high-school source-backed REVIEW backend contract', () => {
     expect(accessFunction).toContain('hasCompletedAnswer')
     expect(accessFunction).toContain('snapshot.assetRefs || snapshot.asset_refs')
     expect(accessFunction).toContain('currentAssetEligible')
-    expect(accessFunction).toContain('!["高一", "高二", "高三"].includes(String(question.grade_band))')
+    expect(accessFunction).toContain('!["初三", "高一", "高二", "高三"].includes(String(question.grade_band))')
     expect(accessFunction).toContain('question.scope_status === "IN"')
     expect(accessFunction).toContain('question.source_kind !== "licensed_local"')
     expect(accessFunction).toContain('dataUrl: `data:${mimeType};base64,${payloadBase64}`')
@@ -97,7 +97,7 @@ describe('high-school source-backed REVIEW backend contract', () => {
   })
 
   it('keeps source citations and original analysis scans out of learner history records', () => {
-    expect(accessFunction).toContain('const juniorEvidence = gradeBand === "初三"')
+    expect(accessFunction).toContain('const juniorEvidence = shouldHideLegacyJuniorNativeHistory(gradeBand, historical)')
     expect(accessFunction).toContain('sourceKind: juniorEvidence ? null : historical.sourceKind')
     expect(accessFunction).toContain('sourceInfo: juniorEvidence ? null : historical.sourceInfo')
     expect(accessFunction).toContain('assetRefs: juniorEvidence ? [] : historical.assetRefs')

@@ -258,7 +258,7 @@ export function StudentApp({ session, initialDashboard, onDashboard, previewMode
       || todayPlan.deliveryMode === 'junior_adaptive'
       || todayPlan.choiceTrainingPolicy
       || previewMode
-      || !['高一', '高二', '高三'].includes(dashboard.profile.gradeBand)
+      || !['初三', '高一', '高二', '高三'].includes(dashboard.profile.gradeBand)
     ) return
     const key = planRequestKey(todayPlan, planRequestIdentityKey)
     const entry = ensurePlanRequest(todayPlan)
@@ -954,7 +954,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
       for (const issuedQuestion of questions.slice(questionIndex, questionIndex + 2)) {
         if (!active) return
         const isLicensedReview = payload.plan.mode === 'REVIEW'
-          && ['高一', '高二', '高三'].includes(issuedQuestion.gradeBand)
+          && ['初三', '高一', '高二', '高三'].includes(issuedQuestion.gradeBand)
           && issuedQuestion.sourceKind === 'licensed_local'
         if (!isLicensedReview && !issuedQuestion.secureFeedbackRequired) continue
         const context: QuestionAssetAccessContext = {
@@ -1089,7 +1089,7 @@ export function LearningRound({ session, payload, practiceMode = false, practice
   }
 
   if (phase === 'quiz' && question) {
-    const isLicensedReview = payload.plan.mode === 'REVIEW' && ['高一', '高二', '高三'].includes(question.gradeBand) && question.sourceKind === 'licensed_local'
+    const isLicensedReview = payload.plan.mode === 'REVIEW' && ['初三', '高一', '高二', '高三'].includes(question.gradeBand) && question.sourceKind === 'licensed_local'
     const requiresServerFeedback = question.secureFeedbackRequired === true || isLicensedReview
     const hasLocalFeedbackContract = Number.isInteger(question.correctOption) && typeof question.explanation === 'string'
     const currentServerFeedback = serverFeedback[question.id]

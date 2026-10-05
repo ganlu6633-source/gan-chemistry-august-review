@@ -1,5 +1,5 @@
 import { expandOptionPractice, optionPracticeBindings } from "./option-practice.ts";
-import { teachingPlanContext, teachingAssignmentValid, teachingQuestionSourceMatches } from "./teaching-plan.ts";
+import { teachingPlanContext, teachingReleaseContext, teachingAssignmentValid, teachingQuestionSourceMatches } from "./teaching-plan.ts";
 import { skillMasteryEvidence } from "./mastery-evidence.ts";
 import { readReviewProgram, programContainsDate, programPlanVisible, programAllowsJuniorUnit, programQuestionIds, programReviewSkillIds, juniorPlanAllowsAdvanceStudy } from "./review-program.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -12,7 +12,7 @@ import { juniorDailyPolicy, juniorRecoveryRound, juniorSessionBlocksDateSwitch, 
 import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
 import { loadJuniorKnowledgeCards, juniorDisplayKnowledgeCards } from "./junior-knowledge-cards.ts";
 import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
-import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
+import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLegacyJuniorNativeHistory, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
 import { recommendStudyTopics, type StudyHistoryAnswer } from "./study-recommendations.ts";
 import { relayJuniorRequest } from "./junior-regional-relay.ts";
 import { parseChoiceContext, choiceProgress, choiceBranches, choiceQuestionContext, choiceAnswersMatch, choiceErrorMessage, type ChoiceTrainingContext } from "./choice-training.ts";
@@ -65,6 +65,19 @@ function ownedPlanDeliveryContext(plan: Record<string, unknown>, studentGrade: s
   } catch (error) {
     throw new RequestError(422, error instanceof Error ? error.message : "课程配置无效，请联系甘老师。");
   }
+}
+
+async function resolvePlanSourceContext(
+  context: ReturnType<typeof teachingPlanContext>, releaseId: string | null,
+) {
+  if (context.sourceGrade !== "初三" || !releaseId) return context;
+  const source = await supabase.rpc("chem_teaching_source_release_context", { p_release_id: releaseId });
+  if (source.error) throw source.error;
+  if (!Array.isArray(source.data) || source.data.length !== 1) {
+    throw new RequestError(409, "这组原题已调整，请重新选择知识点。");
+  }
+  try { return teachingReleaseContext(context, source.data[0]); }
+  catch (error) { throw new RequestError(422, error instanceof Error ? error.message : "原题格式无效。"); }
 }
 
 function planQuestionCount(row: Record<string, unknown>) {
@@ -427,7 +440,7 @@ function sourceDistinctQuestionPool<T extends Record<string, unknown>>(
 }
 
 function isLicensedHighSchoolQuestion(row: Record<string, unknown>) {
-  return ["高一", "高二", "高三"].includes(String(row.grade_band)) && row.source_kind === "licensed_local";
+  return ["初三", "高一", "高二", "高三"].includes(String(row.grade_band)) && row.source_kind === "licensed_local";
 }
 
 const questionShape = (row: Record<string, unknown>, secureLicensedHighSchoolReview = false, managedChoice = false) => {
@@ -1016,7 +1029,7 @@ async function studentLearningRecord(studentId: string) {
       const question = questionById.get(String(answer.question_id));
       const historical = historicalQuestion(answer, question);
       if (demoProfile && historical.sourceKind === "licensed_local") return [];
-      const juniorEvidence = gradeBand === "初三" && historical.sourceKind !== "licensed_local";
+      const juniorEvidence = shouldHideLegacyJuniorNativeHistory(gradeBand, historical);
       if (juniorEvidence && !juniorStudentVisibleSourceTextIsSafe([
         historical.stem,
         historical.options,
@@ -2604,7 +2617,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     throw new RequestError(403, "真实学习记录不能指定练习轮次。");
   }
   const reviewProfile = { gradeBand: String(gradeResult.data.grade_band), isDemo: demoProfile };
-  const delivery = ownedPlanDeliveryContext(plan, reviewProfile.gradeBand);
+  let delivery = ownedPlanDeliveryContext(plan, reviewProfile.gradeBand);
   if (realStudentOpen && reviewProfile.gradeBand === "初三" && !delivery.managed && plan.delivery_mode !== "self_study") {
     throw new RequestError(409, "初三正式学习只能通过专用自适应会话进入；通用题组入口不会下发初三题目。");
   }
@@ -2658,6 +2671,7 @@ async function startPlanPayload(studentId: string, planId: string, options: Star
     }
     activeSourceReleaseId = String(ready[0].source_release_id);
   }
+  delivery = await resolvePlanSourceContext(delivery, activeSourceReleaseId);
   if (assignedQuestionIds && assignedQuestionIds.length !== questionCount) {
     throw new RequestError(422, "当天材料题组配置不完整，请联系甘老师核对。");
   }
@@ -3834,7 +3848,7 @@ Deno.serve(async (req: Request) => {
         : null;
       if (
         !question
-        || !["高一", "高二", "高三"].includes(String(question.grade_band))
+        || !["初三", "高一", "高二", "高三"].includes(String(question.grade_band))
         || question.source_kind !== "licensed_local"
       ) {
         return reply(req, { error: "原题图片不存在。" }, 404);
@@ -3878,7 +3892,8 @@ Deno.serve(async (req: Request) => {
             ));
           });
         }
-        let activeAssetReleaseId = await activeVerifiedSourceReleaseId(String(question.grade_band));
+        let activeAssetReleaseId = question.grade_band === "初三" ? null
+          : await activeVerifiedSourceReleaseId(String(question.grade_band));
         // A supplementary material set is available only through a server-owned
         // teaching plan. Exact issued-question or answer-lock proof is still
         // required below; being present in the teacher catalog grants no access.
@@ -4113,8 +4128,9 @@ Deno.serve(async (req: Request) => {
         !issuedQuestion
         || (managedFeedback && issuedQuestion.gradeBand !== payload.plan.teachingSourceGrade)
         || (managedFeedback || selfStudyFeedback
-          ? issuedQuestion.sourceKind !== (issuedQuestion.gradeBand === "初三" ? "user_provided_local" : "licensed_local")
-          : !["高一", "高二", "高三"].includes(String(issuedQuestion.gradeBand)) || issuedQuestion.sourceKind !== "licensed_local")
+          ? !((issuedQuestion.sourceKind === "licensed_local" && issuedQuestion.renderMode === "image_primary")
+            || (issuedQuestion.gradeBand === "初三" && issuedQuestion.sourceKind === "user_provided_local" && issuedQuestion.renderMode === "native"))
+          : !["初三", "高一", "高二", "高三"].includes(String(issuedQuestion.gradeBand)) || issuedQuestion.sourceKind !== "licensed_local")
       ) return reply(req, { error: "这道题不属于服务器刚刚生成的本轮原题。" }, 409);
       if (!readOnlyPreview) {
         const locks = payload.lockedFeedback as Array<Record<string, unknown>>;
@@ -4146,11 +4162,11 @@ Deno.serve(async (req: Request) => {
         .select("id,grade_band,source_kind,correct_option,explanation,scaffold,asset_refs,question_revision_token")
         .eq("id", questionId)
         .eq("grade_band", issuedQuestion.gradeBand)
-        .eq("source_kind", (managedFeedback || selfStudyFeedback) && issuedQuestion.gradeBand === "初三" ? "user_provided_local" : "licensed_local")
+        .eq("source_kind", issuedQuestion.sourceKind)
         .eq("review_status", "approved")
         .eq("scope_status", "IN")
         .eq("usable_for_review", true)
-        .eq("render_mode", (managedFeedback || selfStudyFeedback) && issuedQuestion.gradeBand === "初三" ? "native" : "image_primary")
+        .eq("render_mode", issuedQuestion.renderMode)
         .eq("source_release_id", activeFeedbackReleaseId)
         .maybeSingle();
       if (questionResult.error) throw questionResult.error;
@@ -4539,7 +4555,7 @@ Deno.serve(async (req: Request) => {
         return reply(req, { dashboard: await studentDashboard(targetId), achievements: [],
           feedback: choiceLockedFeedback(context), knowledgeRatingsSaved });
       }
-      const delivery = ownedPlanDeliveryContext(plan, String(targetProfile.data.grade_band));
+      let delivery = ownedPlanDeliveryContext(plan, String(targetProfile.data.grade_band));
       if (String(targetProfile.data.grade_band) === "初三" && !delivery.managed && plan.delivery_mode !== "self_study") {
         return reply(req, { error: "初三原自适应课程请从专用会话提交。" }, 409);
       }
@@ -4565,6 +4581,7 @@ Deno.serve(async (req: Request) => {
         : plan.delivery_mode === "self_study" && plan.self_study_release_id ? String(plan.self_study_release_id)
         : (formalHighSchoolReview || plan.delivery_mode === "self_study") && delivery.sourceGrade !== "初三"
           ? await activeVerifiedSourceReleaseId(delivery.sourceGrade) : null;
+      delivery = await resolvePlanSourceContext(delivery, activeSourceReleaseId);
       if (formalHighSchoolReview && String(plan.plan_date || "") > shanghaiDate()) {
         return reply(req, { error: "后续日期的正式复习尚未开放，请在计划当天进入。" }, 409);
       }

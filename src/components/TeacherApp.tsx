@@ -368,7 +368,7 @@ export function QuestionAudit({ dashboard }: { dashboard: TeacherDashboardData }
           const sourceQuestion = { id: question.id, stem: question.stem, options: question.options, sourceInfo: question.source_info, assetRefs: refs, renderMode: question.render_mode }
           const releaseManaged = Boolean(question.source_release_id)
           const explanationParagraphs = splitAnswerExplanation(question.explanation)
-          const licensedHighSchoolSource = question.source_kind === 'licensed_local' && ['高一', '高二', '高三'].includes(question.grade_band)
+          const licensedHighSchoolSource = question.source_kind === 'licensed_local' && ['初三', '高一', '高二', '高三'].includes(question.grade_band)
           const nativeJuniorSource = question.grade_band === '初三' && question.source_kind === 'user_provided_local'
           return <details className="question-audit-card" key={question.id}>
             <summary><div><span>{question.grade_band} · {question.skill_id} · L{question.level}</span><b><ChemText>{question.stem}</ChemText></b><small>{reviewStatusLabel[question.review_status]} · {question.scope_status} · {sourceKindAuditLabel(question)}</small></div><strong>{questionDeliveryAuditLabel(question)}</strong></summary>

@@ -37,3 +37,18 @@ export function teachingQuestionSourceMatches(
     && question.render_mode === context.renderMode
     && question.source_release_id === activeReleaseId;
 }
+
+// Accept only server-read release metadata, never client-provided format hints.
+export function teachingReleaseContext(
+  context: ReturnType<typeof teachingPlanContext>,
+  source: Record<string, unknown>,
+) {
+  const image = source.source_kind === "licensed_local" && source.render_mode === "image_primary";
+  const nativeJunior = context.sourceGrade === "初三"
+    && source.source_kind === "user_provided_local" && source.render_mode === "native";
+  if (source.grade_band !== context.sourceGrade || (!image && !nativeJunior)) {
+    throw new Error("该题组的原题格式与年段不一致，请重新打开课程。");
+  }
+  return { ...context, sourceKind: String(source.source_kind),
+    renderMode: String(source.render_mode), requiresImages: image };
+}

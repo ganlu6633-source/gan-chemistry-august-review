@@ -3,13 +3,14 @@ import {
   issuedSolutionFields,
   issuedAssetRefs,
   matchingSourceAssetRef,
+  shouldHideLegacyJuniorNativeHistory,
   shouldHideLicensedHighSchoolSolution,
   sourceAssetPhaseStatus,
   sourceQuestionPhaseStatus,
 } from '../../supabase/functions/chemistry-access/source-security'
 
-describe('high-school licensed answer-delivery security', () => {
-  it.each(['高一', '高二', '高三'])('omits answer and explanation fields from the initial %s REVIEW question payload', (gradeBand) => {
+describe('four-grade licensed answer-delivery security', () => {
+  it.each(['初三', '高一', '高二', '高三'])('omits answer and explanation fields from the initial %s REVIEW question payload', (gradeBand) => {
     const row = {
       grade_band: gradeBand,
       source_kind: 'licensed_local',
@@ -58,5 +59,13 @@ describe('high-school licensed answer-delivery security', () => {
     expect(matchingSourceAssetRef(snapshotRefs, 'private/history/analysis-q1', asset)).toEqual(snapshotRefs[0])
     expect(matchingSourceAssetRef([{ ...snapshotRefs[0], sha256: 'b'.repeat(64) }], 'private/history/analysis-q1', asset)).toBeNull()
     expect(matchingSourceAssetRef(snapshotRefs, 'private/current/different-q1', asset)).toBeNull()
+  })
+
+  it('retains junior image history and only applies the legacy junior native evidence treatment to native text', () => {
+    expect(shouldHideLegacyJuniorNativeHistory('初三', { sourceKind: 'user_provided_local', renderMode: 'native' })).toBe(true)
+    expect(shouldHideLegacyJuniorNativeHistory('初三', { sourceKind: null, renderMode: 'native' })).toBe(true)
+    expect(shouldHideLegacyJuniorNativeHistory('初三', { sourceKind: 'licensed_local', renderMode: 'image_primary' })).toBe(false)
+    expect(shouldHideLegacyJuniorNativeHistory('初三', { sourceKind: 'licensed_local', renderMode: 'native' })).toBe(false)
+    expect(shouldHideLegacyJuniorNativeHistory('高一', { sourceKind: 'user_provided_local', renderMode: 'native' })).toBe(false)
   })
 })

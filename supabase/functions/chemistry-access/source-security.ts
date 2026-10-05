@@ -1,8 +1,12 @@
 export type SourceAssetPhase = 'question' | 'analysis'
 
+export function shouldHideLegacyJuniorNativeHistory(gradeBand: string, history: { sourceKind: unknown; renderMode: unknown }) {
+  return gradeBand === '初三' && history.renderMode === 'native' && history.sourceKind !== 'licensed_local'
+}
+
 export function shouldHideLicensedHighSchoolSolution(row: Record<string, unknown>, reviewMode: boolean) {
   return reviewMode
-    && ['高一', '高二', '高三'].includes(String(row.grade_band))
+    && ['初三', '高一', '高二', '高三'].includes(String(row.grade_band))
     && row.source_kind === 'licensed_local'
 }
 

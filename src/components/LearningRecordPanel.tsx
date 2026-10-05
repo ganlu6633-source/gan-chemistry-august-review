@@ -165,7 +165,7 @@ function LearningRecordSkillCard({ skill, audience, gradeBand }: { skill: Learni
 }
 
 function QuestionEvidence({ question, index, gradeBand }: { question: LearningRecordQuestionEvidence; index: number; gradeBand: GradeBand }) {
-  const showsLicensedReviewSource = ['高一', '高二', '高三'].includes(gradeBand) && Boolean(question.questionId) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
+  const showsLicensedReviewSource = ['初三', '高一', '高二', '高三'].includes(gradeBand) && Boolean(question.questionId) && question.sourceKind === 'licensed_local' && question.mode === 'REVIEW'
   const nativeStem = <p className="record-question-stem"><ChemText>{displayQuestionStem(question.stem, question.options ?? [])}</ChemText></p>
   const explanationParagraphs = splitAnswerExplanation(question.explanation || '')
   return <details className={`record-question learning-question-evidence ${question.correct ? 'is-correct' : 'needs-review'}`} data-testid="learning-question-evidence">

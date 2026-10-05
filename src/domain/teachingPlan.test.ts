@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { teachingPlanContext, teachingAssignmentValid, teachingQuestionSourceMatches } from '../../supabase/functions/chemistry-access/teaching-plan'
+import { teachingPlanContext, teachingReleaseContext, teachingAssignmentValid, teachingQuestionSourceMatches } from '../../supabase/functions/chemistry-access/teaching-plan'
 import { expandOptionPractice } from '../../supabase/functions/chemistry-access/option-practice'
 
 const plan = { mode: 'REVIEW', delivery_mode: 'legacy_round', question_count: 2, round_limit: 1,
@@ -19,6 +19,31 @@ describe('teacher controlled source grade', () => {
     expect(context).toMatchObject({ sourceKind: 'user_provided_local', renderMode: 'native', requiresImages: false })
     expect(teachingQuestionSourceMatches({ grade_band: '初三', source_kind: 'user_provided_local', render_mode: 'native', source_release_id: 'active' }, context, 'active')).toBe(true)
     expect(teachingQuestionSourceMatches({ grade_band: '初三', source_kind: 'teacher_created', render_mode: 'native', source_release_id: 'active' }, context, 'active')).toBe(false)
+  })
+  it('reads the exact junior release format and opens complete image originals with required source assets', () => {
+    const junior = teachingPlanContext({ ...plan, teaching_source_grade: '初三' }, '初三')
+    const imageRow = { grade_band: '初三', source_kind: 'licensed_local', render_mode: 'image_primary', source_release_id: 'image-release' }
+    const context = teachingReleaseContext(junior, imageRow)
+    expect(context).toMatchObject({ sourceGrade: '初三', sourceKind: 'licensed_local', renderMode: 'image_primary', requiresImages: true })
+    expect(teachingQuestionSourceMatches(imageRow, context, 'image-release')).toBe(true)
+    expect(teachingQuestionSourceMatches({ ...imageRow, source_release_id: 'other-release' }, context, 'image-release')).toBe(false)
+    expect(teachingQuestionSourceMatches({ ...imageRow, source_kind: 'user_provided_local', render_mode: 'native' }, context, 'image-release')).toBe(false)
+  })
+  it('retains native junior delivery when the exact verified release uses native originals', () => {
+    const junior = teachingPlanContext({ ...plan, teaching_source_grade: '初三' }, '初三')
+    const nativeRow = { grade_band: '初三', source_kind: 'user_provided_local', render_mode: 'native' }
+    expect(teachingReleaseContext(junior, nativeRow)).toEqual(junior)
+  })
+  it('rejects a foreign grade or unapproved source-format combination instead of guessing from the student grade', () => {
+    const junior = teachingPlanContext({ ...plan, teaching_source_grade: '初三' }, '初三')
+    for (const row of [
+      { grade_band: '高一', source_kind: 'licensed_local', render_mode: 'image_primary' },
+      { grade_band: '初三', source_kind: 'licensed_local', render_mode: 'native' },
+      { grade_band: '初三', source_kind: 'teacher_created', render_mode: 'image_primary' },
+      { grade_band: '初三', source_kind: 'user_provided_local', render_mode: 'image_primary' },
+    ]) expect(() => teachingReleaseContext(junior, row)).toThrow('原题格式与年段不一致')
+    const high = teachingPlanContext(plan, '高一')
+    expect(() => teachingReleaseContext(high, { grade_band: '高二', source_kind: 'user_provided_local', render_mode: 'native' })).toThrow()
   })
   it('requires the current source grade and release even for an otherwise approved question', () => {
     const context = teachingPlanContext(plan, '高一')
