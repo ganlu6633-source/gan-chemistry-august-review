@@ -7,7 +7,7 @@ const StudentApp = lazy(() => import('./components/StudentApp').then((module) =>
 const GuestTrialApp = lazy(() => import('./components/GuestTrialApp').then((module) => ({ default: module.GuestTrialApp })))
 const GuardianApp = lazy(() => import('./components/GuardianApp').then((module) => ({ default: module.GuardianApp })))
 const TeacherGate = lazy(() => import('./components/TeacherApp').then((module) => ({ default: module.TeacherGate })))
-import { loadGuardianDashboard, loadStudentDashboard, loadStudentPreviewDashboard, loadTeacherDashboard } from './lib/api'
+import { ApiResponseError, loadGuardianDashboard, loadStudentDashboard, loadStudentPreviewDashboard, loadTeacherDashboard } from './lib/api'
 import { clearAccessSession, readAccessSession, writeAccessSession } from './lib/session'
 
 type Dashboard = StudentDashboardData | GuardianDashboardData
@@ -52,6 +52,7 @@ function AccessExperience() {
   const [loading, setLoading] = useState(Boolean(session))
   const [error, setError] = useState('')
   const [gateMode, setGateMode] = useState<'code' | 'register'>('code')
+  const [restoreSequence, setRestoreSequence] = useState(0)
   const hydratedByLogin = useRef<string | null>(null)
   const dashboardRequest = useRef<{ token: string; promise: Promise<{ dashboard: Dashboard }> } | null>(null)
 
@@ -60,6 +61,7 @@ function AccessExperience() {
     if (session.role === 'teacher') { navigate('/teacher', { replace: true }); setLoading(false); return }
     if (session.role === 'guest') { setLoading(false); return }
     if (hydratedByLogin.current === session.token) { setLoading(false); return }
+    setLoading(true)
     if (!dashboardRequest.current || dashboardRequest.current.token !== session.token) {
       const promise = session.role === 'student' ? loadStudentDashboard(session) : session.role === 'guardian' ? loadGuardianDashboard(session) : null
       if (!promise) { clearAccessSession(); setSession(null); setLoading(false); return }
@@ -68,10 +70,22 @@ function AccessExperience() {
     let active = true
     dashboardRequest.current.promise
       .then((result) => { if (active) setDashboard(result.dashboard) })
-      .catch((reason) => { if (active) { clearAccessSession(); setSession(null); setError(reason instanceof Error ? reason.message : '会话已失效。') } })
+      .catch((reason) => {
+        if (!active) return
+        if (reason instanceof ApiResponseError && reason.status === 401) {
+          clearAccessSession()
+          setSession(null)
+          setError(reason.message)
+          setLoading(false)
+          return
+        }
+        setError(reason instanceof TypeError || (reason instanceof Error && reason.name === 'NetworkError')
+          ? '学习档案暂时没连上，登录状态已保留。点“重新连接”再试一次。'
+          : reason instanceof Error ? reason.message : '学习档案暂时没读到，登录状态已保留。')
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [session, navigate])
+  }, [session, navigate, restoreSequence])
 
   useEffect(() => {
     if (session?.role !== 'guardian') return
@@ -116,11 +130,19 @@ function AccessExperience() {
     if (nextDashboard) setDashboard(nextDashboard)
   }
 
-  function logout() { clearAccessSession(); setSession(null); setDashboard(null); navigate('/') }
+  function logout() { clearAccessSession(); setSession(null); setDashboard(null); setError(''); setLoading(false); navigate('/') }
+
+  function retryRestore() {
+    dashboardRequest.current = null
+    setError('')
+    setLoading(true)
+    setRestoreSequence((sequence) => sequence + 1)
+  }
 
   if (loading) return <AppShell><div className="center-loading">正在读取属于你的学习档案…</div></AppShell>
   if (session?.role === 'teacher') return <Navigate to="/teacher" replace />
   if (session?.role === 'guest') return <AppShell identity={session.displayName} onLogout={logout}><GuestTrialApp session={session} onLogout={logout} onRegister={() => { setGateMode('register'); logout() }} /></AppShell>
+  if (session && !dashboard && error) return <AppShell identity={session.displayName} onLogout={logout}><section className="login-card"><h2>档案还在，再连一下</h2><p className="inline-alert" role="alert">{error}</p><button className="primary-button" onClick={retryRestore}>重新连接</button><button className="secondary-button" onClick={logout}>换个账号登录</button></section></AppShell>
   if (!session || !dashboard) return <AppShell>{error && <div className="inline-alert">{error}</div>}<AccessGate onSuccess={success} initialMode={gateMode} /></AppShell>
   if (session.role === 'student') return <AppShell identity={session.displayName} onLogout={logout}><StudentApp session={session} initialDashboard={dashboard as StudentDashboardData} onDashboard={setDashboard} /></AppShell>
   if (session.role === 'guardian') return <AppShell identity={session.displayName} onLogout={logout}><GuardianApp dashboard={dashboard as GuardianDashboardData} session={session} /></AppShell>

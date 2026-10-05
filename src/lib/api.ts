@@ -3,12 +3,19 @@ import { ACCESS_FUNCTION, functionUrl, LEARNING_FUNCTION_REGION, SUPABASE_PUBLIS
 import { REGIONAL_LEARNING_ACTIONS, regionalLearningReplaySafe } from '../../supabase/functions/chemistry-access/learning-regional-actions'
 import { readAccessSession } from './session'
 
+export class ApiResponseError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'ApiResponseError'
+  }
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => {
     if (response.ok) throw new Error('服务返回的内容不完整，请重新打开题组。')
     return null
   }) as { message?: string; error?: string } | null
-  if (!response.ok) throw new Error(payload?.message || payload?.error || '服务暂时不可用，请稍后重试。')
+  if (!response.ok) throw new ApiResponseError(payload?.message || payload?.error || '服务暂时不可用，请稍后重试。', response.status)
   return payload as T
 }
 

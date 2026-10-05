@@ -81,7 +81,7 @@ export function AccessGate({ onSuccess, initialMode = 'code' }: { onSuccess: (se
       setCode('')
       onSuccess(result.session, result.dashboard)
     } catch (reason) {
-      setError(reason instanceof TypeError ? '暂时无法连接复习服务，请检查网络后重试，已填写的信息保留。' : reason instanceof Error ? reason.message : '验证失败，请稍后重试。')
+      setError(reason instanceof TypeError ? '网站已经打开，但暂时连不上登录服务。姓名和登录码已保留，请稍后重试。' : reason instanceof Error ? reason.message : '验证失败，请稍后重试。')
     } finally {
       setLoading(false)
     }
