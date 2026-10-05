@@ -58,6 +58,53 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     vi.restoreAllMocks()
   })
 
+  it.each([false, true])('shows the reviewed question image and blocks premature answer submission (preview=%s)', async (preview) => {
+    const imageResponse = deferredResponse()
+    const imageQuestion = { ...question('image', '题目文字稿'), mediaId: 'opaque-issued-step', renderMode: 'image_primary' as const,
+      assetRefs: [{ kind: 'question_image' as const, assetId: 'reviewed/source_question_001', alt: '完整原题',
+        sha256: '2'.repeat(64), width: 2, height: 2 }] }
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValueOnce(imageResponse.promise)
+      .mockResolvedValueOnce(jsonResponse({ feedback, payload: null, continuation: { status: 'unavailable' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JuniorAdaptiveSession session={preview ? { ...session, role: 'teacher' } : session}
+      previewStudentId={preview ? 'selected-junior-student' : undefined}
+      initialPayload={payload(imageQuestion)} onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeDisabled()
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(request.action).toBe('junior_question_asset')
+    expect(request.data.questionId).toBe('opaque-issued-step')
+    expect(request.data.phase).toBe('question')
+    expect(request.data.studentId).toBe(preview ? 'selected-junior-student' : undefined)
+    await act(async () => imageResponse.resolve(jsonResponse({ asset: { kind: 'question_image', mimeType: 'image/png',
+      sha256: '2'.repeat(64), width: 2, height: 2,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVQImWP8////fwYGBgYmBiAFAAA7AAO8f2YuAAAAAElFTkSuQmCC' } })))
+    expect(await screen.findByRole('img', { name: '本题原题题面图' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '题目文字稿' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '提交答案' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }))
+    expect(await screen.findByText('回答正确')).toBeVisible()
+    expect(screen.getByText('物质种类可以发生改变。')).toBeVisible()
+    const submitted = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(submitted.action).toBe(preview ? 'preview_junior_submit_step' : 'junior_submit_step')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the question blocked when the returned image does not match the reviewed asset', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ asset: {
+      kind: 'question_image', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAAA',
+      sha256: '3'.repeat(64), width: 2, height: 2,
+    } })))
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload({ ...question('image', '题目文字稿'),
+      mediaId: 'opaque-issued-step', renderMode: 'image_primary', assetRefs: [{ kind: 'question_image',
+        assetId: 'reviewed/source_question_001', alt: '完整原题', sha256: '2'.repeat(64), width: 2, height: 2 }] })}
+      onExit={vi.fn()} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    expect(await screen.findByText('原题图片完整性校验未通过，请重试或联系甘老师。')).toBeVisible()
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeDisabled()
+    expect(screen.queryByText('回答正确')).not.toBeInTheDocument()
+  })
+
   it('reveals only confirmed feedback immediately while the next original is still preparing', async () => {
     const confirm = deferredResponse()
     const continuation = deferredResponse()

@@ -1,13 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, CircleHelp, Clock3, RotateCcw, Trophy } from 'lucide-react'
 import type { JuniorAdaptivePayload, JuniorQuestionFeedback, JuniorStepSubmissionResult, SessionIdentity, StudentDashboardData } from '../domain/types'
 import { splitAnswerExplanation } from '../domain/answerExplanation'
 import { buildKnowledgeCardDrilldown } from '../domain/knowledgeDrilldown'
 import { juniorReviewPoint } from '../domain/juniorReviewPoint'
 import { displayQuestionStem } from '../domain/questionDisplay'
-import { accessApi, submitJuniorAdaptiveStep, type JuniorStepAnswerInput } from '../lib/api'
+import { accessApi, submitJuniorAdaptiveStep, type JuniorStepAnswerInput, type LoadedQuestionAsset, type loadQuestionAsset } from '../lib/api'
 import { ChemText } from './ChemText'
 import { InteractiveKnowledgeTree } from './InteractiveKnowledgeTree'
+import { QuestionSourceMedia } from './QuestionSourceMedia'
+
+const loadJuniorQuestionAsset: typeof loadQuestionAsset = (session, stepId, assetId, phase, context) =>
+  accessApi<{ asset: LoadedQuestionAsset }>(session, 'junior_question_asset', { questionId: stepId, assetId, phase, ...(context ?? {}) })
 
 export function JuniorAdaptiveSession({
   session,
@@ -54,6 +58,12 @@ export function JuniorAdaptiveSession({
   }, [])
 
   const question = payload.currentQuestion
+  const [primaryImage, setPrimaryImage] = useState({ stepId: initialPayload.currentStepId, ready: false })
+  const primaryReady = question?.renderMode !== 'image_primary' || (primaryImage.stepId === payload.currentStepId && primaryImage.ready)
+  const onPrimaryReadyChange = useCallback((ready: boolean) => setPrimaryImage({ stepId: payload.currentStepId, ready }), [payload.currentStepId])
+  const assetAccessContext = useMemo(() => ({ planId: payload.plan.id, attemptSequence: 0,
+    revisionToken: question?.revisionToken, ...(previewStudentId ? { studentId: previewStudentId } : {}) }),
+  [payload.plan.id, question?.revisionToken, previewStudentId])
   const currentCard = useMemo(() => payload.cards.find((card) => card.skillId === question?.skillId) ?? null, [payload.cards, question?.skillId])
   const currentKnowledgeTree = useMemo(() => currentCard ? buildKnowledgeCardDrilldown(currentCard) : null, [currentCard])
   const answeredDisplay = Math.min(payload.session.answeredCount + (feedback ? 1 : 0), payload.session.hardQuestionCap)
@@ -119,7 +129,7 @@ export function JuniorAdaptiveSession({
   }
 
   async function submit() {
-    if (!question || !payload.currentStepId || selected === null || submittingNow.current || feedback) return
+    if (!question || !payload.currentStepId || selected === null || submittingNow.current || feedback || !primaryReady) return
     submittingNow.current = true
     const version = ++requestVersion.current
     setBusy(true)
@@ -275,13 +285,18 @@ export function JuniorAdaptiveSession({
       <span className="difficulty-pill">L{question.level} 练习</span>
       {question.learningPurpose === 'spaced_review' && <p className="junior-review-purpose"><RotateCcw size={15} aria-hidden="true" />到期复习{question.lastAnsweredDate ? ` · 上次练习 ${question.lastAnsweredDate}` : ''}</p>}
       {question.optionPractice && <p>{question.optionPractice.knowledgePoint} · 第 {question.optionPractice.position}/{question.optionPractice.total} 题</p>}
-      <h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{displayQuestionStem(question.stem, question.options)}</ChemText></h1>
+      <QuestionSourceMedia question={{ id: question.mediaId ?? payload.currentStepId ?? '', stem: question.stem,
+        options: question.options, renderMode: question.renderMode, assetRefs: question.assetRefs }}
+        enabled={question.renderMode === 'image_primary'} session={session} showSource={false}
+        assetLoader={loadJuniorQuestionAsset} accessContext={assetAccessContext} onPrimaryReadyChange={onPrimaryReadyChange}
+        onZoomClose={() => primaryAction.current?.focus()}
+        nativeContent={<h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{displayQuestionStem(question.stem, question.options)}</ChemText></h1>} />
       <div className="option-list">{question.options.map((option, index) => {
         const letter = String.fromCharCode(65 + index)
         return <button key={`${letter}-${option}`} aria-label={`${letter}. ${option}`} disabled={feedback !== null || busy || lockedSubmission.current !== null} className={`${selected === index ? 'selected' : ''} ${feedback && index === feedback.correctOption ? 'correct' : ''} ${feedback && selected === index && index !== feedback.correctOption ? 'wrong' : ''}`} onClick={() => setSelected(index)}><span>{letter}</span><div className="junior-option-copy" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}><ChemText>{option}</ChemText></div></button>
       })}</div>
       {feedback && <div className={`answer-feedback ${answeredCorrectly ? 'good' : 'needs-work'}`}><b>{answeredCorrectly ? '回答正确' : `回答错误，正确选项是 ${String.fromCharCode(65 + feedback.correctOption)}`}</b><div className="answer-explanation">{explanation.map((item, index) => <p className={item.option ? undefined : 'is-unlabeled'} key={`${item.option ?? 'paragraph'}-${index}`}>{item.option ? <b className="answer-option-label">{item.option}</b> : null}<span className="answer-explanation-text"><ChemText>{item.text}</ChemText></span></p>)}</div>{!answeredCorrectly && feedback.scaffold ? <p><CircleHelp size={16} />提示：<ChemText>{feedback.scaffold}</ChemText></p> : null}</div>}
     </article>
-    <div className="stage-actions"><button className="secondary-button" disabled={busy} onClick={leave}>稍后继续 / 返回计划</button>{feedback ? <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || advanceRequested} onClick={next}>{advanceRequested ? '正在打开下一题…' : preparing ? '下一题（准备中…）' : !pendingPayload ? '重试获取下一题' : pendingPayload.completed ? '完成今天学习' : !pendingPayload.currentQuestion ? '返回学习计划' : '下一题'}<ChevronRight size={18} /></button> : <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null} onClick={() => void submit()}>{busy ? '正在提交答案…' : '提交答案'}</button>}</div>
+    <div className="stage-actions"><button className="secondary-button" disabled={busy} onClick={leave}>稍后继续 / 返回计划</button>{feedback ? <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || advanceRequested} onClick={next}>{advanceRequested ? '正在打开下一题…' : preparing ? '下一题（准备中…）' : !pendingPayload ? '重试获取下一题' : pendingPayload.completed ? '完成今天学习' : !pendingPayload.currentQuestion ? '返回学习计划' : '下一题'}<ChevronRight size={18} /></button> : <button ref={primaryAction} className="primary-button" aria-keyshortcuts="Enter" disabled={busy || selected === null || !primaryReady} onClick={() => void submit()}>{busy ? '正在提交答案…' : '提交答案'}</button>}</div>
   </section>
 }

@@ -10,6 +10,7 @@ import { selectJuniorNextQuestion, type JuniorAdaptiveCandidate, type JuniorAdap
 import { juniorPublicOptionProgress, juniorOptionContext, selectJuniorScheduledQuestion, nextJuniorOptionBranch, juniorDailyBudgetEnabled, juniorDailyBudgetReached, juniorReserveAllocationDeferred, juniorRouteInventoryReadiness, type JuniorOptionState, type JuniorPracticeAvailability } from "./junior-option-practice.ts";
 import { juniorDailyPolicy, juniorRecoveryRound, juniorSessionBlocksDateSwitch, LEGACY_JUNIOR_POLICY, JUNIOR_THREE_ROUND_POLICY, type JuniorDailyPolicy } from "./junior-daily-policy.ts";
 import { juniorProvenanceBatches, juniorVerifiedReleaseByKnowledge } from "./junior-provenance.ts";
+import { juniorImageProofMap, juniorImageQuestionStructureIsSafe, juniorReviewedImageQuestionIsSafe, juniorParentSourceIdentity, type JuniorImageProof } from "./junior-image-delivery.ts";
 import { loadJuniorKnowledgeCards, juniorDisplayKnowledgeCards } from "./junior-knowledge-cards.ts";
 import { MAX_KNOWLEDGE_LIST_ITEMS, MAX_KNOWLEDGE_TREE_NODES, nonEmptyKnowledgeString, validKnowledgeVisual } from "./knowledge-visual-safety.ts";
 import { issuedAssetRefs, issuedSolutionFields, matchingSourceAssetRef, shouldHideLegacyJuniorNativeHistory, shouldHideLicensedHighSchoolSolution, sourceAssetPhaseStatus, sourceQuestionPhaseStatus } from "./source-security.ts";
@@ -1282,25 +1283,44 @@ function juniorNativeQuestionIsSafe(row: Record<string, unknown>) {
     && juniorSourceQuestionIsSafe(row);
 }
 
+async function juniorReviewedImageProofs(rows: Array<Record<string, unknown>>) {
+  const ids = [...new Set(rows.filter((row) => row.source_kind === "licensed_local" && row.render_mode === "image_primary")
+    .map((row) => String(row.id)))];
+  const proofs: unknown[] = [];
+  for (let offset = 0; offset < ids.length; offset += 800) {
+    const result = await supabase.rpc("chem_junior_image_question_context", { p_question_ids: ids.slice(offset, offset + 800) });
+    if (result.error) throw result.error;
+    if (!Array.isArray(result.data)) throw new RequestError(503, "原题的来源核验暂时无法读取。");
+    proofs.push(...result.data);
+  }
+  try { return juniorImageProofMap(proofs); }
+  catch { throw new RequestError(503, "原题的来源或知识卡尚未核验清楚，请稍后重试。"); }
+}
+
+function juniorDeliveryQuestionIsSafe(row: Record<string, unknown>, releaseByKnowledge: Map<string, string>, imageProofs: Map<string, JuniorImageProof>) {
+  return (row.source_kind === JUNIOR_SOURCE_KIND && juniorNativeQuestionIsSafe(row)
+      && releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id))
+    || (juniorSourceQuestionIsSafe(row) && juniorReviewedImageQuestionIsSafe(row, imageProofs, releaseByKnowledge));
+}
+
 function juniorIssuedQuestionMatchesContract(
   row: Record<string, unknown>,
   rawSnapshot: unknown,
   textbookVersion: string,
   releaseByKnowledge: Map<string, string>,
+  imageProofs: Map<string, JuniorImageProof>,
 ) {
   if (!rawSnapshot || typeof rawSnapshot !== "object" || Array.isArray(rawSnapshot)) return false;
   const snapshot = rawSnapshot as Record<string, unknown>;
   const knowledgeId = String(row.knowledge_id || "");
   const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-  return juniorNativeQuestionIsSafe(row)
+  return juniorDeliveryQuestionIsSafe(row, releaseByKnowledge, imageProofs)
     && String(row.grade_band || "") === "初三"
     && textbookVersion === JUNIOR_TEXTBOOK_VERSION
     && String(row.textbook_version || "") === JUNIOR_TEXTBOOK_VERSION
-    && String(row.source_kind || "") === JUNIOR_SOURCE_KIND
     && String(row.review_status || "") === "approved"
     && String(row.scope_status || "") === "IN"
     && row.usable_for_review === true
-    && releaseByKnowledge.get(knowledgeId) === String(row.source_release_id || "")
     && String(snapshot.questionId || "") === String(row.id || "")
     && String(snapshot.motherId || "") === String(row.mother_id || "")
     && String(snapshot.skillId || "") === String(row.skill_id || "")
@@ -1316,11 +1336,10 @@ function juniorIssuedQuestionMatchesContract(
     && String(snapshot.scaffold || "") === String(row.scaffold || "")
     && String(snapshot.reviewStatus || "") === "approved"
     && String(snapshot.scopeStatus || "") === "IN"
-    && String(snapshot.sourceKind || "") === JUNIOR_SOURCE_KIND
-    && String(snapshot.renderMode || "") === "native"
-    && !String(snapshot.imageUrl || "").trim()
-    && Array.isArray(snapshot.assetRefs)
-    && snapshot.assetRefs.length === 0
+    && String(snapshot.sourceKind || "") === String(row.source_kind || "")
+    && String(snapshot.renderMode || "") === String(row.render_mode || "")
+    && sameJson(snapshot.imageUrl, row.image_url)
+    && sameJson(snapshot.assetRefs, row.asset_refs)
     && String(snapshot.sourceReleaseId || "") === String(row.source_release_id || "")
     && String(snapshot.sourceItemKey || "") === String(row.source_item_key || "")
     && String(snapshot.parentSourceItemKey || "") === String(row.parent_source_item_key || "")
@@ -1330,12 +1349,13 @@ function juniorIssuedQuestionMatchesContract(
 }
 
 function juniorQuestionShape(row: Record<string, unknown>) {
-  if (!juniorNativeQuestionIsSafe(row)) {
-    throw new RequestError(422, "初中原题尚未满足原生文字、安全去来源和完整选项门禁，已停止下发并通知甘老师。");
+  if ((!juniorNativeQuestionIsSafe(row) && !juniorImageQuestionStructureIsSafe(row)) || !juniorSourceQuestionIsSafe(row)) {
+    throw new RequestError(422, "这道原题的题干、图片或选项尚未核对完整，已停止下发并通知甘老师。");
   }
   return {
     skillId: row.skill_id, level: row.level,
     gradeBand: row.grade_band, stem: row.stem, options: row.options,
+    ...(row.render_mode === "image_primary" ? { renderMode: "image_primary", assetRefs: questionAssetRefs(row.asset_refs) } : {}),
     revisionToken: row.question_revision_token ? String(row.question_revision_token) : null,
   };
 }
@@ -1361,7 +1381,7 @@ function juniorIssuedQuestionSnapshot(
     scaffold: row.scaffold ?? null,
     reviewStatus: row.review_status,
     scopeStatus: row.scope_status,
-    sourceKind: JUNIOR_SOURCE_KIND,
+    sourceKind: row.source_kind,
     renderMode: row.render_mode,
     imageUrl: row.image_url ?? null,
     assetRefs: row.asset_refs,
@@ -1384,7 +1404,7 @@ function juniorCandidate(row: Record<string, unknown>): JuniorAdaptiveCandidate 
     knowledge_id: String(row.knowledge_id || ""),
     same_type_key: String(row.same_type_key || ""),
     source_item_key: String(row.source_item_key || ""),
-    parent_source_item_key: String(row.parent_source_item_key || ""),
+    parent_source_item_key: juniorParentSourceIdentity(row),
     content_fingerprint: String(row.content_fingerprint || ""),
     level: Number(row.level),
   };
@@ -1542,17 +1562,17 @@ async function juniorDayReadiness(curriculum: Record<string, unknown>, policy: J
   const provenance = await juniorVerifiedProvenance(skillIds, JUNIOR_TEXTBOOK_VERSION);
   if (!provenance.ready) return { ready: false, reason: provenance.reason, questions: [] as Array<Record<string, unknown>> };
   const result = await supabase.from("chem_questions")
-    .select("id,mother_id,skill_id,knowledge_id,same_type_key,source_item_key,parent_source_item_key,content_fingerprint,level,source_release_id,textbook_version,stem,options,correct_option,explanation,render_mode,image_url,asset_refs")
+    .select("*")
     .eq("grade_band", "初三").eq("textbook_version", JUNIOR_TEXTBOOK_VERSION)
-    .in("knowledge_id", skillIds).eq("source_kind", JUNIOR_SOURCE_KIND)
+    .in("knowledge_id", skillIds).in("source_kind", [JUNIOR_SOURCE_KIND, "licensed_local"])
     .eq("review_status", "approved").eq("scope_status", "IN").eq("usable_for_review", true)
     .not("source_release_id", "is", null).order("id");
   if (result.error) throw result.error;
   const rows = await excludeHeldQuestions((result.data || []) as Array<Record<string, unknown>>);
-  const usable = rows.filter((row) => juniorNativeQuestionIsSafe(row)
-    && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
+  const imageProofs = await juniorReviewedImageProofs(rows);
+  const usable = rows.filter((row) => juniorDeliveryQuestionIsSafe(row, provenance.releaseByKnowledge, imageProofs));
   for (const skillId of skillIds) {
-    const inventory = juniorRouteInventoryReadiness(usable, skillId, textbookVersion);
+    const inventory = juniorRouteInventoryReadiness(usable.map((row) => ({ ...row, parent_source_item_key: juniorParentSourceIdentity(row) })), skillId, textbookVersion);
     if (!inventory.ready) {
       const required = inventory.foundationOnly ? "至少7道独立原题的基础题" : "至少5道基础、2道中档，合计7个独立原题";
       return { ready: false, reason: `“${skillId}”缺少首轮所需的不同原题（${required}）。`, questions: usable };
@@ -1878,6 +1898,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
       unanswered.question_snapshot,
       textbookVersion,
       provenance.releaseByKnowledge,
+      await juniorReviewedImageProofs(currentQuestion.data ? [currentQuestion.data as Record<string, unknown>] : []),
     )) {
       await blockJuniorSession(
         String(session.id), studentId, "question_revision_changed",
@@ -1893,7 +1914,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     return { deliveryMode: "junior_adaptive", plan: studentPlan,
       cards: juniorStudentCardsForPoint(allBoundCards, skillIds, juniorOptionContext(optionState, String(unanswered.id))?.knowledgePoint),
       session: sessionSummary(), currentStepId: unanswered.id,
-      currentQuestion: { ...juniorQuestionShape(currentQuestion.data), learningPurpose: unanswered.route_kind,
+      currentQuestion: { ...juniorQuestionShape(currentQuestion.data), mediaId: String(unanswered.id), learningPurpose: unanswered.route_kind,
         optionPractice: juniorOptionContext(optionState, String(unanswered.id)) }, completed: false, optionPractice };
   }
 
@@ -1914,8 +1935,8 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     throw new RequestError(503, "练习题池暂时无法读取，请稍后重试。");
   }
   const poolRows = await excludeHeldQuestions(practiceContext.questions);
-  const eligiblePoolRows = poolRows.filter((row) => juniorNativeQuestionIsSafe(row)
-    && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
+  const imageProofs = await juniorReviewedImageProofs(poolRows);
+  const eligiblePoolRows = poolRows.filter((row) => juniorDeliveryQuestionIsSafe(row, provenance.releaseByKnowledge, imageProofs));
   const candidates = eligiblePoolRows.map(juniorCandidate);
   const answeredHistory = allSteps.map(juniorStepHistory);
   const availability = practiceContext.availability;
@@ -2005,7 +2026,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     cards: selectedCards,
     session: sessionSummary(),
     currentStepId: issuedRow.step_id,
-    currentQuestion: { ...juniorQuestionShape(selected), learningPurpose: selection.routeKind,
+    currentQuestion: { ...juniorQuestionShape(selected), mediaId: String(issuedRow.step_id), learningPurpose: selection.routeKind,
       lastAnsweredDate: availability.questions[String(selected.id)]?.lastAnsweredDate,
       reviewDueDate: availability.questions[String(selected.id)]?.reviewDueDate, optionPractice: branch ? {
       anchorStepId: branch.anchorStepId, optionIndex: branch.optionIndex, knowledgePoint: branch.knowledgePoint,
@@ -3296,9 +3317,9 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
         const step = realStepById.get(context.stepId);
         return step?.answered_at ? [step.correct === true && (policy.recoveryRoundLimit === 0 || step.uncertain !== true)] : [];
       })]));
-  const eligiblePool = (await excludeHeldQuestions(practiceContext.questions))
-    .filter((row) => juniorNativeQuestionIsSafe(row)
-      && provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id));
+  const safePool = await excludeHeldQuestions(practiceContext.questions);
+  const imageProofs = await juniorReviewedImageProofs(safePool);
+  const eligiblePool = safePool.filter((row) => juniorDeliveryQuestionIsSafe(row, provenance.releaseByKnowledge, imageProofs));
   const questionById = new Map(eligiblePool.map((row) => [String(row.id), row]));
   const candidates = eligiblePool.map(juniorCandidate);
   const availability = practiceContext.availability;
@@ -3318,7 +3339,7 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
   if (unanswered && !blockedByDailyBudget) {
     const row = questionById.get(String(unanswered.question_id));
     if (!row || !juniorIssuedQuestionMatchesContract(row, unanswered.question_snapshot,
-      JUNIOR_TEXTBOOK_VERSION, provenance.releaseByKnowledge)) throw new RequestError(409, "当前在答原题的来源或版本已变化。");
+      JUNIOR_TEXTBOOK_VERSION, provenance.releaseByKnowledge, imageProofs)) throw new RequestError(409, "当前在答原题的来源或版本已变化。");
     currentQuestion = row;
     currentStepId = String(unanswered.id);
     currentPurpose = unanswered.route_kind as JuniorRouteKind;
@@ -3489,7 +3510,7 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
     dailyIssuedCount: optionState.dailyIssuedCount, issuedCount: stepCount, answeredCount, correctCount };
   const payload = { deliveryMode: "junior_adaptive", plan: studentPlan,
     cards: juniorStudentCardsForPoint(allBoundCards, skillIds, currentContext?.knowledgePoint), session: summary,
-    currentStepId, currentQuestion: currentQuestion ? { ...juniorQuestionShape(currentQuestion), learningPurpose: currentPurpose,
+    currentStepId, currentQuestion: currentQuestion ? { ...juniorQuestionShape(currentQuestion), mediaId: currentStepId, learningPurpose: currentPurpose,
       lastAnsweredDate: availability.questions[String(currentQuestion.id)]?.lastAnsweredDate,
       reviewDueDate: availability.questions[String(currentQuestion.id)]?.reviewDueDate,
       ...(currentContext ? { optionPractice: currentContext } : {}) } : null,
@@ -3788,6 +3809,55 @@ Deno.serve(async (req: Request) => {
       if (result.error) throw result.error;
       if (result.data !== true) return reply(req, { error: "找不到这次已完成的学习记录。" }, 404);
       return reply(req, { ok: true });
+    }
+
+    if (body.action === "junior_question_asset") {
+      const stepId = String(body.data?.questionId || "");
+      const assetId = String(body.data?.assetId || "");
+      const planId = String(body.data?.planId || "");
+      const revisionToken = String(body.data?.revisionToken || "");
+      if (!validUuid(stepId) || !validUuid(planId) || !/^[a-zA-Z0-9/_-]{16,200}$/.test(assetId)
+        || !/^[0-9a-f]{64}$/.test(revisionToken) || body.data?.phase !== "question") {
+        return reply(req, { error: "原题图片请求无效。" }, 400);
+      }
+      const studentId = identity.role === "teacher" ? String(body.data?.studentId || "") : identity.studentId;
+      if (!studentId || !validUuid(studentId)) return reply(req, { error: "无权读取这道题的图片。" }, 403);
+      const assets = await supabase.rpc("chem_get_question_assets", { p_asset_paths: [assetId] });
+      if (assets.error) throw assets.error;
+      const asset = Array.isArray(assets.data) ? assets.data[0] as Record<string, unknown> | undefined : undefined;
+      if (!asset || asset.asset_kind !== "question_image") return reply(req, { error: "原题图片不存在。" }, 404);
+      if (identity.role === "teacher") {
+        // A teacher may inspect a read-only virtual step without creating a
+        // student step. Still require the selected learner's owned junior plan
+        // and the exact reviewed image version; never persist preview evidence.
+        const [plan, question] = await Promise.all([
+          supabase.from("chem_learning_plans").select("delivery_mode").eq("id", planId).eq("student_id", studentId).maybeSingle(),
+          supabase.from("chem_questions").select("*").eq("id", String(asset.question_id)).maybeSingle(),
+        ]);
+        if (plan.error || question.error) throw plan.error || question.error;
+        if (plan.data?.delivery_mode !== "junior_adaptive" || !question.data
+          || question.data.question_revision_token !== revisionToken || !matchingRawAssetRef(question.data.asset_refs, assetId, asset)
+          || !(await juniorReviewedImageProofs([question.data])).has(String(asset.question_id))) {
+          return reply(req, { error: "这张原题图尚未通过核验。" }, 403);
+        }
+      } else {
+        const allowed = await supabase.rpc("chem_junior_step_question_asset_context", {
+          p_student_id: studentId, p_plan_id: planId, p_step_id: stepId,
+          p_asset_path: assetId, p_revision_token: revisionToken,
+        });
+        if (allowed.error) return reply(req, { error: "这道题已发生变化，请重新打开练习。" }, 409);
+        const proof = Array.isArray(allowed.data) ? allowed.data[0] : null;
+        if (!proof || String(proof.question_id) !== String(asset.question_id)
+          || (identity.role === "guardian" && proof.answered !== true)) {
+          return reply(req, { error: "这张原题图不属于当前账号正在作答的题目。" }, 403);
+        }
+      }
+      const mimeType = String(asset.mime_type || "");
+      const payloadBase64 = String(asset.payload_base64 || "");
+      if (!/^image\/(png|jpeg|webp)$/.test(mimeType) || !payloadBase64) return reply(req, { error: "原题图片数据无效。" }, 500);
+      return reply(req, { asset: { kind: "question_image", mimeType,
+        dataUrl: `data:${mimeType};base64,${payloadBase64}`, sha256: String(asset.sha256),
+        width: Number(asset.width), height: Number(asset.height) } });
     }
 
     if (body.action === "question_asset") {

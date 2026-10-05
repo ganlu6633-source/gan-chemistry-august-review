@@ -337,6 +337,10 @@ export interface IssuedJuniorQuestion {
   gradeBand: '初三'
   stem: string
   options: string[]
+  /** Opaque issued-step capability; never the source-library question id. */
+  mediaId?: string
+  renderMode?: 'native' | 'image_primary'
+  assetRefs?: QuestionAssetRef[]
   revisionToken?: string | null
   learningPurpose?: 'new_learning' | 'spaced_review' | 'foundation_repair'
   lastAnsweredDate?: string | null

@@ -46,15 +46,17 @@ describe('2026-08-29 junior evidence backend contract', () => {
     expect(actual).toContain('supabase.rpc("chem_junior_validate_issued_step"')
   })
 
-  it('binds the final junior runtime and appended SQL contract to Keyue user-provided local sources', () => {
+  it('keeps the Keyue native source chain while admitting separately reviewed original images', () => {
     expect(accessFunction).toContain('const JUNIOR_TEXTBOOK_VERSION = "科粤版"')
     expect(accessFunction).toContain('const JUNIOR_SOURCE_KIND = "user_provided_local"')
     expect(juniorAccess).toContain('textbookVersion !== JUNIOR_TEXTBOOK_VERSION')
     expect(juniorAccess).toContain('textbookVersion: JUNIOR_TEXTBOOK_VERSION')
-    expect(juniorAccess).toContain('sourceKind: JUNIOR_SOURCE_KIND')
-    expect((juniorAccess.match(/JUNIOR_SOURCE_KIND/g) || []).length).toBeGreaterThanOrEqual(4)
+    expect(juniorAccess).toContain('sourceKind: row.source_kind')
+    expect(juniorAccess).toContain('row.source_kind === JUNIOR_SOURCE_KIND && juniorNativeQuestionIsSafe(row)')
+    expect(juniorAccess).toContain('releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id)')
+    expect(juniorAccess).toContain('juniorReviewedImageQuestionIsSafe(row, imageProofs, releaseByKnowledge)')
     expect(juniorAccess).toContain('supabase.rpc("chem_junior_practice_context"')
-    expect(juniorAccess).not.toContain('"licensed_local"')
+    expect(juniorAccess).toContain('supabase.rpc("chem_junior_image_question_context"')
     expect(juniorEvidenceMigration).toContain("'科粤版'")
     expect(juniorEvidenceMigration).toContain("'user_provided_local'")
     expect((accessFunction.match(/"licensed_local"/g) || []).length).toBeGreaterThanOrEqual(6)
@@ -65,8 +67,8 @@ describe('2026-08-29 junior evidence backend contract', () => {
     const preview = accessSection('async function juniorPreviewPayload', 'async function authenticate')
     for (const section of [actual, preview]) {
       expect(section).toContain('supabase.rpc("chem_junior_practice_context"')
-      expect(section).toContain('juniorNativeQuestionIsSafe(row)')
-      expect(section).toContain('provenance.releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id)')
+      expect(section).toContain('juniorReviewedImageProofs(')
+      expect(section).toContain('juniorDeliveryQuestionIsSafe(row, provenance.releaseByKnowledge, imageProofs)')
       expect(section).toContain('selectJuniorScheduledQuestion({ candidates, knowledgeSkillIds: skillIds')
       expect(section).toContain('juniorBoundKnowledgeCards(null,')
       expect(section).not.toContain('.in("knowledge_id", skillIds)')
