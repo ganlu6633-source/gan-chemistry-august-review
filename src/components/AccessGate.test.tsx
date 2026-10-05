@@ -5,6 +5,19 @@ import { AccessGate } from './AccessGate'
 afterEach(() => { cleanup(); window.localStorage.clear(); window.history.replaceState(null, '', '/'); vi.unstubAllGlobals() })
 
 describe('phone registration', () => {
+  it('keeps the original name and code when the login service cannot be reached', async () => {
+    const onSuccess = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    render(<AccessGate onSuccess={onSuccess} />)
+    fireEvent.change(screen.getByLabelText('输入姓名'), { target: { value: '测试学生' } })
+    fireEvent.change(screen.getByLabelText('登录码'), { target: { value: '12345678' } })
+    fireEvent.click(screen.getByRole('button', { name: /进入我的化学世界/ }))
+    expect(await screen.findByText('网站已经打开，但暂时连不上登录服务。姓名和登录码已保留，请稍后重试。')).toBeInTheDocument()
+    expect(screen.getByLabelText('输入姓名')).toHaveValue('测试学生')
+    expect(screen.getByLabelText('登录码')).toHaveValue('12345678')
+    expect(onSuccess).not.toHaveBeenCalled()
+  })
+
   it('requires a teacher-issued invite before collecting a guardian and child phone', async () => {
     const actions: Array<Record<string, unknown>> = []
     vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
