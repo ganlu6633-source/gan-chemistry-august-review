@@ -979,10 +979,11 @@ async function studentLearningRecord(studentId: string) {
   const questionIds = [...new Set(answers.map((answer) => String(answer.question_id)))];
   const questionsResult = questionIds.length
     ? await supabase.from("chem_questions")
-      .select("id,mother_id,skill_id,level,stem,options,correct_option,explanation,image_url,source_kind,source_info,asset_refs,render_mode,content_fingerprint,question_revision_token,review_status,scope_status")
+      .select("id,mother_id,skill_id,knowledge_id,concept_key,level,grade_band,textbook_version,stem,options,correct_option,explanation,scaffold,image_url,source_kind,source_info,asset_refs,render_mode,content_fingerprint,question_revision_token,review_status,scope_status,usable_for_review,source_release_id,source_item_key,parent_source_item_key,same_type_key")
       .in("id", questionIds)
     : { data: [], error: null };
   if (questionsResult.error) throw questionsResult.error;
+  if (gradeBand === "初三") await juniorReviewedExactNativeContexts((questionsResult.data || []) as Array<Record<string, unknown>>);
 
   const plans = plansResult.data || [];
   const managedRecordSkills = new Set(plans.filter((plan) => plan.teaching_managed === true).flatMap((plan) => Array.isArray(plan.skill_ids) ? plan.skill_ids.map(String) : []));
@@ -1031,7 +1032,7 @@ async function studentLearningRecord(studentId: string) {
       const historical = historicalQuestion(answer, question);
       if (demoProfile && historical.sourceKind === "licensed_local") return [];
       const juniorEvidence = shouldHideLegacyJuniorNativeHistory(gradeBand, historical);
-      if (juniorEvidence && !juniorStudentVisibleSourceTextIsSafe([
+      if (juniorEvidence && !juniorExactNativeHistoryIsSafe(question, historical) && !juniorStudentVisibleSourceTextIsSafe([
         historical.stem,
         historical.options,
         historical.explanation,
@@ -1164,7 +1165,99 @@ function juniorPlanMatchesSessionContract(
     && curriculum.release_status === "ready";
 }
 
+
+// Only server-returned, service-role RPC contexts enter this WeakMap. No request
+// body flag, id prefix or client-created field can mark a question reviewed.
+type JuniorExactNativeContext = {
+  question_id: string; revision_token: string;
+  exact_18_fields: Record<string, unknown>;
+  snapshot_context: Record<string, unknown>;
+};
+const juniorExactNativeContexts = new WeakMap<Record<string, unknown>, JuniorExactNativeContext>();
+function juniorExactNativeSameJson(a: unknown, b: unknown): boolean {
+  const stable = (v: unknown): unknown => Array.isArray(v) ? v.map(stable)
+    : v !== null && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, stable(x)])) : v;
+  return JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+}
+function juniorExactNativeProject18(row: Record<string, unknown>, canonical: unknown) {
+  const source = row.source_info as Record<string, unknown> | null;
+  return {
+    question_id: row.id, mother_id: row.mother_id, knowledge_id: row.knowledge_id,
+    concept_key: row.concept_key, level: Number(row.level), stem: row.stem,
+    options: row.options, correct_option: Number(row.correct_option), explanation: row.explanation,
+    scaffold: row.scaffold ?? null, same_type_key: row.same_type_key,
+    source_item_key: row.source_item_key, parent_source_item_key: row.parent_source_item_key,
+    canonical_source_id: canonical, source_title: source?.title, source_exam: source?.exam,
+    source_question_no: source?.questionNo, source_locator_label: source?.locator,
+  };
+}
+function juniorExactNativeContextIsSafe(row: Record<string, unknown>) {
+  const p = juniorExactNativeContexts.get(row);
+  if (!p || !p.exact_18_fields || !p.snapshot_context) return false;
+  const c = p.snapshot_context;
+  const binding = row.knowledge_id === "J_KY_1_1_K01"
+    ? { id: "KC_J_KY_1_1_K01_C61", sha: "34a4513474ca0ccfbd7b6c23c8953d04dacb5f1f5e494122964ea35c23d6b553" }
+    : row.knowledge_id === "J_KY_1_1_K02"
+      ? { id: "KC_J_KY_1_1_K02_C61", sha: "4b44ca0728461eddd1bbc186024984f39b33b7ec468020053950caca5de1f169" } : null;
+  const docIdentity = typeof p.exact_18_fields.canonical_source_id === "string"
+    ? /^LOCAL-DOCX-([0-9a-f]{64}):P[0-9]+$/.exec(p.exact_18_fields.canonical_source_id)?.[1] : null;
+  return ["J2FUJIAN06_5A8748857A93AFE85B82", "J2FUJIAN06_CF302EA0E9663E2FB719"].includes(String(row.id))
+    && row.skill_id === row.knowledge_id
+    && row.source_info !== null && typeof row.source_info === "object"
+    && !Array.isArray(row.source_info) && Object.keys(row.source_info as Record<string, unknown>).length === 4
+    && Object.keys(p.exact_18_fields).length === 18
+    && p.question_id === String(row.id) && p.revision_token === String(row.question_revision_token)
+    && /^[0-9a-f]{64}$/.test(p.revision_token)
+    && c.contract === "v4_junior_exact_native_addendum"
+    && c.questionId === row.id && c.revisionToken === row.question_revision_token
+    && c.questionSourceReleaseId === row.source_release_id
+    && c.questionSourceReleaseId === "23ee03ad-6220-595d-8a17-28a96dc00a97"
+    && c.exactInputSha256 === "ce3be3955c0f31cb3c495d0a7ca2c553d025779497629b54aea511b2e43f8bdf"
+    && c.knowledgeId === row.knowledge_id
+    && binding !== null && c.courseSourceReleaseId === "2d5adf4e-d2d1-5006-bb48-df97e4f1d1be"
+    && c.cardId === binding.id && c.cardSha256 === binding.sha
+    && docIdentity !== null && c.sourceDocumentSha256 === docIdentity
+    && row.grade_band === "初三" && row.textbook_version === "科粤版"
+    && row.source_kind === "user_provided_local" && row.render_mode === "native"
+    && row.image_url === null && juniorExactNativeSameJson(row.asset_refs, [])
+    && row.review_status === "approved" && row.scope_status === "IN" && row.usable_for_review === true
+    && juniorExactNativeSameJson(juniorExactNativeProject18(row, p.exact_18_fields.canonical_source_id), p.exact_18_fields);
+}
+async function juniorReviewedExactNativeContexts(rows: Array<Record<string, unknown>>) {
+  const ids = [...new Set(rows.filter((r) => r.source_kind === "user_provided_local" && r.render_mode === "native").map((r) => String(r.id)))];
+  const proofs = new Map<string, JuniorExactNativeContext>();
+  for (let i = 0; i < ids.length; i += 800) {
+    const result = await supabase.rpc("chem_junior_exact_native_question_context", { p_question_ids: ids.slice(i, i + 800) });
+    if (result.error) throw result.error;
+    if (!Array.isArray(result.data)) throw new RequestError(503, "原题核对记录暂时无法读取。");
+    for (const value of result.data) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new RequestError(503, "原题核对记录不完整。");
+      const p = value as JuniorExactNativeContext;
+      if (proofs.has(p.question_id)) throw new RequestError(503, "同一原题核对记录重复。");
+      proofs.set(p.question_id, p);
+    }
+  }
+  for (const row of rows) {
+    juniorExactNativeContexts.delete(row);
+    const p = proofs.get(String(row.id));
+    if (p) {
+      juniorExactNativeContexts.set(row, p);
+      if (!juniorExactNativeContextIsSafe(row)) {
+        juniorExactNativeContexts.delete(row);
+        throw new RequestError(503, "这道题的文字或版本已经变化，暂时停止下发。");
+      }
+    }
+  }
+}
+function juniorExactNativeHistoryIsSafe(row: Record<string, unknown> | undefined, historical: { stem: unknown; options: unknown; explanation: unknown; revisionToken: unknown }) {
+  return Boolean(row && juniorExactNativeContextIsSafe(row)
+    && String(historical.revisionToken) === String(row.question_revision_token)
+    && historical.stem === row.stem && historical.explanation === row.explanation
+    && juniorExactNativeSameJson(historical.options, row.options));
+}
+
 function juniorSourceQuestionIsSafe(row: Record<string, unknown>) {
+  if (juniorExactNativeContextIsSafe(row)) return true;
   return juniorStudentVisibleSourceTextIsSafe([
     row.stem,
     ...(Array.isArray(row.options) ? row.options : []),
@@ -1284,6 +1377,7 @@ function juniorNativeQuestionIsSafe(row: Record<string, unknown>) {
 }
 
 async function juniorReviewedImageProofs(rows: Array<Record<string, unknown>>) {
+  await juniorReviewedExactNativeContexts(rows);
   const ids = [...new Set(rows.filter((row) => row.source_kind === "licensed_local" && row.render_mode === "image_primary")
     .map((row) => String(row.id)))];
   const proofs: unknown[] = [];
@@ -1298,7 +1392,8 @@ async function juniorReviewedImageProofs(rows: Array<Record<string, unknown>>) {
 }
 
 function juniorDeliveryQuestionIsSafe(row: Record<string, unknown>, releaseByKnowledge: Map<string, string>, imageProofs: Map<string, JuniorImageProof>) {
-  return (row.source_kind === JUNIOR_SOURCE_KIND && juniorNativeQuestionIsSafe(row)
+  return (juniorExactNativeContextIsSafe(row) && releaseByKnowledge.get(String(row.knowledge_id)) === juniorExactNativeContexts.get(row)?.snapshot_context.courseSourceReleaseId)
+    || (row.source_kind === JUNIOR_SOURCE_KIND && juniorNativeQuestionIsSafe(row)
       && releaseByKnowledge.get(String(row.knowledge_id)) === String(row.source_release_id))
     || (juniorSourceQuestionIsSafe(row) && juniorReviewedImageQuestionIsSafe(row, imageProofs, releaseByKnowledge));
 }
@@ -1345,7 +1440,10 @@ function juniorIssuedQuestionMatchesContract(
     && String(snapshot.parentSourceItemKey || "") === String(row.parent_source_item_key || "")
     && String(snapshot.sameTypeKey || "") === String(row.same_type_key || "")
     && String(snapshot.contentFingerprint || "") === String(row.content_fingerprint || "")
-    && String(snapshot.revisionToken || "") === String(row.question_revision_token || "");
+    && String(snapshot.revisionToken || "") === String(row.question_revision_token || "")
+    && (juniorExactNativeContextIsSafe(row)
+      ? juniorExactNativeSameJson(snapshot.nativeDeliveryContext, juniorExactNativeContexts.get(row)?.snapshot_context)
+      : snapshot.nativeDeliveryContext === undefined);
 }
 
 function juniorQuestionShape(row: Record<string, unknown>) {
@@ -1393,6 +1491,7 @@ function juniorIssuedQuestionSnapshot(
     revisionToken: row.question_revision_token ?? null,
     routeKind,
     routeReason,
+    ...(juniorExactNativeContextIsSafe(row) ? { nativeDeliveryContext: juniorExactNativeContexts.get(row)!.snapshot_context } : {}),
   };
 }
 
