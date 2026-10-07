@@ -341,6 +341,8 @@ export interface IssuedJuniorQuestion {
   mediaId?: string
   renderMode?: 'native' | 'image_primary'
   assetRefs?: QuestionAssetRef[]
+  /** Separate authorized original figure; never part of immutable question assetRefs or issued snapshot. */
+  auxiliaryAssetRefs?: QuestionAssetRef[]
   revisionToken?: string | null
   learningPurpose?: 'new_learning' | 'spaced_review' | 'foundation_repair'
   lastAnsweredDate?: string | null

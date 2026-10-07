@@ -1446,6 +1446,31 @@ function juniorIssuedQuestionMatchesContract(
       : snapshot.nativeDeliveryContext === undefined);
 }
 
+
+// A separate optional native-original auxiliary. Never mutates issued snapshot assetRefs.
+async function junior022AuxiliaryRefs(studentId: string, planId: string, stepId: string,
+  row: Record<string, unknown>, teacherPreview = false) {
+  if (String(row.id) !== "JCAL-OCT-022-C61") return [];
+  if (!juniorNativeQuestionIsSafe(row) || String(row.source_release_id) !== "2d5adf4e-d2d1-5006-bb48-df97e4f1d1be") return [];
+  const result = await supabase.rpc(teacherPreview ? "chem_junior022_preview_auxiliary_context" : "chem_junior022_step_auxiliary_context",
+    teacherPreview ? { p_student_id: studentId, p_plan_id: planId, p_question_id: String(row.id),
+      p_revision_token: String(row.question_revision_token), p_asset_path: null }
+    : { p_student_id: studentId, p_plan_id: planId, p_step_id: stepId,
+      p_revision_token: String(row.question_revision_token), p_asset_path: null });
+  if (result.error) throw result.error;
+  const proof = result.data as Record<string, unknown> | null;
+  if (!proof) return []; // A missing optional auxiliary does not weaken or replace original native text validation.
+  if (proof.questionId !== row.id || proof.revisionToken !== row.question_revision_token
+    || proof.sourceReleaseId !== row.source_release_id || !Array.isArray(proof.auxiliaryAssetRefs)
+    || proof.auxiliaryAssetRefs.length !== 1) throw new RequestError(503, "辅助原图核验暂时无法读取。");
+  const ref = proof.auxiliaryAssetRefs[0] as Record<string, unknown>;
+  if (ref.assetId !== "JCAUX022_ORIG_56D757684D49F25C" || ref.kind !== "question_image"
+    || ref.sha256 !== "56d757684d49f25ca4ed1186d81ebf39e51ed754028c1b7acf85ee30bc04be43"
+    || ref.width !== 235 || ref.height !== 325) throw new RequestError(503, "辅助原图未通过版本核验。");
+  return questionAssetRefs([{ path: ref.assetId, kind: ref.kind, sha256: ref.sha256,
+    width: ref.width, height: ref.height, alt: "白磷和红磷燃烧条件对照实验原图" }]);
+}
+
 function juniorQuestionShape(row: Record<string, unknown>) {
   if ((!juniorNativeQuestionIsSafe(row) && !juniorImageQuestionStructureIsSafe(row)) || !juniorSourceQuestionIsSafe(row)) {
     throw new RequestError(422, "这道原题的题干、图片或选项尚未核对完整，已停止下发并通知甘老师。");
@@ -2013,7 +2038,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     return { deliveryMode: "junior_adaptive", plan: studentPlan,
       cards: juniorStudentCardsForPoint(allBoundCards, skillIds, juniorOptionContext(optionState, String(unanswered.id))?.knowledgePoint),
       session: sessionSummary(), currentStepId: unanswered.id,
-      currentQuestion: { ...juniorQuestionShape(currentQuestion.data), mediaId: String(unanswered.id), learningPurpose: unanswered.route_kind,
+      currentQuestion: { ...juniorQuestionShape(currentQuestion.data), auxiliaryAssetRefs: await junior022AuxiliaryRefs(studentId, planId, String(unanswered.id), currentQuestion.data), mediaId: String(unanswered.id), learningPurpose: unanswered.route_kind,
         optionPractice: juniorOptionContext(optionState, String(unanswered.id)) }, completed: false, optionPractice };
   }
 
@@ -2125,7 +2150,7 @@ async function juniorSessionPayload(studentId: string, planId: string): Promise<
     cards: selectedCards,
     session: sessionSummary(),
     currentStepId: issuedRow.step_id,
-    currentQuestion: { ...juniorQuestionShape(selected), mediaId: String(issuedRow.step_id), learningPurpose: selection.routeKind,
+    currentQuestion: { ...juniorQuestionShape(selected), auxiliaryAssetRefs: await junior022AuxiliaryRefs(studentId, planId, String(issuedRow.step_id), selected), mediaId: String(issuedRow.step_id), learningPurpose: selection.routeKind,
       lastAnsweredDate: availability.questions[String(selected.id)]?.lastAnsweredDate,
       reviewDueDate: availability.questions[String(selected.id)]?.reviewDueDate, optionPractice: branch ? {
       anchorStepId: branch.anchorStepId, optionIndex: branch.optionIndex, knowledgePoint: branch.knowledgePoint,
@@ -3609,7 +3634,7 @@ async function juniorPreviewPayload(studentId: string, planId: string, previewAn
     dailyIssuedCount: optionState.dailyIssuedCount, issuedCount: stepCount, answeredCount, correctCount };
   const payload = { deliveryMode: "junior_adaptive", plan: studentPlan,
     cards: juniorStudentCardsForPoint(allBoundCards, skillIds, currentContext?.knowledgePoint), session: summary,
-    currentStepId, currentQuestion: currentQuestion ? { ...juniorQuestionShape(currentQuestion), mediaId: currentStepId, learningPurpose: currentPurpose,
+    currentStepId, currentQuestion: currentQuestion ? { ...juniorQuestionShape(currentQuestion), auxiliaryAssetRefs: await junior022AuxiliaryRefs(studentId, planId, String(currentStepId), currentQuestion, true), mediaId: currentStepId, learningPurpose: currentPurpose,
       lastAnsweredDate: availability.questions[String(currentQuestion.id)]?.lastAnsweredDate,
       reviewDueDate: availability.questions[String(currentQuestion.id)]?.reviewDueDate,
       ...(currentContext ? { optionPractice: currentContext } : {}) } : null,
@@ -3908,6 +3933,34 @@ Deno.serve(async (req: Request) => {
       if (result.error) throw result.error;
       if (result.data !== true) return reply(req, { error: "找不到这次已完成的学习记录。" }, 404);
       return reply(req, { ok: true });
+    }
+
+    if (body.action === "junior_auxiliary_asset") {
+      const stepId = String(body.data?.questionId || "");
+      const assetId = String(body.data?.assetId || "");
+      const planId = String(body.data?.planId || "");
+      const revisionToken = String(body.data?.revisionToken || "");
+      if (!validUuid(stepId) || !validUuid(planId) || assetId !== "JCAUX022_ORIG_56D757684D49F25C"
+        || revisionToken !== "7b060cf1503c8775fd2a30946f11123fff7fee5ea8ccc61fdb5a35c59710a7c6"
+        || body.data?.phase !== "question") return reply(req, { error: "辅助原图请求无效。" }, 400);
+      const studentId = identity.role === "teacher" ? String(body.data?.studentId || "") : identity.studentId;
+      if (!studentId || !validUuid(studentId)) return reply(req, { error: "无权读取这张辅助图。" }, 403);
+      const result = await supabase.rpc(identity.role === "teacher" ? "chem_junior022_preview_auxiliary_context" : "chem_junior022_step_auxiliary_context",
+        identity.role === "teacher" ? { p_student_id: studentId, p_plan_id: planId, p_question_id: "JCAL-OCT-022-C61",
+          p_revision_token: revisionToken, p_asset_path: assetId }
+        : { p_student_id: studentId, p_plan_id: planId, p_step_id: stepId, p_revision_token: revisionToken, p_asset_path: assetId });
+      if (result.error) return reply(req, { error: "辅助原图的作答上下文已变化，请重新打开练习。" }, 409);
+      const proof = result.data as Record<string, unknown> | null;
+      if (!proof || proof.questionId !== "JCAL-OCT-022-C61" || proof.revisionToken !== revisionToken
+        || proof.sourceReleaseId !== "2d5adf4e-d2d1-5006-bb48-df97e4f1d1be"
+        || (identity.role === "guardian" && proof.answered !== true)) return reply(req, { error: "辅助原图不属于当前账号的作答。" }, 403);
+      const asset = proof.asset as Record<string, unknown> | null;
+      if (!asset || asset.kind !== "question_image" || asset.mimeType !== "image/png"
+        || asset.sha256 !== "56d757684d49f25ca4ed1186d81ebf39e51ed754028c1b7acf85ee30bc04be43"
+        || asset.width !== 235 || asset.height !== 325 || typeof asset.payloadBase64 !== "string"
+        || !asset.payloadBase64) return reply(req, { error: "辅助原图数据无效。" }, 500);
+      return reply(req, { asset: { kind: "question_image", mimeType: "image/png",
+        dataUrl: `data:image/png;base64,${asset.payloadBase64}`, sha256: String(asset.sha256), width: 235, height: 325 } });
     }
 
     if (body.action === "junior_question_asset") {

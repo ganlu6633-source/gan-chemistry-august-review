@@ -58,6 +58,12 @@ export function JuniorAdaptiveSession({
   }, [])
 
   const question = payload.currentQuestion
+  const mediaRefs = useMemo(() => [...(question?.assetRefs ?? []), ...(question?.auxiliaryAssetRefs ?? [])], [question?.assetRefs, question?.auxiliaryAssetRefs])
+  const loadJuniorMedia: typeof loadQuestionAsset = useCallback((identity, stepId, assetId, phase, context) => {
+    const isAuxiliary = (question?.auxiliaryAssetRefs ?? []).some((ref) => ref.assetId === assetId)
+    return isAuxiliary ? accessApi<{ asset: LoadedQuestionAsset }>(identity, 'junior_auxiliary_asset', { questionId: stepId, assetId, phase, ...(context ?? {}) })
+      : loadJuniorQuestionAsset(identity, stepId, assetId, phase, context)
+  }, [question?.auxiliaryAssetRefs])
   const [primaryImage, setPrimaryImage] = useState({ stepId: initialPayload.currentStepId, ready: false })
   const primaryReady = question?.renderMode !== 'image_primary' || (primaryImage.stepId === payload.currentStepId && primaryImage.ready)
   const onPrimaryReadyChange = useCallback((ready: boolean) => setPrimaryImage({ stepId: payload.currentStepId, ready }), [payload.currentStepId])
@@ -286,9 +292,9 @@ export function JuniorAdaptiveSession({
       {question.learningPurpose === 'spaced_review' && <p className="junior-review-purpose"><RotateCcw size={15} aria-hidden="true" />到期复习{question.lastAnsweredDate ? ` · 上次练习 ${question.lastAnsweredDate}` : ''}</p>}
       {question.optionPractice && <p>{question.optionPractice.knowledgePoint} · 第 {question.optionPractice.position}/{question.optionPractice.total} 题</p>}
       <QuestionSourceMedia question={{ id: question.mediaId ?? payload.currentStepId ?? '', stem: question.stem,
-        options: question.options, renderMode: question.renderMode, assetRefs: question.assetRefs }}
-        enabled={question.renderMode === 'image_primary'} session={session} showSource={false}
-        assetLoader={loadJuniorQuestionAsset} accessContext={assetAccessContext} onPrimaryReadyChange={onPrimaryReadyChange}
+        options: question.options, renderMode: question.renderMode, assetRefs: mediaRefs }}
+        enabled={question.renderMode === 'image_primary' || mediaRefs.length > 0} session={session} showSource={false}
+        assetLoader={loadJuniorMedia} accessContext={assetAccessContext} onPrimaryReadyChange={onPrimaryReadyChange}
         onZoomClose={() => primaryAction.current?.focus()}
         nativeContent={<h1 style={question.stem.includes('\n') ? { whiteSpace: 'pre-line', fontSize: 'clamp(18px, 2.5vw, 23px)', lineHeight: 1.65 } : undefined}><ChemText>{displayQuestionStem(question.stem, question.options)}</ChemText></h1>} />
       <div className="option-list">{question.options.map((option, index) => {

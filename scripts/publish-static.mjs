@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 const root = resolve(process.cwd())
@@ -6,8 +6,8 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 if (pkg.name !== 'gan-chemistry-learning-system') throw new Error('Refusing to publish outside the expected repository.')
 const dist = join(root, 'dist')
 if (!existsSync(join(dist, 'index.html'))) throw new Error('Production build is missing dist/index.html.')
-const rootAssets = join(root, 'assets')
-if (existsSync(rootAssets)) rmSync(rootAssets, { recursive: true, force: true })
+// Keep earlier hashed chunks available while an open student session still uses
+// its previous entry bundle. New pages refer to the newly built hashed chunks.
 for (const name of ['index.html', 'manifest.webmanifest', 'chemistry-icon.svg', 'chem-notation-patch.js', 'sw.js', 'wechat-add.jpg', 'assets', 'lectures']) {
   const source = join(dist, name)
   if (existsSync(source)) cpSync(source, join(root, name), { recursive: true })

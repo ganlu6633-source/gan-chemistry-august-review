@@ -58,6 +58,60 @@ describe('JuniorAdaptiveSession keyboard and safe exit UX', () => {
     vi.restoreAllMocks()
   })
 
+  it('loads a native question auxiliary image through the junior asset route while retaining its full text and four choices', async () => {
+    const imageResponse = deferredResponse()
+    const stem = '根据下图中的实验装置，逐项判断下列四种说法。'
+    const nativeQuestion: IssuedJuniorQuestion = { ...question('native-image', stem),
+      mediaId: 'opaque-native-issued-step', renderMode: 'native',
+      assetRefs: [{ kind: 'question_image', assetId: 'reviewed/native_question_diagram', alt: '实验装置辅助图',
+        sha256: '2'.repeat(64), width: 2, height: 2 }] }
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValueOnce(imageResponse.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(nativeQuestion)}
+      onExit={vi.fn()} onComplete={vi.fn()} />)
+
+    const expectNativeContent = () => {
+      expect(screen.getByRole('heading', { name: stem })).toBeVisible()
+      expect(screen.getAllByRole('button', { name: /^[ABCD]\. / })).toHaveLength(4)
+      nativeQuestion.options.forEach((option, index) => {
+        expect(screen.getByRole('button', { name: `${String.fromCharCode(65 + index)}. ${option}` })).toBeVisible()
+      })
+    }
+    expectNativeContent()
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeEnabled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      action: 'junior_question_asset',
+      data: { questionId: 'opaque-native-issued-step', assetId: 'reviewed/native_question_diagram',
+        phase: 'question', planId: 'junior-plan', attemptSequence: 0, revisionToken: 'revision-native-image' },
+    })
+
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVQImWP8////fwYGBgYmBiAFAAA7AAO8f2YuAAAAAElFTkSuQmCC'
+    await act(async () => imageResponse.resolve(jsonResponse({ asset: { kind: 'question_image', mimeType: 'image/png',
+      sha256: '2'.repeat(64), width: 2, height: 2, dataUrl } })))
+    expect(await screen.findByRole('img', { name: '本题原题题面图' })).toHaveAttribute('src', dataUrl)
+    expectNativeContent()
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeEnabled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not request media for a native question without image references', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const nativeQuestion = { ...question('native-text', '没有图片的完整文字题'), renderMode: 'native' as const }
+    render(<JuniorAdaptiveSession session={session} initialPayload={payload(nativeQuestion)}
+      onExit={vi.fn()} onComplete={vi.fn()} />)
+
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole('heading', { name: nativeQuestion.stem })).toBeVisible()
+    expect(screen.getAllByRole('button', { name: /^[ABCD]\. / })).toHaveLength(4)
+    fireEvent.click(screen.getByRole('button', { name: /A\. 原子种类和数目不变/ }))
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeEnabled()
+    expect(screen.queryByRole('img', { name: '本题原题题面图' })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])('shows the reviewed question image and blocks premature answer submission (preview=%s)', async (preview) => {
     const imageResponse = deferredResponse()
     const imageQuestion = { ...question('image', '题目文字稿'), mediaId: 'opaque-issued-step', renderMode: 'image_primary' as const,
