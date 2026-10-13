@@ -7,6 +7,7 @@ const answerHeading = /^\s*答案\s*[A-D]\s*解析\s*/u
 const explanationLabel = '[A-D①②③④⑤⑥⑦⑧⑨⑩]'
 const optionConclusion = new RegExp(`(?:^|[，,。；;\\s])(${explanationLabel})\\s*(?:项)?\\s*(?:正确|错误)(?=\\s*[。；;]?$)`, 'u')
 const leadingOption = new RegExp(`^\\s*(${explanationLabel})\\s*(?:[.．、：:]|项(?:认为|中|，|,|：|:|是|的)?|(?:正确|错误)(?:[，,:：]?))`, 'u')
+const standaloneConclusion = new RegExp(`^\\s*(${explanationLabel})\\s*(?:项)?\\s*(?:正确|错误)\\s*[。.]?\\s*$`, 'u')
 const terminalAnswer = /^\s*(?:故|因此|所以)?\s*(?:答案|选择|选)\s*[A-D]\s*[。.]?\s*$/u
 
 function normalizeExplanationText(value: string) {
@@ -28,9 +29,15 @@ export function splitAnswerExplanation(value: string): ExplanationParagraph[] {
     if (terminalAnswer.test(text)) continue
     const leading = text.match(leadingOption)
     const option = leading?.[1] ?? text.match(optionConclusion)?.[1]
-    if (option) grouped.push({ option, text: leading ? text.slice(leading[0].length).trim() : text })
+    if (option) {
+      const paragraph = { option, text: leading && !standaloneConclusion.test(text) ? text.slice(leading[0].length).trim() : text }
+      const previous = grouped[grouped.length - 1]
+      if (previous?.option === option) previous.text = `${previous.text}；${paragraph.text}`
+      else grouped.push(paragraph)
+    }
     else if (grouped.length > 0) grouped[grouped.length - 1].text = `${grouped[grouped.length - 1].text}；${text}`
+    else grouped.push({ text })
   }
-  if (new Set(grouped.map((item) => item.option)).size >= 2) return grouped
+  if (new Set(grouped.map((item) => item.option).filter(Boolean)).size >= 2) return grouped
   return [{ text: normalized }]
 }
