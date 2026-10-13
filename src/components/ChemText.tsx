@@ -6,6 +6,10 @@ const UNIT_EXPONENT = /^(mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|
 const POWER_TOKEN = /^(10|c\([A-D]\))\s*\^\s*([-−－]?\s*\d+|[a-d])$/
 const EXPLICIT_VOLUME_POWER = /^(cm|dm)\s*\^\s*(3)$/
 const EXACT_KELVIN_SUBTRACTION = /^K\s*[-−－]\s*273$/
+// Keep one unambiguous standalone decimal together; a long sum still wraps
+// between terms. Do not reinterpret letters, dotted versions, or source digits.
+const PLAIN_DECIMAL_TOKEN = '(?<![A-Za-z0-9_.])\\d+\\.\\d+(?![A-Za-z0-9_.])'
+const PLAIN_DECIMAL_EXACT = /^\d+\.\d+$/
 // Enthalpy variables and explicitly abstract A/E reaction placeholders are math.
 // Keep their source Unicode subscripts and arithmetic operators on the baseline.
 const ENTHALPY_VARIABLE_TOKEN = 'ΔH[₀-₉]*(?:\\s*[+=−－-]\\s*)?'
@@ -24,7 +28,7 @@ const FORMULA_BODY = `(?:${FORMULA_UNIT}|${FORMULA_BRACKET})+`
 // A plain + immediately followed by another reagent stays a reaction separator.
 const FORMULA_CHARGE = '(?:\\^\\d*[+-]|[⁰¹²³⁴⁵⁶⁷⁸⁹]*[⁺⁻]|[+-](?!>)(?!\\s*\\d*\\s*(?:[A-Z[(]|e(?:\\^-|⁻))))?'
 const FORMULA_TOKEN = `(?<![A-Za-z0-9₀-₉])(?:\\d+)?${FORMULA_BODY}(?:[·∙](?:\\d+)?${FORMULA_BODY})*${FORMULA_CHARGE}`
-const SPECIAL_TOKEN = new RegExp(`(?:${PROTECTED_MATH_TOKEN})|(?:\\bK\\s*[-−－]\\s*273(?![A-Za-z0-9.]))|(?:\\b(?:cm|dm)\\s*\\^\\s*3(?![A-Za-z0-9.]))|(?:(?<![A-Za-z0-9])(?:\\d+)?e\\^-(?![A-Za-z0-9]))|(?:\\b(?:10|c\\([A-D]\\))\\s*\\^\\s*(?:[-−－]?\\s*\\d+|[a-d]))|(?:\\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\\s*\\^?\\s*[-−－]\\s*\\d+)|(?:${FORMULA_TOKEN})`, 'g')
+const SPECIAL_TOKEN = new RegExp(`(?:${PLAIN_DECIMAL_TOKEN})|(?:${PROTECTED_MATH_TOKEN})|(?:\\bK\\s*[-−－]\\s*273(?![A-Za-z0-9.]))|(?:\\b(?:cm|dm)\\s*\\^\\s*3(?![A-Za-z0-9.]))|(?:(?<![A-Za-z0-9])(?:\\d+)?e\\^-(?![A-Za-z0-9]))|(?:\\b(?:10|c\\([A-D]\\))\\s*\\^\\s*(?:[-−－]?\\s*\\d+|[a-d]))|(?:\\b(?:mol|mL|μL|µL|L|s|min|h|g|kg|m|cm|mm|dm|Pa|kPa|J|kJ|K|V|A|Ω)(?:·)?\\s*\\^?\\s*[-−－]\\s*\\d+)|(?:${FORMULA_TOKEN})`, 'g')
 
 function isFormulaToken(value: string) {
   return /[0-9₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻+-]/.test(value)
@@ -139,6 +143,12 @@ function renderChemistryText(value: string) {
   // across React renders.
   for (const match of value.matchAll(new RegExp(matcherSource, 'g'))) {
     const token = match[0]
+    if (PLAIN_DECIMAL_EXACT.test(token)) {
+      children.push(value.slice(lastIndex, match.index), <span className="chem-plain-decimal" style={{ display: 'inline-block', fontFamily: 'inherit', fontStyle: 'inherit' }} aria-label={token} key={`decimal-${tokenIndex}`}>{token}</span>)
+      tokenIndex += 1
+      lastIndex = match.index + token.length
+      continue
+    }
     if (PROTECTED_MATH_EXACT.test(token) || hessReferenceExact?.test(token)) {
       // The actual page notation observer skips .chem-symbol. It must not
       // reinterpret an arithmetic plus/minus as the charge of a fake ion.
