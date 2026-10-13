@@ -194,7 +194,7 @@
 .answer-explanation>p{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;margin:0;padding:11px 12px;border:1px solid rgba(30,94,103,.13);border-radius:11px;background:rgba(255,255,255,.56);line-height:1.75}
 .answer-explanation>p.is-unlabeled{grid-template-columns:minmax(0,1fr)}
 .answer-explanation-text{min-width:0;overflow-wrap:anywhere}
-.answer-option-label{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#dceeed;color:#126f6a;font-size:13px}
+.answer-option-label{display:grid;place-items:center;width:28px;height:28px;flex-shrink:0;border-radius:8px;background:#dceeed;color:#126f6a;font-size:13px}
 
 /* 平衡常数采用教材/手写习惯的真分式，不用斜杠程序式挤在一行。 */
 .equilibrium-constant-visual{box-sizing:border-box;width:100%;min-width:0;max-width:100%;margin:18px 0;padding:20px;border:1px solid #b9ddd8;border-radius:20px;background:linear-gradient(145deg,#f4fbfa,#eef6f8);color:#173f51;overflow:hidden}
